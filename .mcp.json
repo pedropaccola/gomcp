@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "gomcp": {
+      "command": "go",
+      "args": ["run", "./cmd/mcpgo"]
+    }
+  }
+}
