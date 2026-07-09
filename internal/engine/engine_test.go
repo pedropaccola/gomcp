@@ -18,7 +18,10 @@ func TestBootstrapLiveRepo(t *testing.T) {
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
-	unit := e.Packages[RelativePath("internal/engine")]
+	if e.Module != "github.com/pedropaccola/gomcp" {
+		t.Errorf("Module = %q, module path not learned at bootstrap", e.Module)
+	}
+	unit := e.Packages[PkgPath("github.com/pedropaccola/gomcp/internal/engine")]
 	if unit == nil || unit.Prod == nil {
 		t.Fatal("internal/engine unit missing after bootstrap")
 	}
@@ -32,7 +35,10 @@ func TestBootstrapLiveRepo(t *testing.T) {
 
 func TestBootstrapSandbox(t *testing.T) {
 	e := sandboxEngine(t)
-	unit := e.Packages[RelativePath("shapes")]
+	if e.Module != "example.com/sandbox" {
+		t.Errorf("Module = %q, module path not learned at bootstrap", e.Module)
+	}
+	unit := e.Packages[spkg("shapes")]
 	if unit == nil || unit.Prod == nil {
 		t.Fatal("shapes unit missing")
 	}
@@ -49,9 +55,13 @@ func TestBootstrapSandbox(t *testing.T) {
 		t.Error("in-package test symbol not indexed")
 	}
 
-	// External test package lands in XTest with its own namespace.
+	// External test package lands in XTest with its own namespace, under
+	// its production sibling's address.
 	if unit.XTest == nil || unit.XTest.Name != "shapes_test" {
 		t.Fatalf("XTest missing or misnamed: %+v", unit.XTest)
+	}
+	if unit.XTest.PkgPath != "example.com/sandbox/shapes_test" {
+		t.Errorf("XTest.PkgPath = %q", unit.XTest.PkgPath)
 	}
 	if sym := unit.XTest.Symbols["TestAreaExternal"]; sym == nil {
 		t.Error("external test symbol not indexed")
@@ -153,7 +163,7 @@ func TestIngestErrorsOnBrokenFile(t *testing.T) {
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatalf("Bootstrap must not fail on diagnostics: %v", err)
 	}
-	unit := e.Packages["."]
+	unit := e.Packages["example.com/broken"]
 	if unit == nil || unit.Prod == nil {
 		t.Fatal("broken package missing from state")
 	}

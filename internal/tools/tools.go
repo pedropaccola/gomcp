@@ -53,9 +53,10 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_packages",
 		Annotations: reads("List packages"),
-		Description: "List every Go package directory in the workspace by its relative path. " +
-			"These paths are the package addresses every other tool expects. " +
-			"Workspace-level diagnostics (module or toolchain problems) are included when present.",
+		Description: "List every Go package in the workspace by import path — the package " +
+			"address every other tool expects (workspace-relative directories are accepted " +
+			"too). Workspace-level diagnostics (module or toolchain problems) are included " +
+			"when present.",
 	}, listPackages(eng))
 
 	mcp.AddTool(server, &mcp.Tool{

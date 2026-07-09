@@ -122,6 +122,8 @@ func (e *Engine) Edit(ctx context.Context, fn func(*Tx) error) (*EditReport, err
 	return report, nil
 }
 
+// ----- Session -----
+
 // Flush writes every dirty file to disk, unlinks tombstoned paths, and
 // clears both marks — the only place the mutation layer touches the
 // filesystem.
@@ -194,16 +196,16 @@ func (e *Engine) Reload(ctx context.Context) ([]RelativePath, error) {
 
 // ----- Creators -----
 
-// CreatePackage creates a new package at dir with one file named after the
-// package. name defaults to the directory base. Fails if the directory
-// already holds a package; the directory itself is created at Flush.
-func (tx *Tx) CreatePackage(dir RelativePath, name string) error {
-	dir = dir.Clean()
-	if dir.escapesRoot() || dir == "." {
-		return fmt.Errorf("cannot create a package at %q", dir)
+// CreatePackage creates a new package at a module-prefixed address with one
+// file named after the package. name defaults to the address base. Fails if
+// the address already holds a package; the directory is created at Flush.
+func (tx *Tx) CreatePackage(pkg PkgPath, name string) error {
+	dir, ok := tx.eng.dirOf(pkg)
+	if !ok || dir == "." || dir.escapesRoot() {
+		return fmt.Errorf("cannot create a package at %q: workspace packages live under module %q", pkg, tx.eng.Module)
 	}
-	if _, ok := tx.eng.Packages[dir]; ok {
-		return fmt.Errorf("a package already exists at %q", dir)
+	if _, exists := tx.eng.Packages[pkg]; exists {
+		return fmt.Errorf("a package already exists at %q", pkg)
 	}
 	if name == "" {
 		name = filepath.Base(string(dir))
@@ -211,43 +213,44 @@ func (tx *Tx) CreatePackage(dir RelativePath, name string) error {
 	if !token.IsIdentifier(name) {
 		return fmt.Errorf("%q is not a valid package name", name)
 	}
-	pkg := &Package{
+	p := &Package{
 		Name:    name,
 		Path:    dir,
+		PkgPath: pkg,
 		Files:   make(map[RelativePath]*File),
 		Symbols: make(map[string]*Symbol),
 	}
-	if err := tx.reloadFile(pkg, dir.Join(name+".go"), []byte("package "+name+"\n")); err != nil {
+	if err := tx.reloadFile(p, dir.Join(name+".go"), []byte("package "+name+"\n")); err != nil {
 		return err
 	}
-	tx.eng.Packages[dir] = &Unit{Prod: pkg}
+	tx.eng.Packages[pkg] = &Unit{Prod: p}
 	return nil
 }
 
 // CreateFile adds an empty file to an existing package.
-func (tx *Tx) CreateFile(dir RelativePath, name string) error {
-	pkg, ok := tx.Package(dir)
+func (tx *Tx) CreateFile(pkg PkgPath, name string) error {
+	p, ok := tx.Package(pkg)
 	if !ok {
-		return fmt.Errorf("no package at %q: create_package first", dir)
+		return fmt.Errorf("no package at %q: create_package first", pkg)
 	}
-	path, err := fileAddress(pkg, name)
+	path, err := fileAddress(p, name)
 	if err != nil {
 		return err
 	}
 	if _, _, exists := tx.File(path); exists {
 		return fmt.Errorf("file %q already exists", path)
 	}
-	return tx.reloadFile(pkg, path, []byte("package "+pkg.Name+"\n"))
+	return tx.reloadFile(p, path, []byte("package "+p.Name+"\n"))
 }
 
 // CreateSymbol adds one new top-level declaration to a file of an existing
 // package, at its canonical position. The file is required, never inferred —
 // but a missing file inside the package is created implicitly, since
 // creation cannot destroy.
-func (tx *Tx) CreateSymbol(dir RelativePath, fileName, src string) error {
-	pkg, ok := tx.Package(dir)
+func (tx *Tx) CreateSymbol(pkg PkgPath, fileName, src string) error {
+	p, ok := tx.Package(pkg)
 	if !ok {
-		return fmt.Errorf("no package at %q: create_package first", dir)
+		return fmt.Errorf("no package at %q: create_package first", pkg)
 	}
 	frag, err := parseDeclFragment(src)
 	if err != nil {
@@ -257,21 +260,21 @@ func (tx *Tx) CreateSymbol(dir RelativePath, fileName, src string) error {
 		if key == "init" {
 			continue // any number of init functions is legal
 		}
-		if _, exists := pkg.Symbols[key]; exists {
-			return fmt.Errorf("symbol %q already exists in %q: use ReplaceSymbol", key, dir)
+		if _, exists := p.Symbols[key]; exists {
+			return fmt.Errorf("symbol %q already exists in %q: use ReplaceSymbol", key, pkg)
 		}
 	}
-	path, err := fileAddress(pkg, fileName)
+	path, err := fileAddress(p, fileName)
 	if err != nil {
 		return err
 	}
-	file, ok := pkg.Files[path]
+	file, ok := p.Files[path]
 	if !ok {
-		candidate := []byte("package " + pkg.Name + "\n\n" + src + "\n")
-		return tx.reloadFile(pkg, path, candidate)
+		candidate := []byte("package " + p.Name + "\n\n" + src + "\n")
+		return tx.reloadFile(p, path, candidate)
 	}
 	at := tx.insertOffset(file, frag)
-	return tx.reloadFile(pkg, path, applyEdits(file.Src, []edit{{span: span{start: at, end: at}, repl: []byte("\n\n" + src + "\n")}}))
+	return tx.reloadFile(p, path, applyEdits(file.Src, []edit{{span: span{start: at, end: at}, repl: []byte("\n\n" + src + "\n")}}))
 }
 
 // ----- Editors -----
@@ -279,10 +282,10 @@ func (tx *Tx) CreateSymbol(dir RelativePath, fileName, src string) error {
 // ReplaceSymbol replaces key's whole declaration with src — for members of
 // grouped declarations, src is the member's spec as written inside the
 // group. A replacement may rename; the new key must not collide.
-func (tx *Tx) ReplaceSymbol(dir RelativePath, key, src string) error {
-	sym, owner, ok := tx.Symbol(dir, key)
+func (tx *Tx) ReplaceSymbol(pkg PkgPath, key, src string) error {
+	sym, owner, ok := tx.Symbol(pkg, key)
 	if !ok {
-		return fmt.Errorf("no symbol %q in %q", key, dir)
+		return fmt.Errorf("no symbol %q in %q", key, pkg)
 	}
 	var frag fragment
 	var sp span
@@ -306,7 +309,7 @@ func (tx *Tx) ReplaceSymbol(dir RelativePath, key, src string) error {
 			continue
 		}
 		if _, exists := owner.Symbols[newKey]; exists {
-			return fmt.Errorf("replacement declares %q, which already exists in %q", newKey, dir)
+			return fmt.Errorf("replacement declares %q, which already exists in %q", newKey, pkg)
 		}
 	}
 	file := owner.Files[sym.File]
@@ -315,10 +318,10 @@ func (tx *Tx) ReplaceSymbol(dir RelativePath, key, src string) error {
 
 // DeleteSymbol removes key's declaration — its spec alone when it lives in
 // a grouped declaration with siblings.
-func (tx *Tx) DeleteSymbol(dir RelativePath, key string) error {
-	sym, owner, ok := tx.Symbol(dir, key)
+func (tx *Tx) DeleteSymbol(pkg PkgPath, key string) error {
+	sym, owner, ok := tx.Symbol(pkg, key)
 	if !ok {
-		return fmt.Errorf("no symbol %q in %q", key, dir)
+		return fmt.Errorf("no symbol %q in %q", key, pkg)
 	}
 	if spec, ok := sym.Spec.(*ast.ValueSpec); ok && len(spec.Names) > 1 {
 		return fmt.Errorf("%q is declared together with other names: replace the spec instead", key)
@@ -334,39 +337,50 @@ func (tx *Tx) DeleteSymbol(dir RelativePath, key string) error {
 	return tx.reloadFile(owner, sym.File, applyEdits(file.Src, []edit{{span: sp}}))
 }
 
-// DeleteFile removes a file and tombstones its path for Flush.
-func (tx *Tx) DeleteFile(path RelativePath) error {
-	path = path.Clean()
-	_, owner, ok := tx.File(path)
+// DeleteFile removes one file and every declaration in it, tombstoning the
+// path for Flush.
+func (tx *Tx) DeleteFile(pkg PkgPath, name string) error {
+	unit, ok := tx.eng.Packages[pkg]
 	if !ok {
-		return fmt.Errorf("no file at %q", path)
+		return fmt.Errorf("no package at %q", pkg)
 	}
-	delete(owner.Files, path)
-	owner.RebuildIndex()
-	tx.eng.removed[path] = tombstone(owner.Name)
-	tx.touch(path)
-	tx.pruneEmpty(path.Dir())
-	return nil
-}
-
-// DeletePackage removes a whole directory's packages, tombstoning every
-// file.
-func (tx *Tx) DeletePackage(dir RelativePath) error {
-	dir = dir.Clean()
-	unit, ok := tx.eng.Packages[dir]
-	if !ok {
-		return fmt.Errorf("no package at %q", dir)
-	}
-	for _, pkg := range []*Package{unit.Prod, unit.XTest} {
-		if pkg == nil {
+	for _, owner := range []*Package{unit.Prod, unit.XTest} {
+		if owner == nil {
 			continue
 		}
-		for path := range pkg.Files {
-			tx.eng.removed[path] = tombstone(pkg.Name)
+		path, err := fileAddress(owner, name)
+		if err != nil {
+			return err
+		}
+		if _, ok := owner.Files[path]; !ok {
+			continue
+		}
+		delete(owner.Files, path)
+		owner.RebuildIndex()
+		tx.eng.removed[path] = tombstone(owner.Name)
+		tx.touch(path)
+		tx.pruneEmpty(pkg)
+		return nil
+	}
+	return fmt.Errorf("no file %q in %q", name, pkg)
+}
+
+// DeletePackage removes a whole package address, tombstoning every file.
+func (tx *Tx) DeletePackage(pkg PkgPath) error {
+	unit, ok := tx.eng.Packages[pkg]
+	if !ok {
+		return fmt.Errorf("no package at %q", pkg)
+	}
+	for _, p := range []*Package{unit.Prod, unit.XTest} {
+		if p == nil {
+			continue
+		}
+		for path := range p.Files {
+			tx.eng.removed[path] = tombstone(p.Name)
 			tx.touch(path)
 		}
 	}
-	delete(tx.eng.Packages, dir)
+	delete(tx.eng.Packages, pkg)
 	return nil
 }
 
@@ -378,10 +392,10 @@ func (tx *Tx) DeletePackage(dir RelativePath) error {
 // members whose meaning depends on their position in the group. Moves
 // never cross the test build boundary, and the destination file is created
 // when missing.
-func (tx *Tx) MoveSymbol(dir RelativePath, key, fileName string) error {
-	sym, owner, ok := tx.Symbol(dir, key)
+func (tx *Tx) MoveSymbol(pkg PkgPath, key, fileName string) error {
+	sym, owner, ok := tx.Symbol(pkg, key)
 	if !ok {
-		return fmt.Errorf("no symbol %q in %q", key, dir)
+		return fmt.Errorf("no symbol %q in %q", key, pkg)
 	}
 	destPath, err := fileAddress(owner, fileName)
 	if err != nil {
@@ -420,20 +434,20 @@ func (tx *Tx) MoveSymbol(dir RelativePath, key, fileName string) error {
 // and every resolved use across the workspace, matched by qualified name.
 // v1 renames exactly this one object — renaming an interface method does
 // not chase implementors; broken satisfactions arrive in the echo instead.
-func (tx *Tx) RenameSymbol(dir RelativePath, key, newName string) error {
+func (tx *Tx) RenameSymbol(pkg PkgPath, key, newName string) error {
 	if !token.IsIdentifier(newName) {
 		return fmt.Errorf("%q is not a valid identifier", newName)
 	}
-	sym, owner, ok := tx.Symbol(dir, key)
+	sym, owner, ok := tx.Symbol(pkg, key)
 	if !ok {
-		return fmt.Errorf("no symbol %q in %q", key, dir)
+		return fmt.Errorf("no symbol %q in %q", key, pkg)
 	}
 	newKey := newName
 	if sym.Kind == KindMethod {
 		newKey = sym.Recv + "." + newName
 	}
 	if _, exists := owner.Symbols[newKey]; exists {
-		return fmt.Errorf("symbol %q already exists in %q", newKey, dir)
+		return fmt.Errorf("symbol %q already exists in %q", newKey, pkg)
 	}
 	target := objKey(tx.objectOf(sym))
 	if target == "" {
@@ -451,95 +465,106 @@ func (tx *Tx) RenameSymbol(dir RelativePath, key, newName string) error {
 	return tx.applyFileEdits(edits)
 }
 
-// RenameFile moves a file within its package — semantically free in Go,
+// RenameFile renames a file within its package — semantically free in Go,
 // files are storage. The old path is tombstoned for Flush.
-func (tx *Tx) RenameFile(path RelativePath, newName string) error {
-	path = path.Clean()
-	file, owner, ok := tx.File(path)
+func (tx *Tx) RenameFile(pkg PkgPath, name, newName string) error {
+	unit, ok := tx.eng.Packages[pkg]
 	if !ok {
-		return fmt.Errorf("no file at %q", path)
+		return fmt.Errorf("no package at %q", pkg)
 	}
-	newPath, err := fileAddress(owner, newName)
-	if err != nil {
-		return err
+	for _, owner := range []*Package{unit.Prod, unit.XTest} {
+		if owner == nil {
+			continue
+		}
+		path, err := fileAddress(owner, name)
+		if err != nil {
+			return err
+		}
+		file, ok := owner.Files[path]
+		if !ok {
+			continue
+		}
+		newPath, err := fileAddress(owner, newName)
+		if err != nil {
+			return err
+		}
+		if _, _, exists := tx.File(newPath); exists {
+			return fmt.Errorf("file %q already exists", newPath)
+		}
+		moved := *file
+		moved.Path = newPath
+		moved.IsDirty = true
+		delete(owner.Files, path)
+		owner.Files[newPath] = &moved
+		tx.eng.removed[path] = tombstone(owner.Name)
+		delete(tx.eng.removed, newPath)
+		tx.touch(path, newPath)
+		owner.RebuildIndex()
+		return nil
 	}
-	if _, _, exists := tx.File(newPath); exists {
-		return fmt.Errorf("file %q already exists", newPath)
-	}
-	moved := *file
-	moved.Path = newPath
-	moved.IsDirty = true
-	delete(owner.Files, path)
-	owner.Files[newPath] = &moved
-	tx.eng.removed[path] = tombstone(owner.Name)
-	delete(tx.eng.removed, newPath)
-	tx.touch(path, newPath)
-	owner.RebuildIndex()
-	return nil
+	return fmt.Errorf("no file %q in %q", name, pkg)
 }
 
-// RenamePackage moves a package directory, rewriting the import path in
-// every importer. When the package name equals the old directory base (the
-// convention), the package clause and every unaliased qualifier are renamed
-// too; aliased imports keep their alias untouched.
-func (tx *Tx) RenamePackage(dir, newDir RelativePath) error {
-	dir, newDir = dir.Clean(), newDir.Clean()
-	if dir == "." || newDir == "." || newDir.escapesRoot() {
-		return fmt.Errorf("cannot rename %q to %q", dir, newDir)
+// RenamePackage moves a package to a new address, rewriting the import
+// path in every importer. When the package name equals the old address
+// base (the convention), the package clause and every unaliased qualifier
+// are renamed too; aliased imports keep their alias untouched.
+func (tx *Tx) RenamePackage(oldPkg, newPkg PkgPath) error {
+	dir, ok := tx.eng.dirOf(oldPkg)
+	if !ok || dir == "." {
+		return fmt.Errorf("no workspace package at %q", oldPkg)
 	}
-	unit, ok := tx.eng.Packages[dir]
+	newDir, ok := tx.eng.dirOf(newPkg)
+	if !ok || newDir == "." || newDir.escapesRoot() {
+		return fmt.Errorf("cannot rename %q to %q: workspace packages live under module %q", oldPkg, newPkg, tx.eng.Module)
+	}
+	unit, ok := tx.eng.Packages[oldPkg]
 	if !ok {
-		return fmt.Errorf("no package at %q", dir)
+		return fmt.Errorf("no package at %q", oldPkg)
 	}
-	if _, exists := tx.eng.Packages[newDir]; exists {
-		return fmt.Errorf("a package already exists at %q", newDir)
+	if _, exists := tx.eng.Packages[newPkg]; exists {
+		return fmt.Errorf("a package already exists at %q", newPkg)
 	}
 	oldBase, newBase := filepath.Base(string(dir)), filepath.Base(string(newDir))
 	renameName := unit.Prod != nil && unit.Prod.Name == oldBase && oldBase != newBase
 	if renameName && !token.IsIdentifier(newBase) {
 		return fmt.Errorf("%q is not a valid package name", newBase)
 	}
-	var oldImport, newImport string
-	if unit.Prod != nil && strings.HasSuffix(unit.Prod.PkgPath, string(dir)) {
-		oldImport = unit.Prod.PkgPath
-		newImport = strings.TrimSuffix(oldImport, string(dir)) + string(newDir)
-	}
+	oldImport, newImport := string(oldPkg), string(newPkg)
 
 	// Importers first: their files are disjoint from the moving package's.
 	// The unit's own XTest package is an importer too — it imports its
 	// production sibling — so only Prod itself is skipped.
 	edits := make(map[RelativePath][]edit)
-	if oldImport != "" {
-		for _, pkg := range tx.Packages() {
-			if pkg == unit.Prod {
-				continue
-			}
-			for _, file := range tx.Files(pkg) {
-				for _, imp := range file.Ast.Imports {
-					if imp.Path.Value != strconv.Quote(oldImport) {
-						continue
-					}
-					if sp, ok := tx.offsetSpan(file.Path, imp.Path.Pos(), imp.Path.End()); ok {
-						edits[file.Path] = append(edits[file.Path], edit{span: sp, repl: []byte(strconv.Quote(newImport))})
-					}
+	for _, pkg := range tx.Packages() {
+		if pkg == unit.Prod {
+			continue
+		}
+		for _, file := range tx.Files(pkg) {
+			for _, imp := range file.Ast.Imports {
+				if imp.Path.Value != strconv.Quote(oldImport) {
+					continue
+				}
+				if sp, ok := tx.offsetSpan(file.Path, imp.Path.Pos(), imp.Path.End()); ok {
+					edits[file.Path] = append(edits[file.Path], edit{span: sp, repl: []byte(strconv.Quote(newImport))})
 				}
 			}
-			if renameName && pkg.TypesInfo != nil {
-				for ident, obj := range pkg.TypesInfo.Uses {
-					pkgName, ok := obj.(*types.PkgName)
-					if !ok || pkgName.Imported() == nil || pkgName.Imported().Path() != oldImport {
-						continue
-					}
-					if ident.Name != oldBase {
-						continue // aliased import: the alias survives the move
-					}
-					relFile, err := tx.eng.relativePath(tx.eng.FileSet.Position(ident.Pos()).Filename)
-					if err != nil || relFile.escapesRoot() {
-						continue
-					}
-					if sp, ok := tx.offsetSpan(relFile, ident.Pos(), ident.End()); ok {
-						edits[relFile] = append(edits[relFile], edit{span: sp, repl: []byte(newBase)})
-					}
+		}
+		if renameName && pkg.TypesInfo != nil {
+			for ident, obj := range pkg.TypesInfo.Uses {
+				pkgName, ok := obj.(*types.PkgName)
+				if !ok || pkgName.Imported() == nil || pkgName.Imported().Path() != oldImport {
+					continue
+				}
+				if ident.Name != oldBase {
+					continue // aliased import: the alias survives the move
+				}
+				relFile, err := tx.eng.relativePath(tx.eng.FileSet.Position(ident.Pos()).Filename)
+				if err != nil || relFile.escapesRoot() {
+					continue
+				}
+				if sp, ok := tx.offsetSpan(relFile, ident.Pos(), ident.End()); ok {
+					edits[relFile] = append(edits[relFile], edit{span: sp, repl: []byte(newBase)})
 				}
 			}
 		}
@@ -548,20 +573,18 @@ func (tx *Tx) RenamePackage(dir, newDir RelativePath) error {
 		return err
 	}
 
-	// Move the directory's packages, renaming package clauses when due.
+	// Move the address's packages, renaming package clauses when due.
 	newUnit := &Unit{}
 	for i, pkg := range []*Package{unit.Prod, unit.XTest} {
 		if pkg == nil {
 			continue
 		}
-		newPkg := pkg.clone()
-		newPkg.Path = newDir
-		newPkg.Files = make(map[RelativePath]*File, len(pkg.Files))
+		moved := pkg.clone()
+		moved.Path = newDir
+		moved.PkgPath = PkgPath(strings.Replace(string(pkg.PkgPath), oldImport, newImport, 1))
+		moved.Files = make(map[RelativePath]*File, len(pkg.Files))
 		if renameName {
-			newPkg.Name = newBase + strings.TrimPrefix(pkg.Name, oldBase)
-		}
-		if newImport != "" && strings.HasSuffix(pkg.PkgPath, string(dir)) {
-			newPkg.PkgPath = strings.TrimSuffix(pkg.PkgPath, string(dir)) + string(newDir)
+			moved.Name = newBase + strings.TrimPrefix(pkg.Name, oldBase)
 		}
 		for path, file := range pkg.Files {
 			newPath := newDir.Join(filepath.Base(string(path)))
@@ -573,26 +596,26 @@ func (tx *Tx) RenamePackage(dir, newDir RelativePath) error {
 				if !ok {
 					return fmt.Errorf("cannot locate package clause of %q", path)
 				}
-				candidate := applyEdits(file.Src, []edit{{span: sp, repl: []byte(newPkg.Name)}})
-				if err := tx.reloadFile(newPkg, newPath, candidate); err != nil {
+				candidate := applyEdits(file.Src, []edit{{span: sp, repl: []byte(moved.Name)}})
+				if err := tx.reloadFile(moved, newPath, candidate); err != nil {
 					return err
 				}
 				continue
 			}
-			moved := *file
-			moved.Path = newPath
-			moved.IsDirty = true
-			newPkg.Files[newPath] = &moved
+			copied := *file
+			copied.Path = newPath
+			copied.IsDirty = true
+			moved.Files[newPath] = &copied
 		}
-		newPkg.RebuildIndex()
+		moved.RebuildIndex()
 		if i == 0 {
-			newUnit.Prod = newPkg
+			newUnit.Prod = moved
 		} else {
-			newUnit.XTest = newPkg
+			newUnit.XTest = moved
 		}
 	}
-	delete(tx.eng.Packages, dir)
-	tx.eng.Packages[newDir] = newUnit
+	delete(tx.eng.Packages, oldPkg)
+	tx.eng.Packages[newPkg] = newUnit
 	return nil
 }
 
@@ -665,7 +688,7 @@ func (tx *Tx) applyFileEdits(edits map[RelativePath][]edit) error {
 // while goimports drops the then-unused import on the file's next reload.
 func (tx *Tx) repairMissingImports() bool {
 	// Unique importable package names known to the workspace.
-	candidates := make(map[string]string) // package name -> import path
+	candidates := make(map[string]PkgPath) // package name -> import path
 	ambiguous := make(map[string]bool)
 	for _, unit := range tx.eng.Packages {
 		pkg := unit.Prod
@@ -694,13 +717,13 @@ func (tx *Tx) repairMissingImports() bool {
 			continue
 		}
 		file, owner, ok := tx.File(diag.File)
-		if !ok || owner.PkgPath == path || importsPath(file.Ast, path) {
+		if !ok || owner.PkgPath == path || importsPath(file.Ast, string(path)) {
 			continue
 		}
 		if needed[diag.File] == nil {
 			needed[diag.File] = make(map[string]bool)
 		}
-		needed[diag.File][path] = true
+		needed[diag.File][string(path)] = true
 	}
 
 	repaired := false
@@ -914,9 +937,9 @@ func classifyFragment(astFile *ast.File) fragment {
 
 // ----- Internal helpers -----
 
-func cloneUnits(units map[RelativePath]*Unit) map[RelativePath]*Unit {
-	out := make(map[RelativePath]*Unit, len(units))
-	for dir, unit := range units {
+func cloneUnits(units map[PkgPath]*Unit) map[PkgPath]*Unit {
+	out := make(map[PkgPath]*Unit, len(units))
+	for pkg, unit := range units {
 		cloned := &Unit{}
 		if unit.Prod != nil {
 			cloned.Prod = unit.Prod.clone()
@@ -924,7 +947,7 @@ func cloneUnits(units map[RelativePath]*Unit) map[RelativePath]*Unit {
 		if unit.XTest != nil {
 			cloned.XTest = unit.XTest.clone()
 		}
-		out[dir] = cloned
+		out[pkg] = cloned
 	}
 	return out
 }
@@ -976,15 +999,15 @@ func (e *Engine) recheckLocked(ctx context.Context) error {
 		}
 	}
 
-	fset, units, err := e.load(ctx, overlay)
+	fset, _, units, err := e.load(ctx, overlay)
 	if err != nil {
 		return err
 	}
 	for path := range e.removed {
-		pruneFileFrom(units, path)
+		e.pruneFileFrom(units, path)
 	}
 	for path := range dirty {
-		if unit, ok := units[path.Dir()]; ok {
+		if unit, ok := units[e.pkgAt(path.Dir())]; ok {
 			for _, pkg := range []*Package{unit.Prod, unit.XTest} {
 				if pkg == nil {
 					continue
@@ -1001,8 +1024,9 @@ func (e *Engine) recheckLocked(ctx context.Context) error {
 
 // pruneFileFrom removes a tombstoned path from freshly loaded state (the
 // overlay can only mask files as empty, not delete them).
-func pruneFileFrom(units map[RelativePath]*Unit, path RelativePath) {
-	unit, ok := units[path.Dir()]
+func (e *Engine) pruneFileFrom(units map[PkgPath]*Unit, path RelativePath) {
+	pkgAddr := e.pkgAt(path.Dir())
+	unit, ok := units[pkgAddr]
 	if !ok {
 		return
 	}
@@ -1022,12 +1046,12 @@ func pruneFileFrom(units map[RelativePath]*Unit, path RelativePath) {
 		unit.XTest = nil
 	}
 	if unit.Prod == nil && unit.XTest == nil {
-		delete(units, path.Dir())
+		delete(units, pkgAddr)
 	}
 }
 
-func (tx *Tx) pruneEmpty(dir RelativePath) {
-	unit, ok := tx.eng.Packages[dir]
+func (tx *Tx) pruneEmpty(pkg PkgPath) {
+	unit, ok := tx.eng.Packages[pkg]
 	if !ok {
 		return
 	}
@@ -1038,7 +1062,7 @@ func (tx *Tx) pruneEmpty(dir RelativePath) {
 		unit.XTest = nil
 	}
 	if unit.Prod == nil && unit.XTest == nil {
-		delete(tx.eng.Packages, dir)
+		delete(tx.eng.Packages, pkg)
 	}
 }
 

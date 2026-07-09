@@ -105,7 +105,11 @@ func TestListPackages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list_packages: %v", err)
 	}
-	for _, want := range []string{"broken", "shapes", "use"} {
+	for _, want := range []string{
+		"example.com/sandbox/broken",
+		"example.com/sandbox/shapes",
+		"example.com/sandbox/use",
+	} {
 		if !slices.Contains(out.Packages, want) {
 			t.Errorf("list_packages missing %q: %v", want, out.Packages)
 		}
@@ -207,7 +211,7 @@ func TestFindersAndDiagnostics(t *testing.T) {
 		t.Fatalf("search_declarations_like: %v", err)
 	}
 	if !slices.ContainsFunc(like.Matches, func(m MatchEntry) bool {
-		return m.Key == "Circle.Area" && m.Package == "shapes" && m.Kind == "method"
+		return m.Key == "Circle.Area" && m.Package == "example.com/sandbox/shapes" && m.Kind == "method"
 	}) {
 		t.Errorf("search_declarations_like(area) missing Circle.Area: %v", like.Matches)
 	}
@@ -252,7 +256,7 @@ func TestSemanticFinders(t *testing.T) {
 		t.Fatalf("search_references: %v", err)
 	}
 	if !slices.ContainsFunc(refs.Matches, func(m MatchEntry) bool {
-		return m.Package == "use" && m.Key == "NewCircle"
+		return m.Package == "example.com/sandbox/use" && m.Key == "NewCircle"
 	}) {
 		t.Errorf("search_references(Circle) missing use:NewCircle: %v", refs.Matches)
 	}
@@ -274,7 +278,7 @@ func TestMutationTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create_declaration: %v", err)
 	}
-	if !slices.Contains(created.Files["shapes"], "extra.go") || len(created.Diagnostics) != 0 {
+	if !slices.Contains(created.Files["example.com/sandbox/shapes"], "extra.go") || len(created.Diagnostics) != 0 {
 		t.Errorf("create echo wrong: %+v", created)
 	}
 

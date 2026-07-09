@@ -92,14 +92,20 @@ introduced, and diagnostics resolved. Tool descriptions earn words only for
 what changes the agent's input or its reading of the output — server
 internals stay out of them.
 
-Address convention (both directions, gated by `packageArg`/`fileArg`):
-`package` is a directory path (`internal/tools`), never a `*.go` name —
-refused, not stripped. `file` is a bare name within its package
-(`read.go`); a full path is tolerated when its directory agrees with
-`package`, and contradictions are refused, never guessed. Outputs mirror
-the split: bare file names when the package was the input, package-keyed
-maps (`{"pkg": ["file.go"]}`) when a result spans packages. Diagnostics
-strings stay `path:line:col` — positional prose, not addresses.
+Address convention (both directions, gated by `canonPkg`/`fileArg`):
+`package` is the import path (`github.com/you/mod/internal/tools`) — the
+type checker's identity, one grammar for workspace and (future) external
+packages; a bare workspace directory (`internal/tools`) is accepted and
+gains the module prefix. A `*.go` name is never a package — refused, not
+stripped. `file` is a bare name within its package (`read.go`); a path is
+tolerated when its package agrees (workspace-relative or module-qualified
+spelling), and contradictions are refused, never guessed. Outputs speak
+import paths wherever a package is named: bare file names when the package
+was the input, package-keyed maps (`{"example.com/mod/pkg": ["file.go"]}`)
+when a result spans packages. Diagnostics strings stay `path:line:col` —
+positional prose, not addresses. Engine-internal: `Packages` is keyed by
+`PkgPath`, files stay `RelativePath` (disk truth for flush/reload/overlay),
+and `dirOf`/`pkgAt` convert only at the disk boundary.
 
 ## Testing
 

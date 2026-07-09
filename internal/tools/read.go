@@ -23,9 +23,9 @@ func listPackages(eng *engine.Engine) mcp.ToolHandlerFor[ListPackagesInput, List
 		err := eng.Read(func(v *engine.View) error {
 			last := ""
 			for _, pkg := range v.Packages() {
-				if p := pkg.Path.String(); p != last {
-					out.Packages = append(out.Packages, p)
-					last = p
+				if addr := pkgAddr(v.Module(), pkg.Path); addr != last {
+					out.Packages = append(out.Packages, addr)
+					last = addr
 				}
 			}
 			out.Diagnostics = diagStrings(v.WorkspaceDiagnostics())
@@ -46,7 +46,7 @@ func listFiles(eng *engine.Engine) mcp.ToolHandlerFor[ListFilesInput, ListFilesO
 			for _, file := range v.Files(pkg) {
 				out.Files = append(out.Files, file.Path.Base())
 			}
-			out.Diagnostics = diagStrings(v.Diagnostics(pkg.Path))
+			out.Diagnostics = diagStrings(v.Diagnostics(pkg.PkgPath))
 			return nil
 		})
 		return nil, out, err
@@ -63,7 +63,7 @@ func listSymbols(eng *engine.Engine) mcp.ToolHandlerFor[ListSymbolsInput, ListSy
 			}
 			var fileFilter engine.RelativePath
 			if in.File != "" {
-				name, err := fileArg(pkg.Path, in.File)
+				name, err := fileArg(v.Module(), pkg.PkgPath, in.File)
 				if err != nil {
 					return err
 				}
@@ -84,7 +84,7 @@ func listSymbols(eng *engine.Engine) mcp.ToolHandlerFor[ListSymbolsInput, ListSy
 					out.Diagnostics = diagStrings(file.Diags)
 				}
 			} else {
-				out.Diagnostics = diagStrings(v.Diagnostics(pkg.Path))
+				out.Diagnostics = diagStrings(v.Diagnostics(pkg.PkgPath))
 			}
 			return nil
 		})
@@ -266,31 +266,31 @@ func diagStrings(diags []engine.Diagnostic) []string {
 	return out
 }
 
-// resolvePackage is the shared address gate: it validates untrusted path
-// input through the same rules as every package argument and resolves it
-// to the production package.
-func resolvePackage(v *engine.View, dir string) (*engine.Package, error) {
-	path, err := packageArg(dir)
+// resolvePackage is the shared address gate for read handlers: it
+// canonicalizes untrusted input against the workspace module and resolves
+// it to the production package.
+func resolvePackage(v *engine.View, addr string) (*engine.Package, error) {
+	pkg, err := canonPkg(v.Module(), addr)
 	if err != nil {
 		return nil, err
 	}
-	pkg, ok := v.Package(path)
+	p, ok := v.Package(pkg)
 	if !ok {
-		return nil, fmt.Errorf("no package at %q: call list_packages for valid addresses", dir)
+		return nil, fmt.Errorf("no package at %q: call list_packages for valid addresses", addr)
 	}
-	return pkg, nil
+	return p, nil
 }
 
-// resolveAnySymbol resolves a package path and symbol key to the symbol and
-// its owning package, any kind.
-func resolveAnySymbol(v *engine.View, dir, key string) (*engine.Symbol, *engine.Package, error) {
-	path, ok := engine.CleanPath(dir)
-	if !ok {
-		return nil, nil, fmt.Errorf("invalid package path %q: must be workspace-relative", dir)
+// resolveAnySymbol resolves a package address and symbol key to the symbol
+// and its owning package, any kind.
+func resolveAnySymbol(v *engine.View, addr, key string) (*engine.Symbol, *engine.Package, error) {
+	pkg, err := canonPkg(v.Module(), addr)
+	if err != nil {
+		return nil, nil, err
 	}
-	sym, owner, ok := v.Symbol(path, key)
+	sym, owner, ok := v.Symbol(pkg, key)
 	if !ok {
-		return nil, nil, fmt.Errorf("no symbol %q in package %q: call list_symbols for valid keys", key, dir)
+		return nil, nil, fmt.Errorf("no symbol %q in package %q: call list_symbols for valid keys", key, addr)
 	}
 	return sym, owner, nil
 }
@@ -340,7 +340,7 @@ func matchEntries(matches []engine.Match) []MatchEntry {
 	out := make([]MatchEntry, 0, len(matches))
 	for _, m := range matches {
 		out = append(out, MatchEntry{
-			Package: m.Pkg.Path.String(),
+			Package: m.Pkg.PkgPath.String(),
 			Key:     m.Sym.Key(),
 			Kind:    m.Sym.Kind.String(),
 		})

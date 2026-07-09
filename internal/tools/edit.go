@@ -22,7 +22,7 @@ func runEdit(ctx context.Context, eng *engine.Engine, fn func(*engine.Tx) error)
 	if err != nil {
 		return nil, out, err
 	}
-	out.Files = filesByPackage(report.Changed)
+	out.Files = filesByPackage(eng.ModulePath(), report.Changed)
 	out.Diagnostics = diagStrings(report.Delta)
 	out.Resolved = diagStrings(report.Resolved)
 	if report.Stale {
@@ -36,44 +36,44 @@ func runEdit(ctx context.Context, eng *engine.Engine, fn func(*engine.Tx) error)
 
 func createPackage(eng *engine.Engine) mcp.ToolHandlerFor[CreatePackageInput, MutationOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreatePackageInput) (*mcp.CallToolResult, MutationOutput, error) {
-		dir, err := packageArg(in.Package)
+		pkg, err := packageArg(eng, in.Package)
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
 		return runEdit(ctx, eng, func(tx *engine.Tx) error {
-			return tx.CreatePackage(dir, in.Name)
+			return tx.CreatePackage(pkg, in.Name)
 		})
 	}
 }
 
 func createFile(eng *engine.Engine) mcp.ToolHandlerFor[CreateFileInput, MutationOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateFileInput) (*mcp.CallToolResult, MutationOutput, error) {
-		dir, err := packageArg(in.Package)
+		pkg, err := packageArg(eng, in.Package)
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
-		file, err := fileArg(dir, in.File)
+		file, err := fileArg(eng.ModulePath(), pkg, in.File)
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
 		return runEdit(ctx, eng, func(tx *engine.Tx) error {
-			return tx.CreateFile(dir, file)
+			return tx.CreateFile(pkg, file)
 		})
 	}
 }
 
 func createDeclaration(eng *engine.Engine) mcp.ToolHandlerFor[CreateDeclarationInput, MutationOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateDeclarationInput) (*mcp.CallToolResult, MutationOutput, error) {
-		dir, err := packageArg(in.Package)
+		pkg, err := packageArg(eng, in.Package)
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
-		file, err := fileArg(dir, in.File)
+		file, err := fileArg(eng.ModulePath(), pkg, in.File)
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
 		return runEdit(ctx, eng, func(tx *engine.Tx) error {
-			return tx.CreateSymbol(dir, file, in.Source)
+			return tx.CreateSymbol(pkg, file, in.Source)
 		})
 	}
 }
@@ -82,52 +82,52 @@ func createDeclaration(eng *engine.Engine) mcp.ToolHandlerFor[CreateDeclarationI
 
 func editDeclaration(eng *engine.Engine) mcp.ToolHandlerFor[EditDeclarationInput, MutationOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in EditDeclarationInput) (*mcp.CallToolResult, MutationOutput, error) {
-		dir, err := packageArg(in.Package)
+		pkg, err := packageArg(eng, in.Package)
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
 		return runEdit(ctx, eng, func(tx *engine.Tx) error {
-			return tx.ReplaceSymbol(dir, in.Key, in.Source)
+			return tx.ReplaceSymbol(pkg, in.Key, in.Source)
 		})
 	}
 }
 
 func deleteDeclaration(eng *engine.Engine) mcp.ToolHandlerFor[DeleteDeclarationInput, MutationOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteDeclarationInput) (*mcp.CallToolResult, MutationOutput, error) {
-		dir, err := packageArg(in.Package)
+		pkg, err := packageArg(eng, in.Package)
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
 		return runEdit(ctx, eng, func(tx *engine.Tx) error {
-			return tx.DeleteSymbol(dir, in.Key)
+			return tx.DeleteSymbol(pkg, in.Key)
 		})
 	}
 }
 
 func deleteFile(eng *engine.Engine) mcp.ToolHandlerFor[DeleteFileInput, MutationOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteFileInput) (*mcp.CallToolResult, MutationOutput, error) {
-		dir, err := packageArg(in.Package)
+		pkg, err := packageArg(eng, in.Package)
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
-		file, err := fileArg(dir, in.File)
+		file, err := fileArg(eng.ModulePath(), pkg, in.File)
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
 		return runEdit(ctx, eng, func(tx *engine.Tx) error {
-			return tx.DeleteFile(dir.Join(file))
+			return tx.DeleteFile(pkg, file)
 		})
 	}
 }
 
 func deletePackage(eng *engine.Engine) mcp.ToolHandlerFor[DeletePackageInput, MutationOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeletePackageInput) (*mcp.CallToolResult, MutationOutput, error) {
-		dir, err := packageArg(in.Package)
+		pkg, err := packageArg(eng, in.Package)
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
 		return runEdit(ctx, eng, func(tx *engine.Tx) error {
-			return tx.DeletePackage(dir)
+			return tx.DeletePackage(pkg)
 		})
 	}
 }
@@ -136,60 +136,60 @@ func deletePackage(eng *engine.Engine) mcp.ToolHandlerFor[DeletePackageInput, Mu
 
 func moveDeclaration(eng *engine.Engine) mcp.ToolHandlerFor[MoveDeclarationInput, MutationOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in MoveDeclarationInput) (*mcp.CallToolResult, MutationOutput, error) {
-		dir, err := packageArg(in.Package)
+		pkg, err := packageArg(eng, in.Package)
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
-		file, err := fileArg(dir, in.File)
+		file, err := fileArg(eng.ModulePath(), pkg, in.File)
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
 		return runEdit(ctx, eng, func(tx *engine.Tx) error {
-			return tx.MoveSymbol(dir, in.Key, file)
+			return tx.MoveSymbol(pkg, in.Key, file)
 		})
 	}
 }
 
 func renameDeclaration(eng *engine.Engine) mcp.ToolHandlerFor[RenameDeclarationInput, MutationOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in RenameDeclarationInput) (*mcp.CallToolResult, MutationOutput, error) {
-		dir, err := packageArg(in.Package)
+		pkg, err := packageArg(eng, in.Package)
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
 		return runEdit(ctx, eng, func(tx *engine.Tx) error {
-			return tx.RenameSymbol(dir, in.Key, in.NewName)
+			return tx.RenameSymbol(pkg, in.Key, in.NewName)
 		})
 	}
 }
 
 func renameFile(eng *engine.Engine) mcp.ToolHandlerFor[RenameFileInput, MutationOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in RenameFileInput) (*mcp.CallToolResult, MutationOutput, error) {
-		dir, err := packageArg(in.Package)
+		pkg, err := packageArg(eng, in.Package)
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
-		file, err := fileArg(dir, in.File)
+		file, err := fileArg(eng.ModulePath(), pkg, in.File)
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
 		return runEdit(ctx, eng, func(tx *engine.Tx) error {
-			return tx.RenameFile(dir.Join(file), in.NewName)
+			return tx.RenameFile(pkg, file, in.NewName)
 		})
 	}
 }
 
 func renamePackage(eng *engine.Engine) mcp.ToolHandlerFor[RenamePackageInput, MutationOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in RenamePackageInput) (*mcp.CallToolResult, MutationOutput, error) {
-		dir, err := packageArg(in.Package)
+		pkg, err := packageArg(eng, in.Package)
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
-		newDir, err := packageArg(in.NewPath)
+		newPkg, err := packageArg(eng, in.NewPath)
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
 		return runEdit(ctx, eng, func(tx *engine.Tx) error {
-			return tx.RenamePackage(dir, newDir)
+			return tx.RenamePackage(pkg, newPkg)
 		})
 	}
 }
@@ -199,9 +199,10 @@ func renamePackage(eng *engine.Engine) mcp.ToolHandlerFor[RenamePackageInput, Mu
 func flush(eng *engine.Engine) mcp.ToolHandlerFor[FlushInput, FlushOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, _ FlushInput) (*mcp.CallToolResult, FlushOutput, error) {
 		written, removed, err := eng.Flush()
+		module := eng.ModulePath()
 		return nil, FlushOutput{
-			Written: filesByPackage(written),
-			Removed: filesByPackage(removed),
+			Written: filesByPackage(module, written),
+			Removed: filesByPackage(module, removed),
 		}, err
 	}
 }
@@ -213,7 +214,7 @@ func reload(eng *engine.Engine) mcp.ToolHandlerFor[ReloadInput, ReloadOutput] {
 		if err != nil {
 			return nil, out, err
 		}
-		out.Discarded = filesByPackage(discarded)
+		out.Discarded = filesByPackage(eng.ModulePath(), discarded)
 		err = eng.Read(func(v *engine.View) error {
 			out.Diagnostics = diagStrings(v.AllDiagnostics())
 			return nil
@@ -224,17 +225,49 @@ func reload(eng *engine.Engine) mcp.ToolHandlerFor[ReloadInput, ReloadOutput] {
 
 // ----- helpers -----
 
-// fileArg normalizes an agent-supplied file address inside dir: a bare
-// *.go name, or a workspace-relative path accepted when its directory
-// agrees with dir. Contradictions are refused, never guessed.
-func fileArg(dir engine.RelativePath, file string) (string, error) {
+// canonPkg canonicalizes an agent-supplied package address against the
+// workspace module: module-prefixed addresses pass through, bare workspace
+// directories gain the prefix. File names are refused — packages are
+// directories, always spelled alone.
+func canonPkg(module engine.PkgPath, addr string) (engine.PkgPath, error) {
+	path, ok := engine.CleanPath(addr)
+	if !ok {
+		return "", fmt.Errorf("invalid package path %q", addr)
+	}
+	if strings.HasSuffix(path.String(), ".go") {
+		return "", fmt.Errorf("%q names a file; package arguments take the package alone", addr)
+	}
+	if path == "." || engine.PkgPath(path) == module {
+		return module, nil
+	}
+	if strings.HasPrefix(path.String(), module.String()+"/") {
+		return engine.PkgPath(path), nil
+	}
+	return engine.PkgPath(module.String() + "/" + path.String()), nil
+}
+
+// packageArg validates and canonicalizes an agent-supplied package address
+// for handlers running outside the read gate.
+func packageArg(eng *engine.Engine, addr string) (engine.PkgPath, error) {
+	return canonPkg(eng.ModulePath(), addr)
+}
+
+// fileArg normalizes an agent-supplied file address inside pkg: a bare
+// *.go name, or a path accepted when its package agrees — workspace-
+// relative and module-qualified spellings both. Contradictions are
+// refused, never guessed.
+func fileArg(module, pkg engine.PkgPath, file string) (string, error) {
 	if strings.Contains(file, "/") {
 		fpath, ok := engine.CleanPath(file)
 		if !ok {
-			return "", fmt.Errorf("invalid file path %q: must be workspace-relative", file)
+			return "", fmt.Errorf("invalid file path %q", file)
 		}
-		if fpath.Dir() != dir {
-			return "", fmt.Errorf("file %q does not live in package %q", file, dir)
+		owner, err := canonPkg(module, fpath.Dir().String())
+		if err != nil {
+			return "", err
+		}
+		if owner != pkg {
+			return "", fmt.Errorf("file %q does not live in package %q", file, pkg)
 		}
 		file = fpath.Base()
 	}
@@ -244,31 +277,25 @@ func fileArg(dir engine.RelativePath, file string) (string, error) {
 	return file, nil
 }
 
-// packageArg validates an agent-supplied package address: a clean,
-// workspace-relative directory path. File names are refused — packages
-// are directories, always spelled alone.
-func packageArg(dir string) (engine.RelativePath, error) {
-	path, ok := engine.CleanPath(dir)
-	if !ok {
-		return "", fmt.Errorf("invalid package path %q: must be workspace-relative", dir)
+// pkgAddr composes the canonical address of a workspace directory.
+func pkgAddr(module engine.PkgPath, dir engine.RelativePath) string {
+	if dir == "." {
+		return module.String()
 	}
-	if strings.HasSuffix(path.String(), ".go") {
-		return "", fmt.Errorf("%q names a file; package arguments take the directory alone", dir)
-	}
-	return path, nil
+	return module.String() + "/" + dir.String()
 }
 
 // filesByPackage groups workspace-relative paths into the interface's
-// address convention: package directory to bare file names. Input order is
-// preserved within each package, so sorted paths stay sorted.
-func filesByPackage(paths []engine.RelativePath) map[string][]string {
+// address convention: canonical package address to bare file names. Input
+// order is preserved within each package, so sorted paths stay sorted.
+func filesByPackage(module engine.PkgPath, paths []engine.RelativePath) map[string][]string {
 	if len(paths) == 0 {
 		return nil
 	}
 	out := make(map[string][]string)
 	for _, p := range paths {
-		dir := p.Dir().String()
-		out[dir] = append(out[dir], p.Base())
+		key := pkgAddr(module, p.Dir())
+		out[key] = append(out[key], p.Base())
 	}
 	return out
 }

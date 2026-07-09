@@ -79,13 +79,18 @@ that practice taught:
 ## Fixed
 
 - **Two address styles for files.** Resolved by the interface
-  uniformization: package arguments are directory paths everywhere (never
-  `*.go` — refused, not stripped), file arguments are bare names within
-  their package (a full path is tolerated when its directory agrees;
-  contradictions are refused), and outputs mirror the split — bare names
-  when the package was the input, package-keyed maps (`{"pkg": ["file.go"]}`)
-  when a result spans packages. Diagnostics strings stay `path:line:col`:
-  positional prose, not addresses.
+  uniformization, then completed by the identity re-key: package addresses
+  are import paths everywhere — the type checker's identity, one grammar
+  for workspace and (future) external packages — with bare workspace
+  directories accepted and module-prefixed at the gate (`canonPkg`); `*.go`
+  names are never packages (refused, not stripped). File arguments are bare
+  names within their package (a path is tolerated when its package agrees;
+  contradictions refused), and outputs mirror the split — bare names when
+  the package was the input, package-keyed maps
+  (`{"example.com/mod/pkg": ["file.go"]}`) across packages. Diagnostics
+  strings stay `path:line:col`: positional prose, not addresses. The engine
+  is keyed by `PkgPath`; files stay `RelativePath` (disk truth), converting
+  only at the disk boundary (`dirOf`/`pkgAt`).
 - **Reconnect-to-refresh.** `reload` is flush's inverse: rebuild from disk,
   discarding unflushed work (reported per package). Manual edits and git
   operations no longer force a reconnect; only behavior/schema changes to

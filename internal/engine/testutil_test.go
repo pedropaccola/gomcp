@@ -74,3 +74,9 @@ func matchKeys(matches []Match) []string {
 	}
 	return out
 }
+
+// spkg addresses a sandbox package the way the engine now expects:
+// module-qualified.
+func spkg(dir string) PkgPath {
+	return PkgPath("example.com/sandbox/" + dir)
+}

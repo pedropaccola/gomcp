@@ -9,12 +9,12 @@ import (
 func TestTypesLoadedAndTypeDiagnostics(t *testing.T) {
 	e := sandboxEngine(t)
 	err := e.Read(func(v *View) error {
-		pkg, ok := v.Package("shapes")
+		pkg, ok := v.Package(spkg("shapes"))
 		if !ok || pkg.Types == nil || pkg.TypesInfo == nil {
 			t.Fatal("shapes package missing type information after bootstrap")
 		}
 		var typeDiags []Diagnostic
-		for _, d := range v.Diagnostics("broken") {
+		for _, d := range v.Diagnostics(spkg("broken")) {
 			if d.Kind == DiagType {
 				typeDiags = append(typeDiags, d)
 			}
@@ -32,7 +32,7 @@ func TestTypesLoadedAndTypeDiagnostics(t *testing.T) {
 func TestSymbolsImplementing(t *testing.T) {
 	e := sandboxEngine(t)
 	err := e.Read(func(v *View) error {
-		shape, _, ok := v.Symbol("shapes", "Shape")
+		shape, _, ok := v.Symbol(spkg("shapes"), "Shape")
 		if !ok {
 			t.Fatal("Shape interface not indexed")
 		}
@@ -50,12 +50,12 @@ func TestSymbolsImplementing(t *testing.T) {
 			t.Error("NotShape reported as a Shape implementor")
 		}
 
-		named, _, _ := v.Symbol("shapes", "Named")
+		named, _, _ := v.Symbol(spkg("shapes"), "Named")
 		if ms, err := v.SymbolsImplementing(named); err != nil || len(ms) != 0 {
 			t.Errorf("implementors of Named = %v, %v; want none", matchKeys(ms), err)
 		}
 
-		circle, _, _ := v.Symbol("shapes", "Circle")
+		circle, _, _ := v.Symbol(spkg("shapes"), "Circle")
 		if _, err := v.SymbolsImplementing(circle); err == nil || !strings.Contains(err.Error(), "interface") {
 			t.Errorf("SymbolsImplementing on a struct must explain it needs an interface, got %v", err)
 		}
@@ -69,11 +69,11 @@ func TestSymbolsImplementing(t *testing.T) {
 func TestSymbolsReferencing(t *testing.T) {
 	e := sandboxEngine(t)
 	err := e.Read(func(v *View) error {
-		refsOf := func(dir RelativePath, key string) []string {
+		refsOf := func(pkg PkgPath, key string) []string {
 			t.Helper()
-			sym, _, ok := v.Symbol(dir, key)
+			sym, _, ok := v.Symbol(pkg, key)
 			if !ok {
-				t.Fatalf("symbol %s:%s not indexed", dir, key)
+				t.Fatalf("symbol %s:%s not indexed", pkg, key)
 			}
 			matches, err := v.SymbolsReferencing(sym)
 			if err != nil {
@@ -82,7 +82,7 @@ func TestSymbolsReferencing(t *testing.T) {
 			return matchKeys(matches)
 		}
 
-		circleRefs := refsOf("shapes", "Circle")
+		circleRefs := refsOf(spkg("shapes"), "Circle")
 		for _, want := range []string{"use:c", "use:NewCircle"} {
 			if !slices.Contains(circleRefs, want) {
 				t.Errorf("references of Circle missing %s: %v", want, circleRefs)
@@ -92,10 +92,10 @@ func TestSymbolsReferencing(t *testing.T) {
 			t.Errorf("TotalArea references Shape, not Circle: %v", circleRefs)
 		}
 
-		if refs := refsOf("shapes", "Circle.Area"); !slices.Contains(refs, "use:UseArea") {
+		if refs := refsOf(spkg("shapes"), "Circle.Area"); !slices.Contains(refs, "use:UseArea") {
 			t.Errorf("references of Circle.Area missing use:UseArea: %v", refs)
 		}
-		if refs := refsOf("shapes", "Shape"); !slices.Contains(refs, "use:TotalArea") {
+		if refs := refsOf(spkg("shapes"), "Shape"); !slices.Contains(refs, "use:TotalArea") {
 			t.Errorf("references of Shape missing use:TotalArea: %v", refs)
 		}
 		return nil

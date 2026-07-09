@@ -49,18 +49,24 @@ func (e *Engine) Read(fn func(*View) error) error {
 
 // ----- Resolvers -----
 
-// Package resolves a directory to its production package.
-func (v *View) Package(dir RelativePath) (*Package, bool) {
-	unit, ok := v.eng.Packages[dir.Clean()]
+// Module is the workspace's module path: the prefix of every workspace
+// package address. Valid inside Read, where the snapshot is held.
+func (v *View) Module() PkgPath {
+	return v.eng.Module
+}
+
+// Package resolves a canonical package address to its production package.
+func (v *View) Package(pkg PkgPath) (*Package, bool) {
+	unit, ok := v.eng.Packages[pkg]
 	if !ok || unit.Prod == nil {
 		return nil, false
 	}
 	return unit.Prod, true
 }
 
-// XTest resolves a directory to its external test package.
-func (v *View) XTest(dir RelativePath) (*Package, bool) {
-	unit, ok := v.eng.Packages[dir.Clean()]
+// XTest resolves a canonical package address to its external test package.
+func (v *View) XTest(pkg PkgPath) (*Package, bool) {
+	unit, ok := v.eng.Packages[pkg]
 	if !ok || unit.XTest == nil {
 		return nil, false
 	}
@@ -71,7 +77,7 @@ func (v *View) XTest(dir RelativePath) (*Package, bool) {
 // package, checking the production package before the external test package.
 func (v *View) File(path RelativePath) (*File, *Package, bool) {
 	path = path.Clean()
-	unit, ok := v.eng.Packages[path.Dir()]
+	unit, ok := v.eng.Packages[v.eng.pkgAt(path.Dir())]
 	if !ok {
 		return nil, nil, false
 	}
@@ -86,58 +92,20 @@ func (v *View) File(path RelativePath) (*File, *Package, bool) {
 	return nil, nil, false
 }
 
-// Symbol resolves a directory and symbol key ("Name" or "Recv.Name") to the
-// symbol and its owning package, checking Prod before XTest.
-func (v *View) Symbol(dir RelativePath, key string) (*Symbol, *Package, bool) {
-	unit, ok := v.eng.Packages[dir.Clean()]
+// Symbol resolves a package address and symbol key ("Name" or "Recv.Name")
+// to the symbol and its owning package, checking Prod before XTest.
+func (v *View) Symbol(pkg PkgPath, key string) (*Symbol, *Package, bool) {
+	unit, ok := v.eng.Packages[pkg]
 	if !ok {
 		return nil, nil, false
 	}
-	for _, pkg := range []*Package{unit.Prod, unit.XTest} {
-		if pkg == nil {
+	for _, p := range []*Package{unit.Prod, unit.XTest} {
+		if p == nil {
 			continue
 		}
-		if sym, ok := pkg.Symbols[key]; ok {
-			return sym, pkg, true
+		if sym, ok := p.Symbols[key]; ok {
+			return sym, p, true
 		}
-	}
-	return nil, nil, false
-}
-
-// SymbolAt resolves a file position to the symbol of the enclosing top-level
-// declaration — the bridge from positional facts (type uses, diagnostics) to
-// the declaration address space. In grouped decls it prefers the symbol
-// whose own spec contains the position.
-func (v *View) SymbolAt(path RelativePath, pos token.Pos) (*Symbol, *Package, bool) {
-	_, owner, ok := v.File(path)
-	if !ok {
-		return nil, nil, false
-	}
-	var groupHit *Symbol
-	for _, key := range sortedKeys(owner.Symbols) {
-		sym := owner.Symbols[key]
-		if sym.File != path {
-			continue
-		}
-		start := sym.Decl.Pos()
-		if doc := docOf(sym.Decl); doc != nil {
-			start = doc.Pos()
-		}
-		if pos < start || pos >= sym.Decl.End() {
-			continue
-		}
-		if sym.Spec == nil {
-			return sym, owner, true
-		}
-		if pos >= sym.Spec.Pos() && pos < sym.Spec.End() {
-			return sym, owner, true
-		}
-		if groupHit == nil {
-			groupHit = sym
-		}
-	}
-	if groupHit != nil {
-		return groupHit, owner, true
 	}
 	return nil, nil, false
 }
@@ -316,6 +284,44 @@ func (v *View) SymbolsReferencing(sym *Symbol) ([]Match, error) {
 	return out, nil
 }
 
+// SymbolAt resolves a file position to the symbol of the enclosing top-level
+// declaration — the bridge from positional facts (type uses, diagnostics) to
+// the declaration address space. In grouped decls it prefers the symbol
+// whose own spec contains the position.
+func (v *View) SymbolAt(path RelativePath, pos token.Pos) (*Symbol, *Package, bool) {
+	_, owner, ok := v.File(path)
+	if !ok {
+		return nil, nil, false
+	}
+	var groupHit *Symbol
+	for _, key := range sortedKeys(owner.Symbols) {
+		sym := owner.Symbols[key]
+		if sym.File != path {
+			continue
+		}
+		start := sym.Decl.Pos()
+		if doc := docOf(sym.Decl); doc != nil {
+			start = doc.Pos()
+		}
+		if pos < start || pos >= sym.Decl.End() {
+			continue
+		}
+		if sym.Spec == nil {
+			return sym, owner, true
+		}
+		if pos >= sym.Spec.Pos() && pos < sym.Spec.End() {
+			return sym, owner, true
+		}
+		if groupHit == nil {
+			groupHit = sym
+		}
+	}
+	if groupHit != nil {
+		return groupHit, owner, true
+	}
+	return nil, nil, false
+}
+
 // ----- Source -----
 
 // DeclSource extracts the exact bytes of the symbol's whole top-level
@@ -402,20 +408,20 @@ func (v *View) sliceSrc(path RelativePath, from, to token.Pos) ([]byte, bool) {
 
 // ----- Diagnostics -----
 
-// Diagnostics aggregates one directory's package- and file-scoped
+// Diagnostics aggregates one package address's package- and file-scoped
 // diagnostics across its Prod and XTest packages.
-func (v *View) Diagnostics(dir RelativePath) []Diagnostic {
-	unit, ok := v.eng.Packages[dir.Clean()]
+func (v *View) Diagnostics(pkg PkgPath) []Diagnostic {
+	unit, ok := v.eng.Packages[pkg]
 	if !ok {
 		return nil
 	}
 	var out []Diagnostic
-	for _, pkg := range []*Package{unit.Prod, unit.XTest} {
-		if pkg == nil {
+	for _, p := range []*Package{unit.Prod, unit.XTest} {
+		if p == nil {
 			continue
 		}
-		out = append(out, pkg.Diags...)
-		for _, file := range v.Files(pkg) {
+		out = append(out, p.Diags...)
+		for _, file := range v.Files(p) {
 			out = append(out, file.Diags...)
 		}
 	}
@@ -465,6 +471,24 @@ func (v *View) AllDiagnostics() []Diagnostic {
 
 // ----- Internal helpers -----
 
+// objKey identifies a types.Object semantically as "importpath:Recv.Name".
+// Pointer identity is deliberately avoided: the same declaration yields
+// distinct object instances in a package's plain and test-expanded variants.
+func objKey(obj types.Object) string {
+	if obj == nil || obj.Pkg() == nil {
+		return "" // universe scope or builtin: never a workspace symbol
+	}
+	name := obj.Name()
+	if fn, ok := obj.(*types.Func); ok {
+		if recv := fn.Signature().Recv(); recv != nil {
+			if recvName := typeRecvName(recv.Type()); recvName != "" {
+				name = recvName + "." + name
+			}
+		}
+	}
+	return obj.Pkg().Path() + ":" + name
+}
+
 // objectOf resolves a symbol to its types.Object via the owning package's
 // Defs map; nil when type information is unavailable.
 func (v *View) objectOf(sym *Symbol) types.Object {
@@ -495,24 +519,6 @@ func definingIdent(sym *Symbol) *ast.Ident {
 		}
 	}
 	return nil
-}
-
-// objKey identifies a types.Object semantically as "importpath:Recv.Name".
-// Pointer identity is deliberately avoided: the same declaration yields
-// distinct object instances in a package's plain and test-expanded variants.
-func objKey(obj types.Object) string {
-	if obj == nil || obj.Pkg() == nil {
-		return "" // universe scope or builtin: never a workspace symbol
-	}
-	name := obj.Name()
-	if fn, ok := obj.(*types.Func); ok {
-		if recv := fn.Signature().Recv(); recv != nil {
-			if recvName := typeRecvName(recv.Type()); recvName != "" {
-				name = recvName + "." + name
-			}
-		}
-	}
-	return obj.Pkg().Path() + ":" + name
 }
 
 // typeRecvName unwraps a receiver type down to its base type name.

@@ -61,6 +61,14 @@ func (p RelativePath) escapesRoot() bool {
 	return p == ".." || strings.HasPrefix(string(p), ".."+string(filepath.Separator))
 }
 
+// PkgPath is a package's import path: the canonical address of every
+// package, mirroring the type checker's identity. Workspace addresses are
+// the module path or prefixed by it; they convert to disk locations only
+// at the disk boundary (dirOf/pkgAt).
+type PkgPath string
+
+func (p PkgPath) String() string { return string(p) }
+
 type SymbolKind int
 
 const (
@@ -218,8 +226,8 @@ func (f *File) index(symbols map[string]*Symbol) {
 
 type Package struct {
 	Name    string
-	Path    RelativePath
-	PkgPath string // import path; the pattern for single-package overlay reloads
+	Path    RelativePath // workspace directory: the disk location
+	PkgPath PkgPath      // import path: the canonical address
 	Files   map[RelativePath]*File
 	Symbols map[string]*Symbol // derived index; see RebuildIndex
 	Diags   []Diagnostic       // package-scoped: no usable file position
@@ -248,10 +256,14 @@ type Unit struct {
 }
 
 type Engine struct {
-	mu       sync.RWMutex
-	RootDir  string
+	mu      sync.RWMutex
+	RootDir string
+	// Module is the workspace's module path, learned at Bootstrap and
+	// read-only afterwards: the prefix that turns a workspace directory
+	// into a canonical package address.
+	Module   PkgPath
 	FileSet  *token.FileSet
-	Packages map[RelativePath]*Unit
+	Packages map[PkgPath]*Unit
 	Diags    []Diagnostic // workspace-scoped: module/driver-level problems
 	logf     func(string, ...any)
 
@@ -268,7 +280,7 @@ func NewEngine(rootDir string, logf func(string, ...any)) *Engine {
 	return &Engine{
 		RootDir:  rootDir,
 		FileSet:  token.NewFileSet(),
-		Packages: make(map[RelativePath]*Unit),
+		Packages: make(map[PkgPath]*Unit),
 		logf:     logf,
 		removed:  make(map[RelativePath][]byte),
 	}
@@ -285,12 +297,13 @@ func (e *Engine) absPath(p RelativePath) string {
 // failure. Only a driver-level failure returns an error, leaving any
 // previous state untouched.
 func (e *Engine) Bootstrap(ctx context.Context) error {
-	fset, units, err := e.load(ctx, nil)
+	fset, module, units, err := e.load(ctx, nil)
 	if err != nil {
 		return err
 	}
 	e.mu.Lock()
 	e.FileSet = fset
+	e.Module = module
 	e.Packages = units
 	e.Diags = nil
 	e.removed = make(map[RelativePath][]byte)
@@ -298,14 +311,22 @@ func (e *Engine) Bootstrap(ctx context.Context) error {
 	return nil
 }
 
+// ModulePath returns the workspace's module path under the read lock: the
+// gate-safe accessor for callers outside Read and Edit.
+func (e *Engine) ModulePath() PkgPath {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.Module
+}
+
 // load runs the full pipeline — go/packages load, variant selection, package
 // building — against disk plus an optional overlay of in-memory contents.
 // It is the shared machinery of Bootstrap and the post-mutation recheck.
-func (e *Engine) load(ctx context.Context, overlay map[string][]byte) (*token.FileSet, map[RelativePath]*Unit, error) {
+func (e *Engine) load(ctx context.Context, overlay map[string][]byte) (*token.FileSet, PkgPath, map[PkgPath]*Unit, error) {
 	fset := token.NewFileSet()
 	loadStart := time.Now()
 	srcPkgs, err := packages.Load(&packages.Config{
-		Mode:    packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo,
+		Mode:    packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
 		Context: ctx,
 		Logf:    e.logf,
 		Dir:     e.RootDir,
@@ -314,13 +335,21 @@ func (e *Engine) load(ctx context.Context, overlay map[string][]byte) (*token.Fi
 		Overlay: overlay,
 	}, "./...")
 	if err != nil {
-		return nil, nil, fmt.Errorf("workspace loading failure: %w", err)
+		return nil, "", nil, fmt.Errorf("workspace loading failure: %w", err)
 	}
 	if e.logf != nil {
 		e.logf("load: go/packages took %v for %d package variants (overlay: %d files)",
 			time.Since(loadStart), len(srcPkgs), len(overlay))
 	}
 	buildStart := time.Now()
+
+	var module PkgPath
+	for _, srcPkg := range srcPkgs {
+		if srcPkg.Module != nil && srcPkg.Module.Path != "" {
+			module = PkgPath(srcPkg.Module.Path)
+			break
+		}
+	}
 
 	// Pass 1: select which load variants to keep, before building anything.
 	type candidates struct {
@@ -348,34 +377,35 @@ func (e *Engine) load(ctx context.Context, overlay map[string][]byte) (*token.Fi
 		}
 	}
 
-	// Pass 2: build only the winners.
-	units := make(map[RelativePath]*Unit)
+	// Pass 2: build only the winners, keyed by canonical package address —
+	// an external-test-only unit answers to its production sibling's path.
+	units := make(map[PkgPath]*Unit)
 	for _, cand := range selected {
 		if ctx.Err() != nil {
-			return nil, nil, fmt.Errorf("workspace load aborted by context cancellation: %w", ctx.Err())
+			return nil, "", nil, fmt.Errorf("workspace load aborted by context cancellation: %w", ctx.Err())
 		}
 		unit := &Unit{}
 		if cand.prod != nil {
 			if unit.Prod, err = e.buildPackage(cand.prod, fset, overlay); err != nil {
-				return nil, nil, err
+				return nil, "", nil, err
 			}
 		}
 		if cand.xtest != nil {
 			if unit.XTest, err = e.buildPackage(cand.xtest, fset, overlay); err != nil {
-				return nil, nil, err
+				return nil, "", nil, err
 			}
 		}
 		switch {
 		case unit.Prod != nil:
-			units[unit.Prod.Path] = unit
+			units[unit.Prod.PkgPath] = unit
 		case unit.XTest != nil:
-			units[unit.XTest.Path] = unit
+			units[PkgPath(strings.TrimSuffix(string(unit.XTest.PkgPath), "_test"))] = unit
 		}
 	}
 	if e.logf != nil {
 		e.logf("load: select+build took %v for %d units", time.Since(buildStart), len(units))
 	}
-	return fset, units, nil
+	return fset, module, units, nil
 }
 
 func (e *Engine) buildPackage(srcPkg *packages.Package, fset *token.FileSet, overlay map[string][]byte) (*Package, error) {
@@ -386,7 +416,7 @@ func (e *Engine) buildPackage(srcPkg *packages.Package, fset *token.FileSet, ove
 	pkg := &Package{
 		Name:      srcPkg.Name,
 		Path:      relPath,
-		PkgPath:   srcPkg.PkgPath,
+		PkgPath:   PkgPath(srcPkg.PkgPath),
 		Files:     make(map[RelativePath]*File),
 		Types:     srcPkg.Types,
 		TypesInfo: srcPkg.TypesInfo,
@@ -454,6 +484,26 @@ func (e *Engine) relativePath(fullPath string) (RelativePath, error) {
 		return "", err
 	}
 	return RelativePath(relPath), nil
+}
+
+// pkgAt wraps a workspace directory into its canonical package address.
+func (e *Engine) pkgAt(dir RelativePath) PkgPath {
+	if dir == "." {
+		return e.Module
+	}
+	return PkgPath(string(e.Module) + "/" + string(dir))
+}
+
+// dirOf unwraps a workspace package address to its directory, comma-ok
+// false outside the module: dependencies have no workspace location.
+func (e *Engine) dirOf(pkg PkgPath) (RelativePath, bool) {
+	if pkg == e.Module {
+		return ".", true
+	}
+	if rest, ok := strings.CutPrefix(string(pkg), string(e.Module)+"/"); ok {
+		return RelativePath(rest), true
+	}
+	return "", false
 }
 
 func toDiagKind(kind packages.ErrorKind) DiagKind {

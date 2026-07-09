@@ -25,11 +25,11 @@ func TestLookupNavigation(t *testing.T) {
 			t.Fatalf("Packages missing shapes: %v", paths)
 		}
 
-		pkg, ok := v.Package("shapes")
+		pkg, ok := v.Package(spkg("shapes"))
 		if !ok || pkg.Name != "shapes" {
 			t.Fatalf("Package(shapes) = %v, %v", pkg, ok)
 		}
-		xtest, ok := v.XTest("shapes")
+		xtest, ok := v.XTest(spkg("shapes"))
 		if !ok || xtest.Name != "shapes_test" {
 			t.Fatalf("XTest(shapes) = %v, %v", xtest, ok)
 		}
@@ -45,19 +45,18 @@ func TestLookupNavigation(t *testing.T) {
 			t.Error("File on a missing path must be comma-ok false")
 		}
 
-		// Equivalent spellings of the same address must resolve identically.
-		if _, ok := v.Package("shapes/"); !ok {
-			t.Error("Package must accept a trailing separator")
+		// Package addresses are canonical at the engine level — spelling
+		// tolerance lives in the tools gate (canonPkg). File paths still
+		// clean, since they arrive from compiler positions too.
+		if _, ok := v.Package("shapes"); ok {
+			t.Error("bare directory must not resolve at the engine level")
 		}
 		if _, _, ok := v.File("./shapes/shapes.go"); !ok {
 			t.Error("File must accept a ./ prefix")
 		}
-		if _, _, ok := v.Symbol("./shapes", "Circle"); !ok {
-			t.Error("Symbol must accept a ./ prefix")
-		}
 
 		// Symbol resolution falls through Prod into XTest.
-		if sym, symOwner, ok := v.Symbol("shapes", "TestAreaExternal"); !ok || symOwner != xtest || sym.Kind != KindFunc {
+		if sym, symOwner, ok := v.Symbol(spkg("shapes"), "TestAreaExternal"); !ok || symOwner != xtest || sym.Kind != KindFunc {
 			t.Error("XTest-only symbol must resolve through the unit")
 		}
 		return nil
@@ -70,7 +69,7 @@ func TestLookupNavigation(t *testing.T) {
 func TestLookupSymbolsAndExtraction(t *testing.T) {
 	e := sandboxEngine(t)
 	err := e.Read(func(v *View) error {
-		shape, owner, ok := v.Symbol("shapes", "Shape")
+		shape, owner, ok := v.Symbol(spkg("shapes"), "Shape")
 		if !ok {
 			t.Fatal(`Symbol(shapes, "Shape") not found`)
 		}
@@ -82,7 +81,7 @@ func TestLookupSymbolsAndExtraction(t *testing.T) {
 			t.Error("Doc() empty for a documented type")
 		}
 
-		area, _, _ := v.Symbol("shapes", "Circle.Area")
+		area, _, _ := v.Symbol(spkg("shapes"), "Circle.Area")
 		sig, ok := v.Signature(area)
 		if !ok || string(sig) != "func (c Circle) Area() float64" {
 			t.Errorf("Signature = %q", sig)
@@ -92,7 +91,7 @@ func TestLookupSymbolsAndExtraction(t *testing.T) {
 		}
 
 		// Grouped members extract their own spec, doc included.
-		kindCircle, _, ok := v.Symbol("shapes", "KindCircle")
+		kindCircle, _, ok := v.Symbol(spkg("shapes"), "KindCircle")
 		if !ok {
 			t.Fatal("grouped const not found")
 		}
@@ -133,14 +132,14 @@ func TestSymbolDiagnostics(t *testing.T) {
 		t.Fatalf("Bootstrap: %v", err)
 	}
 	err := e.Read(func(v *View) error {
-		brokenSym, _, ok := v.Symbol(".", "broken")
+		brokenSym, _, ok := v.Symbol("example.com/broken", "broken")
 		if !ok {
 			t.Skip("parser recovery did not index the broken decl; nothing to attribute")
 		}
 		if diags := v.SymbolDiagnostics(brokenSym); len(diags) == 0 {
 			t.Error("SymbolDiagnostics(broken) empty, expected the parse error inside its span")
 		}
-		okSym, _, ok := v.Symbol(".", "ok")
+		okSym, _, ok := v.Symbol("example.com/broken", "ok")
 		if !ok {
 			t.Fatal("healthy symbol not indexed")
 		}
