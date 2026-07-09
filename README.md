@@ -21,6 +21,7 @@ Because the server owns the live model, the loop is: query, edit, see the blast 
 - **The unit is the top-level declaration.** Anything between declarations — import blocks, package clauses, floating comments — is not addressable by the agent and must be managed by the server itself.
 - **Structural feedback is not correctness.** Diagnostics catch breakage the compiler can see. A type-correct edit can still implement the wrong logic, miss an edge case, or violate a convention no tool checks.
 - **Go only, by leaning on Go.** The server delegates to the standard toolchain rather than re-implementing language semantics, tying it to the language but keeping it honest.
+- **Dependencies are API surface, not code.** A dependency's exported declarations read like the workspace's; its internals are not modeled, its types stay outside the semantic-search universe, and it can never be edited.
 
 ## Tools
 Small set of 25 tools:

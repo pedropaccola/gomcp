@@ -38,11 +38,7 @@ func listPackages(eng *engine.Engine) mcp.ToolHandlerFor[ListPackagesInput, List
 func listFiles(eng *engine.Engine) mcp.ToolHandlerFor[ListFilesInput, ListFilesOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListFilesInput) (*mcp.CallToolResult, ListFilesOutput, error) {
 		var out ListFilesOutput
-		err := eng.Read(func(v *engine.View) error {
-			pkg, err := resolvePackage(v, in.Package)
-			if err != nil {
-				return err
-			}
+		err := readPackage(ctx, eng, in.Package, func(v *engine.View, pkg *engine.Package) error {
 			for _, file := range v.Files(pkg) {
 				out.Files = append(out.Files, file.Path.Base())
 			}
@@ -56,21 +52,25 @@ func listFiles(eng *engine.Engine) mcp.ToolHandlerFor[ListFilesInput, ListFilesO
 func listSymbols(eng *engine.Engine) mcp.ToolHandlerFor[ListSymbolsInput, ListSymbolsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListSymbolsInput) (*mcp.CallToolResult, ListSymbolsOutput, error) {
 		var out ListSymbolsOutput
-		err := eng.Read(func(v *engine.View) error {
-			pkg, err := resolvePackage(v, in.Package)
-			if err != nil {
-				return err
-			}
-			var fileFilter engine.RelativePath
+		err := readPackage(ctx, eng, in.Package, func(v *engine.View, pkg *engine.Package) error {
+			var target *engine.File
 			if in.File != "" {
 				name, err := fileArg(v.Module(), pkg.PkgPath, in.File)
 				if err != nil {
 					return err
 				}
-				fileFilter = pkg.Path.Join(name)
+				for _, f := range v.Files(pkg) {
+					if f.Path.Base() == name {
+						target = f
+						break
+					}
+				}
+				if target == nil {
+					return fmt.Errorf("no file %q in package %q", name, in.Package)
+				}
 			}
 			for _, sym := range v.Symbols(pkg) {
-				if fileFilter != "" && sym.File != fileFilter {
+				if target != nil && sym.File != target.Path {
 					continue
 				}
 				out.Symbols = append(out.Symbols, SymbolEntry{
@@ -79,10 +79,8 @@ func listSymbols(eng *engine.Engine) mcp.ToolHandlerFor[ListSymbolsInput, ListSy
 					Summary: summarize(v, sym),
 				})
 			}
-			if fileFilter != "" {
-				if file, _, ok := v.File(fileFilter); ok {
-					out.Diagnostics = diagStrings(file.Diags)
-				}
+			if target != nil {
+				out.Diagnostics = diagStrings(target.Diags)
 			} else {
 				out.Diagnostics = diagStrings(v.Diagnostics(pkg.PkgPath))
 			}
@@ -95,11 +93,7 @@ func listSymbols(eng *engine.Engine) mcp.ToolHandlerFor[ListSymbolsInput, ListSy
 func listMethods(eng *engine.Engine) mcp.ToolHandlerFor[ListMethodsInput, ListMethodsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListMethodsInput) (*mcp.CallToolResult, ListMethodsOutput, error) {
 		var out ListMethodsOutput
-		err := eng.Read(func(v *engine.View) error {
-			pkg, err := resolvePackage(v, in.Package)
-			if err != nil {
-				return err
-			}
+		err := readPackage(ctx, eng, in.Package, func(v *engine.View, pkg *engine.Package) error {
 			out.Methods = methodSignatures(v, pkg, in.Type)
 			for _, m := range v.Methods(pkg, in.Type) {
 				out.Diagnostics = append(out.Diagnostics, diagStrings(v.SymbolDiagnostics(m))...)
@@ -115,10 +109,9 @@ func listMethods(eng *engine.Engine) mcp.ToolHandlerFor[ListMethodsInput, ListMe
 func describeType(eng *engine.Engine) mcp.ToolHandlerFor[DescribeTypeInput, DescribeTypeOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DescribeTypeInput) (*mcp.CallToolResult, DescribeTypeOutput, error) {
 		var out DescribeTypeOutput
-		err := eng.Read(func(v *engine.View) error {
-			sym, owner, err := resolveSymbol(v, in.Package, in.Name, engine.KindType)
-			if err != nil {
-				return err
+		err := readSymbol(ctx, eng, in.Package, in.Name, func(v *engine.View, sym *engine.Symbol, owner *engine.Package) error {
+			if sym.Kind != engine.KindType {
+				return fmt.Errorf("%q is a %s, not a type: use the matching describe_* tool", in.Name, sym.Kind)
 			}
 			src, ok := v.DeclSource(sym)
 			if !ok {
@@ -139,22 +132,21 @@ func describeType(eng *engine.Engine) mcp.ToolHandlerFor[DescribeTypeInput, Desc
 
 func describeFunction(eng *engine.Engine) mcp.ToolHandlerFor[DescribeFunctionInput, DescribeOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DescribeFunctionInput) (*mcp.CallToolResult, DescribeOutput, error) {
-		return describeDecl(eng, in.Package, in.Name, engine.KindFunc)
+		return describeDecl(ctx, eng, in.Package, in.Name, engine.KindFunc)
 	}
 }
 
 func describeMethod(eng *engine.Engine) mcp.ToolHandlerFor[DescribeMethodInput, DescribeOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DescribeMethodInput) (*mcp.CallToolResult, DescribeOutput, error) {
-		return describeDecl(eng, in.Package, in.Type+"."+in.Name, engine.KindMethod)
+		return describeDecl(ctx, eng, in.Package, in.Type+"."+in.Name, engine.KindMethod)
 	}
 }
 
-func describeDecl(eng *engine.Engine, dir, key string, kind engine.SymbolKind) (*mcp.CallToolResult, DescribeOutput, error) {
+func describeDecl(ctx context.Context, eng *engine.Engine, addr, key string, kind engine.SymbolKind) (*mcp.CallToolResult, DescribeOutput, error) {
 	var out DescribeOutput
-	err := eng.Read(func(v *engine.View) error {
-		sym, _, err := resolveSymbol(v, dir, key, kind)
-		if err != nil {
-			return err
+	err := readSymbol(ctx, eng, addr, key, func(v *engine.View, sym *engine.Symbol, _ *engine.Package) error {
+		if sym.Kind != kind {
+			return fmt.Errorf("%q is a %s, not a %s: use the matching describe_* tool", key, sym.Kind, kind)
 		}
 		src, ok := v.DeclSource(sym)
 		if !ok {
@@ -253,6 +245,65 @@ func diagnostics(eng *engine.Engine) mcp.ToolHandlerFor[DiagnosticsInput, Diagno
 
 // ----- Shared helpers -----
 
+// readPackage resolves a package address across both worlds and runs fn
+// under the read gate with the resolved package: workspace first, then the
+// dependency cache, lazily loading the dependency on a workspace miss —
+// loads never happen under the gate.
+func readPackage(ctx context.Context, eng *engine.Engine, addr string, fn func(*engine.View, *engine.Package) error) error {
+	canon, err := canonPkg(eng.ModulePath(), addr)
+	if err != nil {
+		return err
+	}
+	clean, cleanOK := engine.CleanPath(addr)
+	ext := engine.PkgPath(clean)
+	extOK := cleanOK && ext != canon && ext != "."
+	attempt := func() (bool, error) {
+		found := false
+		err := eng.Read(func(v *engine.View) error {
+			if pkg, ok := v.Package(canon); ok {
+				found = true
+				return fn(v, pkg)
+			}
+			if extOK {
+				if pkg, ok := v.ExternalPackage(ext); ok {
+					found = true
+					return fn(v, pkg)
+				}
+			}
+			return nil
+		})
+		return found, err
+	}
+	if found, err := attempt(); err != nil || found {
+		return err
+	}
+	if !extOK {
+		return fmt.Errorf("no package at %q: call list_packages for valid addresses", addr)
+	}
+	if err := eng.LoadExternal(ctx, ext); err != nil {
+		return fmt.Errorf("no workspace package at %q, and %v", addr, err)
+	}
+	if found, err := attempt(); err != nil || found {
+		return err
+	}
+	return fmt.Errorf("no package at %q", addr)
+}
+
+// readSymbol is readPackage plus symbol resolution: workspace units fall
+// through Prod into XTest; dependency packages resolve their exported
+// index directly.
+func readSymbol(ctx context.Context, eng *engine.Engine, addr, key string, fn func(*engine.View, *engine.Symbol, *engine.Package) error) error {
+	return readPackage(ctx, eng, addr, func(v *engine.View, pkg *engine.Package) error {
+		if sym, owner, ok := v.Symbol(pkg.PkgPath, key); ok {
+			return fn(v, sym, owner)
+		}
+		if sym, ok := pkg.Symbols[key]; ok {
+			return fn(v, sym, pkg)
+		}
+		return fmt.Errorf("no symbol %q in package %q: call list_symbols for valid keys", key, addr)
+	})
+}
+
 // diagStrings renders diagnostics for a DiagBlock; nil when empty so that
 // omitempty drops the block entirely on healthy scopes.
 func diagStrings(diags []engine.Diagnostic) []string {
@@ -266,33 +317,23 @@ func diagStrings(diags []engine.Diagnostic) []string {
 	return out
 }
 
-// resolvePackage is the shared address gate for read handlers: it
-// canonicalizes untrusted input against the workspace module and resolves
-// it to the production package.
-func resolvePackage(v *engine.View, addr string) (*engine.Package, error) {
-	pkg, err := canonPkg(v.Module(), addr)
-	if err != nil {
-		return nil, err
-	}
-	p, ok := v.Package(pkg)
-	if !ok {
-		return nil, fmt.Errorf("no package at %q: call list_packages for valid addresses", addr)
-	}
-	return p, nil
-}
-
-// resolveAnySymbol resolves a package address and symbol key to the symbol
-// and its owning package, any kind.
+// resolveAnySymbol resolves a workspace package address and symbol key —
+// the semantic finders' gate: dependencies are excluded, since their type
+// universe cannot be matched exactly against the workspace's.
 func resolveAnySymbol(v *engine.View, addr, key string) (*engine.Symbol, *engine.Package, error) {
 	pkg, err := canonPkg(v.Module(), addr)
 	if err != nil {
 		return nil, nil, err
 	}
-	sym, owner, ok := v.Symbol(pkg, key)
-	if !ok {
-		return nil, nil, fmt.Errorf("no symbol %q in package %q: call list_symbols for valid keys", key, addr)
+	if sym, owner, ok := v.Symbol(pkg, key); ok {
+		return sym, owner, nil
 	}
-	return sym, owner, nil
+	if clean, ok := engine.CleanPath(addr); ok {
+		if _, cached := v.ExternalPackage(engine.PkgPath(clean)); cached {
+			return nil, nil, fmt.Errorf("%q is a dependency: its API is served read-only by list_* and describe_*; semantic search stays in the workspace", addr)
+		}
+	}
+	return nil, nil, fmt.Errorf("no symbol %q in package %q: call list_symbols for valid keys", key, addr)
 }
 
 // resolveSymbol is resolveAnySymbol plus kind checking.

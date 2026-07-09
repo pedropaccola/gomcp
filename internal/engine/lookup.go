@@ -73,18 +73,29 @@ func (v *View) XTest(pkg PkgPath) (*Package, bool) {
 	return unit.XTest, true
 }
 
-// File resolves a workspace-relative file path to the file and its owning
-// package, checking the production package before the external test package.
+// ExternalPackage resolves a dependency resident in the external cache;
+// LoadExternal fills the cache outside the read gate.
+func (v *View) ExternalPackage(pkg PkgPath) (*Package, bool) {
+	p, ok := v.eng.external[pkg]
+	return p, ok
+}
+
+// File resolves a file path to the file and its owning package, checking
+// the production package before the external test package. Dependency
+// files resolve through their import-path-qualified pseudo-paths.
 func (v *View) File(path RelativePath) (*File, *Package, bool) {
 	path = path.Clean()
-	unit, ok := v.eng.Packages[v.eng.pkgAt(path.Dir())]
-	if !ok {
-		return nil, nil, false
-	}
-	for _, pkg := range []*Package{unit.Prod, unit.XTest} {
-		if pkg == nil {
-			continue
+	if unit, ok := v.eng.Packages[v.eng.pkgAt(path.Dir())]; ok {
+		for _, pkg := range []*Package{unit.Prod, unit.XTest} {
+			if pkg == nil {
+				continue
+			}
+			if file, ok := pkg.Files[path]; ok {
+				return file, pkg, true
+			}
 		}
+	}
+	if pkg, ok := v.eng.external[PkgPath(path.Dir())]; ok {
 		if file, ok := pkg.Files[path]; ok {
 			return file, pkg, true
 		}
@@ -368,24 +379,21 @@ func (v *View) Signature(sym *Symbol) ([]byte, bool) {
 	return bytes.TrimRight(src, " \t\n"), true
 }
 
-// Position resolves a node to its file/line/column in the current snapshot.
-func (v *View) Position(node ast.Node) token.Position {
-	return v.eng.FileSet.Position(node.Pos())
-}
-
 // span is a byte-offset range [start, end) into a file's canonical Src.
 type span struct{ start, end int }
 
 // offsetSpan converts a position range into byte offsets in the file's Src —
 // the primitive under both source extraction and mutation splicing. Valid
-// because Ast is by invariant a parse of exactly Src.
+// because Ast is by invariant a parse of exactly Src. Positions resolve in
+// the owner's FileSet, so dependency files extract like workspace ones.
 func (v *View) offsetSpan(path RelativePath, from, to token.Pos) (span, bool) {
-	file, _, ok := v.File(path)
+	file, owner, ok := v.File(path)
 	if !ok || !from.IsValid() || !to.IsValid() {
 		return span{}, false
 	}
-	start := v.eng.FileSet.Position(from).Offset
-	end := v.eng.FileSet.Position(to).Offset
+	fset := v.eng.fsetOf(owner)
+	start := fset.Position(from).Offset
+	end := fset.Position(to).Offset
 	if start < 0 || end > len(file.Src) || start > end {
 		return span{}, false
 	}

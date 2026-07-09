@@ -237,6 +237,12 @@ type Package struct {
 	// partial info alongside its DiagType diagnostics.
 	Types     *types.Package
 	TypesInfo *types.Info
+
+	// external marks a read-only dependency from the module cache: its
+	// positions live in the engine's externalFset, its files are addressed
+	// by import-path-qualified pseudo-paths, and it is never mutated or
+	// flushed.
+	external bool
 }
 
 // RebuildIndex re-derives Symbols and every file's Inits from the current
@@ -272,17 +278,29 @@ type Engine struct {
 	// unlinks them. go/packages overlays cannot remove files, only replace
 	// their content, hence the mask.
 	removed map[RelativePath][]byte
+
+	// The read-only dependency cache, lazily filled by LoadExternal and
+	// reset by Bootstrap. External positions live in their own FileSet —
+	// rechecks swap the workspace FileSet, and cached packages must not
+	// have their positions invalidated underneath them. Negative results
+	// are cached too, so a mistyped address costs one load per session.
+	external     map[PkgPath]*Package
+	externalErr  map[PkgPath]error
+	externalFset *token.FileSet
 }
 
 // NewEngine creates an engine rooted at rootDir. logf enables go/packages
 // loader debug output; nil means silent.
 func NewEngine(rootDir string, logf func(string, ...any)) *Engine {
 	return &Engine{
-		RootDir:  rootDir,
-		FileSet:  token.NewFileSet(),
-		Packages: make(map[PkgPath]*Unit),
-		logf:     logf,
-		removed:  make(map[RelativePath][]byte),
+		RootDir:      rootDir,
+		FileSet:      token.NewFileSet(),
+		Packages:     make(map[PkgPath]*Unit),
+		logf:         logf,
+		removed:      make(map[RelativePath][]byte),
+		external:     make(map[PkgPath]*Package),
+		externalErr:  make(map[PkgPath]error),
+		externalFset: token.NewFileSet(),
 	}
 }
 
@@ -292,10 +310,10 @@ func (e *Engine) absPath(p RelativePath) string {
 }
 
 // Bootstrap loads the workspace from scratch and atomically swaps it in,
-// discarding any in-memory edits and tombstones. Broken code is a valid
-// state: per-package load errors become Diagnostics, never a bootstrap
-// failure. Only a driver-level failure returns an error, leaving any
-// previous state untouched.
+// discarding any in-memory edits, tombstones, and cached dependencies.
+// Broken code is a valid state: per-package load errors become
+// Diagnostics, never a bootstrap failure. Only a driver-level failure
+// returns an error, leaving any previous state untouched.
 func (e *Engine) Bootstrap(ctx context.Context) error {
 	fset, module, units, err := e.load(ctx, nil)
 	if err != nil {
@@ -307,6 +325,9 @@ func (e *Engine) Bootstrap(ctx context.Context) error {
 	e.Packages = units
 	e.Diags = nil
 	e.removed = make(map[RelativePath][]byte)
+	e.external = make(map[PkgPath]*Package)
+	e.externalErr = make(map[PkgPath]error)
+	e.externalFset = token.NewFileSet()
 	e.mu.Unlock()
 	return nil
 }
@@ -504,6 +525,100 @@ func (e *Engine) dirOf(pkg PkgPath) (RelativePath, bool) {
 		return RelativePath(rest), true
 	}
 	return "", false
+}
+
+// fsetOf is the FileSet a package's positions live in: the external
+// cache's for dependencies, the workspace FileSet otherwise.
+func (e *Engine) fsetOf(pkg *Package) *token.FileSet {
+	if pkg != nil && pkg.external {
+		return e.externalFset
+	}
+	return e.FileSet
+}
+
+// LoadExternal resolves a dependency by import path into the read-only
+// external cache — the lazy counterpart of the workspace load, serving
+// exported API only. It is never called under the read gate: callers load
+// first, then Read; ExternalPackage resolves what this installed.
+func (e *Engine) LoadExternal(ctx context.Context, pkg PkgPath) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if _, ok := e.external[pkg]; ok {
+		return nil
+	}
+	if err, ok := e.externalErr[pkg]; ok {
+		return err
+	}
+	fail := func(err error) error {
+		e.externalErr[pkg] = err
+		return err
+	}
+	srcPkgs, err := packages.Load(&packages.Config{
+		Mode:    packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes,
+		Context: ctx,
+		Logf:    e.logf,
+		Dir:     e.RootDir,
+		Fset:    e.externalFset,
+	}, string(pkg))
+	if err != nil {
+		return fail(fmt.Errorf("dependency %q failed to load: %w", pkg, err))
+	}
+	for _, srcPkg := range srcPkgs {
+		if PkgPath(srcPkg.PkgPath) != pkg || srcPkg.Name == "" || len(srcPkg.Syntax) == 0 {
+			continue
+		}
+		built, err := e.buildExternal(srcPkg)
+		if err != nil {
+			return fail(err)
+		}
+		e.external[pkg] = built
+		return nil
+	}
+	for _, srcPkg := range srcPkgs {
+		if len(srcPkg.Errors) > 0 {
+			return fail(fmt.Errorf("dependency %q failed to load: %s", pkg, srcPkg.Errors[0].Msg))
+		}
+	}
+	return fail(fmt.Errorf("no package at import path %q", pkg))
+}
+
+// buildExternal is buildPackage's read-only sibling: module-cache files
+// are addressed by import-path-qualified pseudo-paths (never flushable),
+// and only exported symbols survive indexing — a dependency is API
+// surface, not editable code.
+func (e *Engine) buildExternal(srcPkg *packages.Package) (*Package, error) {
+	pkg := &Package{
+		Name:     srcPkg.Name,
+		PkgPath:  PkgPath(srcPkg.PkgPath),
+		Files:    make(map[RelativePath]*File),
+		Types:    srcPkg.Types,
+		external: true,
+	}
+	for _, astFile := range srcPkg.Syntax {
+		abs := e.externalFset.File(astFile.FileStart).Name()
+		src, err := os.ReadFile(abs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read dependency source %s: %w", abs, err)
+		}
+		path := RelativePath(srcPkg.PkgPath).Join(filepath.Base(abs))
+		pkg.Files[path] = &File{Path: path, Src: src, Ast: astFile}
+	}
+	pkg.RebuildIndex()
+	for key, sym := range pkg.Symbols {
+		if !token.IsExported(sym.Name) || (sym.Recv != "" && !token.IsExported(sym.Recv)) {
+			delete(pkg.Symbols, key)
+		}
+	}
+	return pkg, nil
+}
+
+// IsExternal reports whether pkg is resident in the dependency cache — the
+// gate-safe accessor behind refusing mutations on read-only packages.
+func (e *Engine) IsExternal(pkg PkgPath) bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	_, ok := e.external[pkg]
+	return ok
 }
 
 func toDiagKind(kind packages.ErrorKind) DiagKind {

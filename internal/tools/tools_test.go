@@ -358,3 +358,53 @@ func TestAddressForms(t *testing.T) {
 		t.Errorf("rename_file with an agreeing file path: %v", err)
 	}
 }
+
+func TestExternalReadToolsAndRefusals(t *testing.T) {
+	eng := sandboxEngine(t)
+
+	_, typ, err := describeType(eng)(context.Background(), nil, DescribeTypeInput{
+		Package: "io", Name: "Reader",
+	})
+	if err != nil {
+		t.Fatalf("describe_type(io.Reader): %v", err)
+	}
+	if !strings.Contains(typ.Source, "type Reader interface") || typ.File != "io.go" {
+		t.Errorf("describe_type(io.Reader) wrong: file=%s", typ.File)
+	}
+
+	_, syms, err := listSymbols(eng)(context.Background(), nil, ListSymbolsInput{Package: "io"})
+	if err != nil {
+		t.Fatalf("list_symbols(io): %v", err)
+	}
+	sawReader := false
+	for _, s := range syms.Symbols {
+		if s.Key == "Reader" {
+			sawReader = true
+		}
+		if r := s.Key[0]; r >= 'a' && r <= 'z' {
+			t.Errorf("unexported %q leaked out of a dependency", s.Key)
+		}
+	}
+	if !sawReader {
+		t.Error("list_symbols(io) missing Reader")
+	}
+
+	// The workspace is the only mutable world.
+	if _, _, err := createDeclaration(eng)(context.Background(), nil, CreateDeclarationInput{
+		Package: "io", File: "extra.go", Source: "func Nope() {}",
+	}); err == nil || !strings.Contains(err.Error(), "read-only") {
+		t.Errorf("mutating a dependency must refuse, got %v", err)
+	}
+
+	// Semantic finders stay in the workspace.
+	if _, _, err := searchReferences(eng)(context.Background(), nil, SearchReferencesInput{
+		Package: "io", Key: "Reader",
+	}); err == nil || !strings.Contains(err.Error(), "workspace") {
+		t.Errorf("semantic search on a dependency must steer, got %v", err)
+	}
+
+	// A workspace typo still errors after the failed dependency attempt.
+	if _, _, err := listFiles(eng)(context.Background(), nil, ListFilesInput{Package: "shaeps"}); err == nil {
+		t.Error("typo'd address must error")
+	}
+}

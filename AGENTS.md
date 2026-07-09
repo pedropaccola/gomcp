@@ -11,7 +11,10 @@ An MCP server exposing a Go workspace to coding agents through
 declaration-scoped tools only — no file reads, no grep escape hatch. It
 keeps the whole workspace in memory (source bytes + ASTs + type info via
 `go/packages`) and answers every mutation with the diagnostics it caused.
-README.md explains the bet; ROADMAP.md tracks agreed-but-deferred work.
+Dependencies resolve through the same read tools by import path: exported
+API only, lazily cached (`LoadExternal`), never mutable, reset with the
+workspace snapshot. README.md explains the bet; ROADMAP.md tracks
+agreed-but-deferred work.
 
 ## Layout
 
@@ -94,9 +97,10 @@ internals stay out of them.
 
 Address convention (both directions, gated by `canonPkg`/`fileArg`):
 `package` is the import path (`github.com/you/mod/internal/tools`) — the
-type checker's identity, one grammar for workspace and (future) external
-packages; a bare workspace directory (`internal/tools`) is accepted and
-gains the module prefix. A `*.go` name is never a package — refused, not
+type checker's identity, one grammar for workspace and dependency
+packages (resolution order: workspace first, then the dependency cache,
+lazily loaded); a bare workspace directory (`internal/tools`) is accepted
+and gains the module prefix. A `*.go` name is never a package — refused, not
 stripped. `file` is a bare name within its package (`read.go`); a path is
 tolerated when its package agrees (workspace-relative or module-qualified
 spelling), and contradictions are refused, never guessed. Outputs speak
@@ -135,3 +139,12 @@ your working tree. A `reload` call refreshes the server's model after
 direct edits or git operations; only *behavior and schema* changes to the
 server itself still require a reconnect, since the running binary is the
 running binary.
+
+Plan for these tools cause-first, not site-first: file-editing habits say
+inventory every affected site up front (grep, skim, list), but here you
+plan only the declaration and signature changes in dependency order and
+let the mutation echoes enumerate the consequence sites — exactly, per
+transaction. Order edits so echoes stay interpretable (types before
+consumers, helpers before callers); batch all changes to one declaration
+into a single edit (replacement is whole-declaration); and always end with
+the test suite — echoes referee only what the type system distinguishes.

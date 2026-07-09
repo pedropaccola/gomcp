@@ -63,7 +63,7 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 		Name:        "list_files",
 		Annotations: reads("List files"),
 		Description: "List the Go files of one package by bare name — combined with the " +
-			"package they form the file address every other tool expects.",
+			"package they form the file address every other tool expects." + depNote,
 	}, listFiles(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -72,13 +72,13 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 		Description: "List the top-level symbols of one package: key, kind, and a one-line " +
 			"summary (the signature for funcs and methods, the declaration line for types, " +
 			"vars, and consts — var/const values appear here; they have no describe_* tool). " +
-			"Methods are keyed \"Type.Name\". Pass file to restrict to one file.",
+			"Methods are keyed \"Type.Name\". Pass file to restrict to one file." + depNote,
 	}, listSymbols(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_methods",
 		Annotations: reads("List methods"),
-		Description: "List the method signatures declared on one type.",
+		Description: "List the method signatures declared on one type." + depNote,
 	}, listMethods(eng))
 
 	// Describers
@@ -86,19 +86,19 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 		Name:        "describe_type",
 		Annotations: reads("Describe type"),
 		Description: "Show a type's full declaration source (doc comment included) " +
-			"together with the signatures of its methods.",
+			"together with the signatures of its methods." + depNote,
 	}, describeType(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "describe_function",
 		Annotations: reads("Describe function"),
-		Description: "Show a function's full declaration source, doc comment and body included.",
+		Description: "Show a function's full declaration source, doc comment and body included." + depNote,
 	}, describeFunction(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "describe_method",
 		Annotations: reads("Describe method"),
-		Description: "Show a method's full declaration source, doc comment and body included.",
+		Description: "Show a method's full declaration source, doc comment and body included." + depNote,
 	}, describeMethod(eng))
 
 	// Finders
@@ -123,7 +123,8 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 		Annotations: reads("Find implementors"),
 		Description: "Find every named type in the workspace whose method set satisfies the " +
 			"given interface, checked with full type information — embedded and promoted " +
-			"methods included. The target must be a non-empty interface.",
+			"methods included. The target must be a non-empty workspace interface; " +
+			"dependencies are outside the search universe.",
 	}, searchImplementors(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -132,7 +133,7 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 		Description: "Find every top-level declaration in the workspace that references the " +
 			"given symbol, resolved with full type information. Results are declaration " +
 			"addresses, not line positions; the definition itself and self-references " +
-			"are excluded.",
+			"are excluded. The target must be a workspace symbol.",
 	}, searchReferences(eng))
 
 	// Diagnostics
@@ -247,6 +248,9 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 
 const echoNote = " Returns the files changed, the diagnostics the edit introduced (its blast " +
 	"radius), and the pre-existing diagnostics it resolved; an error means nothing was changed."
+
+// depNote marks the read tools that also serve dependencies.
+const depNote = " Dependencies resolve by import path too: read-only, exported API only, loaded on first touch."
 
 // DiagBlock is the shared optional diagnostics view, scoped to whatever the
 // carrying tool read. See the package doc's output convention.

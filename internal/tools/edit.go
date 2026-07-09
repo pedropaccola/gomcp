@@ -246,28 +246,35 @@ func canonPkg(module engine.PkgPath, addr string) (engine.PkgPath, error) {
 	return engine.PkgPath(module.String() + "/" + path.String()), nil
 }
 
-// packageArg validates and canonicalizes an agent-supplied package address
-// for handlers running outside the read gate.
+// packageArg validates and canonicalizes a package address for the
+// mutation handlers — the write-side gate: dependencies are refused, the
+// workspace is the only mutable world.
 func packageArg(eng *engine.Engine, addr string) (engine.PkgPath, error) {
-	return canonPkg(eng.ModulePath(), addr)
+	canon, err := canonPkg(eng.ModulePath(), addr)
+	if err != nil {
+		return "", err
+	}
+	if clean, ok := engine.CleanPath(addr); ok && eng.IsExternal(engine.PkgPath(clean)) {
+		return "", fmt.Errorf("dependency %q is read-only", addr)
+	}
+	return canon, nil
 }
 
 // fileArg normalizes an agent-supplied file address inside pkg: a bare
-// *.go name, or a path accepted when its package agrees — workspace-
-// relative and module-qualified spellings both. Contradictions are
-// refused, never guessed.
+// *.go name, or a path accepted when its package agrees — spelled raw
+// (dependency and canonical workspace addresses) or workspace-relative.
+// Contradictions are refused, never guessed.
 func fileArg(module, pkg engine.PkgPath, file string) (string, error) {
 	if strings.Contains(file, "/") {
 		fpath, ok := engine.CleanPath(file)
 		if !ok {
 			return "", fmt.Errorf("invalid file path %q", file)
 		}
-		owner, err := canonPkg(module, fpath.Dir().String())
-		if err != nil {
-			return "", err
-		}
-		if owner != pkg {
-			return "", fmt.Errorf("file %q does not live in package %q", file, pkg)
+		if engine.PkgPath(fpath.Dir()) != pkg {
+			canon, err := canonPkg(module, fpath.Dir().String())
+			if err != nil || canon != pkg {
+				return "", fmt.Errorf("file %q does not live in package %q", file, pkg)
+			}
 		}
 		file = fpath.Base()
 	}

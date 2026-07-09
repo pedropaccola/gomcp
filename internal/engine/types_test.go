@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"bytes"
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -103,4 +105,63 @@ func TestSymbolsReferencing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestExternalLoading(t *testing.T) {
+	e := sandboxEngine(t)
+	if err := e.LoadExternal(context.Background(), "io"); err != nil {
+		t.Fatalf("LoadExternal(io): %v", err)
+	}
+	err := e.Read(func(v *View) error {
+		pkg, ok := v.ExternalPackage("io")
+		if !ok {
+			t.Fatal("io missing from the external cache")
+		}
+		reader, ok := pkg.Symbols["Reader"]
+		if !ok {
+			t.Fatal("io.Reader not indexed")
+		}
+		src, ok := v.DeclSource(reader)
+		if !ok || !bytes.Contains(src, []byte("Read(p []byte) (n int, err error)")) {
+			t.Errorf("DeclSource(io.Reader) = %q, %v", src, ok)
+		}
+		for key := range pkg.Symbols {
+			if r := key[0]; r >= 'a' && r <= 'z' {
+				t.Errorf("unexported symbol %q leaked into the external index", key)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExternalRefusalsAndReset(t *testing.T) {
+	e := sandboxEngine(t)
+	if err := e.LoadExternal(context.Background(), "no.such.host/bogus"); err == nil {
+		t.Error("bogus import path must error")
+	}
+	if err := e.LoadExternal(context.Background(), "no.such.host/bogus"); err == nil {
+		t.Error("negative cache must keep refusing")
+	}
+	if err := e.LoadExternal(context.Background(), "io"); err != nil {
+		t.Fatalf("LoadExternal(io): %v", err)
+	}
+	// Dependencies are read-only: mutation verbs never see them.
+	if _, err := e.Edit(context.Background(), func(tx *Tx) error {
+		return tx.CreateSymbol("io", "extra.go", "func Nope() {}")
+	}); err == nil || !strings.Contains(err.Error(), "no package") {
+		t.Errorf("mutating a dependency must fail, got %v", err)
+	}
+	// The cache lives and dies with the workspace snapshot.
+	if _, err := e.Reload(context.Background()); err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+	e.Read(func(v *View) error {
+		if _, ok := v.ExternalPackage("io"); ok {
+			t.Error("external cache survived reload")
+		}
+		return nil
+	})
 }

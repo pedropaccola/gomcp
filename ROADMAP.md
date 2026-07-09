@@ -24,6 +24,12 @@ Milestones we've agreed on but deliberately deferred, so they don't get lost.
   functions used as values — no call site to rewrite). Parked:
   `extract_function`/`extract_variable` operate on statement ranges inside
   bodies, breaking declaration-scoped addressing.
+- Fine-grained modification: whole-declaration replacement is the dominant
+  token cost of self-hosted work — a one-line change to a 190-line
+  declaration costs the whole declaration in the request. Sub-declaration
+  addressing doesn't fit the current model, but if the weight keeps
+  bearing, find a way. Candidates: anchored splices within a declaration,
+  or statement-range addressing bridged from SymbolAt.
 - Interface-method rename does not chase implementors to preserve
   satisfaction (gopls does); broken satisfactions arrive in the echo.
   Upgrade when it earns its complexity.
@@ -56,19 +62,6 @@ that practice taught:
   a tool doesn't require touching them; verb-level documentation lives in
   doc comments (addressable) and README/AGENTS.md.
 
-## Gaps
-
-- **Read-only inspection of external packages by import path.** Everything
-  outside the workspace root is invisible today (CleanPath rejects it by
-  design), so an agent needing a dependency's API — the go-sdk, x/tools —
-  must escape to raw file reads against the module cache, exactly the
-  fallback this server exists to remove (it happened repeatedly while
-  building this very project). Sketch: address dependencies by import path
-  where workspace tools take a relative dir (e.g.
-  describe_type("golang.org/x/tools/go/packages", "Config")); load them
-  on demand with syntax via a targeted packages.Load; strictly Enumerators,
-  Describers, and Finders — mutation verbs never resolve an import path.
-
 ## Housekeeping
 
 - Flush is not atomic across files: a mid-flush I/O error leaves a partial
@@ -95,3 +88,12 @@ that practice taught:
   discarding unflushed work (reported per package). Manual edits and git
   operations no longer force a reconnect; only behavior/schema changes to
   the server binary do.
+- **Read-only inspection of dependencies by import path.** The last escape
+  hatch, closed: any importable package — third-party or stdlib — answers
+  `list_*`/`describe_*` by import path (verified live on the go-sdk's own
+  `mcp.Tool`). Exported API only, lazily cached with its own FileSet (a
+  recheck cannot invalidate cached positions), negative results cached,
+  everything reset with the workspace snapshot. Mutations refuse
+  dependencies by name; semantic finders stay in the workspace — a
+  dependency's type universe cannot be matched exactly against the
+  workspace's, and approximation is never the fallback.
