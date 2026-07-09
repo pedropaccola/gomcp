@@ -31,6 +31,11 @@ func CleanPath(s string) (RelativePath, bool) {
 	return p, true
 }
 
+// Base is the final path element: the bare file name for file paths.
+func (p RelativePath) Base() string {
+	return filepath.Base(string(p))
+}
+
 // Clean re-normalizes the path so equivalent spellings of the same address
 // ("./x", "x/", "a//b") resolve identically. Resolvers apply it on entry.
 func (p RelativePath) Clean() RelativePath {

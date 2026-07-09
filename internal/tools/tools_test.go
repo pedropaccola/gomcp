@@ -308,3 +308,49 @@ func TestMutationTools(t *testing.T) {
 		t.Error("editing a missing declaration must error")
 	}
 }
+
+func TestAddressForms(t *testing.T) {
+	eng := sandboxEngine(t)
+
+	// Package arguments never accept file names, on any tool.
+	if _, _, err := listSymbols(eng)(context.Background(), nil, ListSymbolsInput{
+		Package: "shapes/shapes.go",
+	}); err == nil || !strings.Contains(err.Error(), "names a file") {
+		t.Errorf("file-named package must be refused, got %v", err)
+	}
+	if _, _, err := deletePackage(eng)(context.Background(), nil, DeletePackageInput{
+		Package: "shapes/shapes.go",
+	}); err == nil || !strings.Contains(err.Error(), "names a file") {
+		t.Errorf("file-named package on a destructive tool must be refused, got %v", err)
+	}
+
+	// File arguments accept a bare name or a path that agrees with the
+	// package; contradictions and non-*.go forms are refused.
+	if _, syms, err := listSymbols(eng)(context.Background(), nil, ListSymbolsInput{
+		Package: "shapes", File: "shapes/groups.go",
+	}); err != nil || len(syms.Symbols) == 0 {
+		t.Errorf("file path agreeing with package must be accepted, got %v", err)
+	}
+	if _, _, err := listSymbols(eng)(context.Background(), nil, ListSymbolsInput{
+		Package: "shapes", File: "use/use.go",
+	}); err == nil || !strings.Contains(err.Error(), "does not live in") {
+		t.Errorf("file outside the package must be refused, got %v", err)
+	}
+	if _, _, err := createDeclaration(eng)(context.Background(), nil, CreateDeclarationInput{
+		Package: "shapes", File: "notgo", Source: "func X() {}",
+	}); err == nil || !strings.Contains(err.Error(), "bare *.go name") {
+		t.Errorf("non-.go file name must be refused, got %v", err)
+	}
+
+	// File-addressed mutations speak (package, file) like everything else.
+	if _, _, err := deleteFile(eng)(context.Background(), nil, DeleteFileInput{
+		Package: "use", File: "alias.go",
+	}); err != nil {
+		t.Errorf("delete_file with (package, file): %v", err)
+	}
+	if _, _, err := renameFile(eng)(context.Background(), nil, RenameFileInput{
+		Package: "shapes", File: "shapes/groups.go", NewName: "grouped.go",
+	}); err != nil {
+		t.Errorf("rename_file with an agreeing file path: %v", err)
+	}
+}

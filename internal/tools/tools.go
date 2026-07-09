@@ -370,13 +370,13 @@ type MutationOutput struct {
 }
 
 type CreatePackageInput struct {
-	Path string `json:"path"`
-	Name string `json:"name,omitempty"`
+	Package string `json:"package"`
+	Name    string `json:"name,omitempty"`
 }
 
 type CreateFileInput struct {
 	Package string `json:"package"`
-	Name    string `json:"name"`
+	File    string `json:"file"`
 }
 
 type CreateDeclarationInput struct {
@@ -397,7 +397,8 @@ type DeleteDeclarationInput struct {
 }
 
 type DeleteFileInput struct {
-	Path string `json:"path"`
+	Package string `json:"package"`
+	File    string `json:"file"`
 }
 
 type DeletePackageInput struct {
@@ -417,7 +418,8 @@ type RenameDeclarationInput struct {
 }
 
 type RenameFileInput struct {
-	Path    string `json:"path"`
+	Package string `json:"package"`
+	File    string `json:"file"`
 	NewName string `json:"new_name"`
 }
 

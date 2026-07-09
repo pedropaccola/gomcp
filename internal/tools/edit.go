@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pedropaccola/gomcp/internal/engine"
@@ -33,20 +34,11 @@ func runEdit(ctx context.Context, eng *engine.Engine, fn func(*engine.Tx) error)
 	return nil, out, nil
 }
 
-// packageArg validates an agent-supplied package path.
-func packageArg(dir string) (engine.RelativePath, error) {
-	path, ok := engine.CleanPath(dir)
-	if !ok {
-		return "", fmt.Errorf("invalid package path %q: must be workspace-relative", dir)
-	}
-	return path, nil
-}
-
 // ----- Creators -----
 
 func createPackage(eng *engine.Engine) mcp.ToolHandlerFor[CreatePackageInput, MutationOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreatePackageInput) (*mcp.CallToolResult, MutationOutput, error) {
-		dir, err := packageArg(in.Path)
+		dir, err := packageArg(in.Package)
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
@@ -62,8 +54,12 @@ func createFile(eng *engine.Engine) mcp.ToolHandlerFor[CreateFileInput, Mutation
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
+		file, err := fileArg(dir, in.File)
+		if err != nil {
+			return nil, MutationOutput{}, err
+		}
 		return runEdit(ctx, eng, func(tx *engine.Tx) error {
-			return tx.CreateFile(dir, in.Name)
+			return tx.CreateFile(dir, file)
 		})
 	}
 }
@@ -74,8 +70,12 @@ func createDeclaration(eng *engine.Engine) mcp.ToolHandlerFor[CreateDeclarationI
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
+		file, err := fileArg(dir, in.File)
+		if err != nil {
+			return nil, MutationOutput{}, err
+		}
 		return runEdit(ctx, eng, func(tx *engine.Tx) error {
-			return tx.CreateSymbol(dir, in.File, in.Source)
+			return tx.CreateSymbol(dir, file, in.Source)
 		})
 	}
 }
@@ -108,12 +108,16 @@ func deleteDeclaration(eng *engine.Engine) mcp.ToolHandlerFor[DeleteDeclarationI
 
 func deleteFile(eng *engine.Engine) mcp.ToolHandlerFor[DeleteFileInput, MutationOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteFileInput) (*mcp.CallToolResult, MutationOutput, error) {
-		path, err := packageArg(in.Path)
+		dir, err := packageArg(in.Package)
+		if err != nil {
+			return nil, MutationOutput{}, err
+		}
+		file, err := fileArg(dir, in.File)
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
 		return runEdit(ctx, eng, func(tx *engine.Tx) error {
-			return tx.DeleteFile(path)
+			return tx.DeleteFile(dir.Join(file))
 		})
 	}
 }
@@ -138,8 +142,12 @@ func moveDeclaration(eng *engine.Engine) mcp.ToolHandlerFor[MoveDeclarationInput
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
+		file, err := fileArg(dir, in.File)
+		if err != nil {
+			return nil, MutationOutput{}, err
+		}
 		return runEdit(ctx, eng, func(tx *engine.Tx) error {
-			return tx.MoveSymbol(dir, in.Key, in.File)
+			return tx.MoveSymbol(dir, in.Key, file)
 		})
 	}
 }
@@ -158,12 +166,16 @@ func renameDeclaration(eng *engine.Engine) mcp.ToolHandlerFor[RenameDeclarationI
 
 func renameFile(eng *engine.Engine) mcp.ToolHandlerFor[RenameFileInput, MutationOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in RenameFileInput) (*mcp.CallToolResult, MutationOutput, error) {
-		path, err := packageArg(in.Path)
+		dir, err := packageArg(in.Package)
+		if err != nil {
+			return nil, MutationOutput{}, err
+		}
+		file, err := fileArg(dir, in.File)
 		if err != nil {
 			return nil, MutationOutput{}, err
 		}
 		return runEdit(ctx, eng, func(tx *engine.Tx) error {
-			return tx.RenameFile(path, in.NewName)
+			return tx.RenameFile(dir.Join(file), in.NewName)
 		})
 	}
 }
@@ -198,4 +210,40 @@ func flush(eng *engine.Engine) mcp.ToolHandlerFor[FlushInput, FlushOutput] {
 		}
 		return nil, out, err
 	}
+}
+
+// ----- helpers -----
+
+// fileArg normalizes an agent-supplied file address inside dir: a bare
+// *.go name, or a workspace-relative path accepted when its directory
+// agrees with dir. Contradictions are refused, never guessed.
+func fileArg(dir engine.RelativePath, file string) (string, error) {
+	if strings.Contains(file, "/") {
+		fpath, ok := engine.CleanPath(file)
+		if !ok {
+			return "", fmt.Errorf("invalid file path %q: must be workspace-relative", file)
+		}
+		if fpath.Dir() != dir {
+			return "", fmt.Errorf("file %q does not live in package %q", file, dir)
+		}
+		file = fpath.Base()
+	}
+	if !strings.HasSuffix(file, ".go") {
+		return "", fmt.Errorf("file name must be a bare *.go name, got %q", file)
+	}
+	return file, nil
+}
+
+// packageArg validates an agent-supplied package address: a clean,
+// workspace-relative directory path. File names are refused — packages
+// are directories, always spelled alone.
+func packageArg(dir string) (engine.RelativePath, error) {
+	path, ok := engine.CleanPath(dir)
+	if !ok {
+		return "", fmt.Errorf("invalid package path %q: must be workspace-relative", dir)
+	}
+	if strings.HasSuffix(path.String(), ".go") {
+		return "", fmt.Errorf("%q names a file; package arguments take the directory alone", dir)
+	}
+	return path, nil
 }

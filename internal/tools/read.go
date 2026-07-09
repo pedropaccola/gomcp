@@ -63,11 +63,11 @@ func listSymbols(eng *engine.Engine) mcp.ToolHandlerFor[ListSymbolsInput, ListSy
 			}
 			var fileFilter engine.RelativePath
 			if in.File != "" {
-				path, ok := engine.CleanPath(in.File)
-				if !ok {
-					return fmt.Errorf("invalid file path %q: must be workspace-relative", in.File)
+				name, err := fileArg(pkg.Path, in.File)
+				if err != nil {
+					return err
 				}
-				fileFilter = path
+				fileFilter = pkg.Path.Join(name)
 			}
 			for _, sym := range v.Symbols(pkg) {
 				if fileFilter != "" && sym.File != fileFilter {
@@ -267,11 +267,12 @@ func diagStrings(diags []engine.Diagnostic) []string {
 }
 
 // resolvePackage is the shared address gate: it validates untrusted path
-// input and resolves it to the production package.
+// input through the same rules as every package argument and resolves it
+// to the production package.
 func resolvePackage(v *engine.View, dir string) (*engine.Package, error) {
-	path, ok := engine.CleanPath(dir)
-	if !ok {
-		return nil, fmt.Errorf("invalid package path %q: must be workspace-relative", dir)
+	path, err := packageArg(dir)
+	if err != nil {
+		return nil, err
 	}
 	pkg, ok := v.Package(path)
 	if !ok {
