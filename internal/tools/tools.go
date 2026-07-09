@@ -233,6 +233,15 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 		Description: "Write every in-memory edit to disk: dirty files are written, deleted and " +
 			"renamed-away paths are unlinked. Until flush, the filesystem is untouched.",
 	}, flush(eng))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "reload",
+		Annotations: mutates("Reload from disk", true),
+		Description: "Rebuild the in-memory workspace from disk, discarding every unflushed " +
+			"edit and pending deletion — the inverse of flush. The echo reports what was " +
+			"discarded, grouped by package, plus the fresh workspace diagnostics. Use after " +
+			"the filesystem changed behind the server.",
+	}, reload(eng))
 }
 
 const echoNote = " Returns the files changed, the diagnostics the edit introduced (its blast " +
@@ -434,4 +443,14 @@ type FlushInput struct{}
 type FlushOutput struct {
 	Written map[string][]string `json:"written,omitempty"`
 	Removed map[string][]string `json:"removed,omitempty"`
+}
+
+type ReloadInput struct{}
+
+// ReloadOutput reports what a reload threw away, grouped by package, plus
+// the fresh workspace diagnostics — reload's scope is the whole workspace,
+// so here the view and the inventory coincide.
+type ReloadOutput struct {
+	Discarded map[string][]string `json:"discarded,omitempty"`
+	DiagBlock
 }

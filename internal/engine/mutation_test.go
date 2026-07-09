@@ -574,3 +574,31 @@ func TestMoveToNewFile(t *testing.T) {
 		return nil
 	})
 }
+
+func TestReloadDiscards(t *testing.T) {
+	e := sandboxEngine(t)
+	mustEdit(t, e, func(tx *Tx) error {
+		if err := tx.CreateSymbol("shapes", "extra.go", "func Extra() {}"); err != nil {
+			return err
+		}
+		return tx.DeleteFile("use/alias.go")
+	})
+	discarded, err := e.Reload(context.Background())
+	if err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+	for _, want := range []RelativePath{"shapes/extra.go", "use/alias.go"} {
+		if !slices.Contains(discarded, want) {
+			t.Errorf("discarded missing %q: %v", want, discarded)
+		}
+	}
+	e.Read(func(v *View) error {
+		if _, _, ok := v.Symbol("shapes", "Extra"); ok {
+			t.Error("unflushed symbol survived reload")
+		}
+		if _, _, ok := v.File("use/alias.go"); !ok {
+			t.Error("unflushed deletion survived reload: alias.go missing")
+		}
+		return nil
+	})
+}

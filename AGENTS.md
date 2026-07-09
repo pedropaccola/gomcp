@@ -81,7 +81,9 @@ Diagnostics):
 
 **tools/** — `list_*` enumerate, `describe_*` render one address, `search_*`
 scan, `diagnostics` reports, `create_*`/`edit_*`/`delete_*`/`move_*`/`rename_*`
-mutate, `flush` writes to disk. tools.go holds the entire declared surface
+mutate, `flush` writes to disk, `reload` rebuilds from it (discarding
+unflushed work — the recovery move when the filesystem changed behind the
+server, e.g. after manual edits or git operations). tools.go holds the entire declared surface
 (names, descriptions, schemas); handlers hold no presentation decisions the
 shapes don't show. Every reader output may carry a `DiagBlock` scoped to
 exactly what was read — a view, never the inventory (`diagnostics` is the
@@ -114,6 +116,7 @@ internals stay out of them.
 If the gomcp server is connected, its instructions forbid raw file I/O on
 .go files — but the server's own state goes stale the moment you edit its
 source with other tools, and it serves the *running* binary's behavior, not
-your working tree. When developing the server itself, prefer direct file
-tools plus the test suite; use the MCP connection for end-to-end
-verification after a reconnect.
+your working tree. A `reload` call refreshes the server's model after
+direct edits or git operations; only *behavior and schema* changes to the
+server itself still require a reconnect, since the running binary is the
+running binary.

@@ -161,6 +161,37 @@ func (e *Engine) Flush() (written, removed []RelativePath, err error) {
 	return written, removed, nil
 }
 
+// Reload rebuilds the workspace from disk, discarding every unflushed
+// change: the disk-facing inverse of Flush. It reports the files whose
+// in-memory state was lost — dirty files and pending removals. An error
+// means the previous state is untouched.
+func (e *Engine) Reload(ctx context.Context) ([]RelativePath, error) {
+	e.mu.RLock()
+	var discarded []RelativePath
+	for _, unit := range e.Packages {
+		for _, pkg := range []*Package{unit.Prod, unit.XTest} {
+			if pkg == nil {
+				continue
+			}
+			for path, file := range pkg.Files {
+				if file.IsDirty {
+					discarded = append(discarded, path)
+				}
+			}
+		}
+	}
+	for path := range e.removed {
+		discarded = append(discarded, path)
+	}
+	e.mu.RUnlock()
+	slices.Sort(discarded)
+	discarded = slices.Compact(discarded)
+	if err := e.Bootstrap(ctx); err != nil {
+		return nil, err
+	}
+	return discarded, nil
+}
+
 // ----- Creators -----
 
 // CreatePackage creates a new package at dir with one file named after the

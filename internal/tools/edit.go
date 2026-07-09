@@ -206,6 +206,22 @@ func flush(eng *engine.Engine) mcp.ToolHandlerFor[FlushInput, FlushOutput] {
 	}
 }
 
+func reload(eng *engine.Engine) mcp.ToolHandlerFor[ReloadInput, ReloadOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, _ ReloadInput) (*mcp.CallToolResult, ReloadOutput, error) {
+		var out ReloadOutput
+		discarded, err := eng.Reload(ctx)
+		if err != nil {
+			return nil, out, err
+		}
+		out.Discarded = filesByPackage(discarded)
+		err = eng.Read(func(v *engine.View) error {
+			out.Diagnostics = diagStrings(v.AllDiagnostics())
+			return nil
+		})
+		return nil, out, err
+	}
+}
+
 // ----- helpers -----
 
 // fileArg normalizes an agent-supplied file address inside dir: a bare
