@@ -9,13 +9,28 @@ Milestones we've agreed on but deliberately deferred, so they don't get lost.
   durations demand it, narrow to dirty packages plus transitive dependents
   via a stored import graph, and budget FileSet compaction into that change
   (today the full reload is what resets FileSet growth).
+- Batch mutations: one tool call carrying several verbs in one transaction.
+  The engine already amortizes — Edit rechecks once per Tx, not per verb —
+  so batching collapses N tool-call rechecks into one. Preferred over
+  incremental invalidation for as long as it holds; makes mid-Tx
+  type-staleness observable (below).
+- Safe-move vocabulary — the refactoring-browser game: make big changes
+  using only behavior-preserving moves, refereed by an empty diagnostics
+  delta. In rough order of fit: `move_declaration` across packages
+  (qualifier rewrites via `gatherUses`, imports via the self-repair pass);
+  `extract_interface` from a type's method set (purely additive);
+  `inline_function` / `inline_constant` with refuse-on-doubt guards;
+  `change_signature` driven by an explicit argument mapping (refuses
+  functions used as values — no call site to rewrite). Parked:
+  `extract_function`/`extract_variable` operate on statement ranges inside
+  bodies, breaking declaration-scoped addressing.
 - Interface-method rename does not chase implementors to preserve
   satisfaction (gopls does); broken satisfactions arrive in the echo.
   Upgrade when it earns its complexity.
 - External test package (_test-suffixed) creation is unsupported:
   create_file targets the production package.
-- Mid-Tx reads are parse-fresh but type-stale; becomes observable only if a
-  batch tool (multiple verbs per call) ever exists.
+- Mid-Tx reads are parse-fresh but type-stale; becomes observable once the
+  batch tool exists.
 
 ## Field notes — first live mutation exercise
 
@@ -23,23 +38,23 @@ Milestones we've agreed on but deliberately deferred, so they don't get lost.
   Point→Coord. Consider gopls-style rewriting of the doc comment's leading
   identifier.
 
-## Field notes — self-hosted development (move_declaration built through the toolset)
+## Field notes — self-hosted development
 
-- **Floating comments are unreachable.** The layer headers in mutation.go /
-  lookup.go and the tools.go package doc (the tool-prefix conventions line)
-  are not declaration-attached, so no tool can update them. The mutation.go
-  header and tools package doc are now slightly behind the code (no mention
-  of move semantics / `move_*` prefix) until edited directly.
-- **Placement policy vs semantic sections.** `insertOffset` puts new Tx
-  methods after the last existing Tx method, not under the intended
-  Creators/Editors/Refactorings section banner — the server can't know the
-  banners exist. `MoveSymbol`, `extractDecl`, and `groupUsesIota` need a
-  manual reshuffle into their sections.
-- **Two address styles for files.** `list_files`/`list_symbols` speak
-  workspace-relative paths (`internal/engine/mutation.go`) while mutation
-  verbs demand bare names (`mutation.go`). Both refusals steer correctly,
-  but the round-trip from a read output into a mutation input needs a
-  mental conversion — consider accepting either form.
+The server now routinely builds itself (move_declaration, the address
+uniformization, and reload were all written through its own tools). What
+that practice taught:
+
+- **The delta echoes carry the work.** Changing an output type reported the
+  exact handler lines it broke; each fix came back in `resolved`. Whole
+  migrations ran without a single build to check compile status.
+- **Placement policy vs semantic sections** (standing workflow note):
+  `insertOffset` places new declarations by kind and receiver, not under
+  the section banners — the server can't know banners exist. Finish
+  self-hosted sessions with a by-hand reshuffle into sections.
+- **Floating comments are unreachable, now deliberately.** Layer headers
+  and package docs describe categories, never individual verbs, so adding
+  a tool doesn't require touching them; verb-level documentation lives in
+  doc comments (addressable) and README/AGENTS.md.
 
 ## Gaps
 
@@ -60,3 +75,18 @@ Milestones we've agreed on but deliberately deferred, so they don't get lost.
   write on disk (in-memory state stays consistent; re-flush recovers).
 - One live-repo self-hosting smoke test remains (TestBootstrapLiveRepo),
   deliberately, behind `-short`. Everything else runs on fixtures.
+
+## Fixed
+
+- **Two address styles for files.** Resolved by the interface
+  uniformization: package arguments are directory paths everywhere (never
+  `*.go` — refused, not stripped), file arguments are bare names within
+  their package (a full path is tolerated when its directory agrees;
+  contradictions are refused), and outputs mirror the split — bare names
+  when the package was the input, package-keyed maps (`{"pkg": ["file.go"]}`)
+  when a result spans packages. Diagnostics strings stay `path:line:col`:
+  positional prose, not addresses.
+- **Reconnect-to-refresh.** `reload` is flush's inverse: rebuild from disk,
+  discarding unflushed work (reported per package). Manual edits and git
+  operations no longer force a reconnect; only behavior/schema changes to
+  the server binary do.

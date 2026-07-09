@@ -92,6 +92,15 @@ introduced, and diagnostics resolved. Tool descriptions earn words only for
 what changes the agent's input or its reading of the output — server
 internals stay out of them.
 
+Address convention (both directions, gated by `packageArg`/`fileArg`):
+`package` is a directory path (`internal/tools`), never a `*.go` name —
+refused, not stripped. `file` is a bare name within its package
+(`read.go`); a full path is tolerated when its directory agrees with
+`package`, and contradictions are refused, never guessed. Outputs mirror
+the split: bare file names when the package was the input, package-keyed
+maps (`{"pkg": ["file.go"]}`) when a result spans packages. Diagnostics
+strings stay `path:line:col` — positional prose, not addresses.
+
 ## Testing
 
 - Everything runs against `testdata/sandbox` (bootstrapped in-memory;
