@@ -61,7 +61,8 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_files",
 		Annotations: reads("List files"),
-		Description: "List the Go files of one package as workspace-relative paths.",
+		Description: "List the Go files of one package by bare name — combined with the " +
+			"package they form the file address every other tool expects.",
 	}, listFiles(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -360,10 +361,10 @@ type DiagnosticsOutput struct {
 // ----- Mutation shapes -----
 
 // MutationOutput is the shared echo of every mutating tool: the files
-// changed, the diagnostics this edit introduced (DiagBlock), and the
-// pre-existing diagnostics it resolved.
+// changed grouped by package, the diagnostics this edit introduced
+// (DiagBlock), and the pre-existing diagnostics it resolved.
 type MutationOutput struct {
-	Files []string `json:"files"`
+	Files map[string][]string `json:"files"`
 	DiagBlock
 	Resolved           []string `json:"resolved,omitempty"`
 	RecheckUnavailable bool     `json:"recheck_unavailable,omitempty"`
@@ -431,6 +432,6 @@ type RenamePackageInput struct {
 type FlushInput struct{}
 
 type FlushOutput struct {
-	Written []string `json:"written"`
-	Removed []string `json:"removed,omitempty"`
+	Written map[string][]string `json:"written,omitempty"`
+	Removed map[string][]string `json:"removed,omitempty"`
 }

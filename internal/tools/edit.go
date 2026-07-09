@@ -22,9 +22,7 @@ func runEdit(ctx context.Context, eng *engine.Engine, fn func(*engine.Tx) error)
 	if err != nil {
 		return nil, out, err
 	}
-	for _, path := range report.Changed {
-		out.Files = append(out.Files, path.String())
-	}
+	out.Files = filesByPackage(report.Changed)
 	out.Diagnostics = diagStrings(report.Delta)
 	out.Resolved = diagStrings(report.Resolved)
 	if report.Stale {
@@ -200,15 +198,11 @@ func renamePackage(eng *engine.Engine) mcp.ToolHandlerFor[RenamePackageInput, Mu
 
 func flush(eng *engine.Engine) mcp.ToolHandlerFor[FlushInput, FlushOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, _ FlushInput) (*mcp.CallToolResult, FlushOutput, error) {
-		var out FlushOutput
 		written, removed, err := eng.Flush()
-		for _, path := range written {
-			out.Written = append(out.Written, path.String())
-		}
-		for _, path := range removed {
-			out.Removed = append(out.Removed, path.String())
-		}
-		return nil, out, err
+		return nil, FlushOutput{
+			Written: filesByPackage(written),
+			Removed: filesByPackage(removed),
+		}, err
 	}
 }
 
@@ -246,4 +240,19 @@ func packageArg(dir string) (engine.RelativePath, error) {
 		return "", fmt.Errorf("%q names a file; package arguments take the directory alone", dir)
 	}
 	return path, nil
+}
+
+// filesByPackage groups workspace-relative paths into the interface's
+// address convention: package directory to bare file names. Input order is
+// preserved within each package, so sorted paths stay sorted.
+func filesByPackage(paths []engine.RelativePath) map[string][]string {
+	if len(paths) == 0 {
+		return nil
+	}
+	out := make(map[string][]string)
+	for _, p := range paths {
+		dir := p.Dir().String()
+		out[dir] = append(out[dir], p.Base())
+	}
+	return out
 }

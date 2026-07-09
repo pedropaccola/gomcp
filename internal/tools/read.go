@@ -44,7 +44,7 @@ func listFiles(eng *engine.Engine) mcp.ToolHandlerFor[ListFilesInput, ListFilesO
 				return err
 			}
 			for _, file := range v.Files(pkg) {
-				out.Files = append(out.Files, file.Path.String())
+				out.Files = append(out.Files, file.Path.Base())
 			}
 			out.Diagnostics = diagStrings(v.Diagnostics(pkg.Path))
 			return nil
@@ -124,7 +124,7 @@ func describeType(eng *engine.Engine) mcp.ToolHandlerFor[DescribeTypeInput, Desc
 			if !ok {
 				return fmt.Errorf("source extraction failed for %q", in.Name)
 			}
-			out.File = sym.File.String()
+			out.File = sym.File.Base()
 			out.Source = string(src)
 			out.Methods = methodSignatures(v, owner, in.Name)
 			out.Diagnostics = diagStrings(v.SymbolDiagnostics(sym))
@@ -160,7 +160,7 @@ func describeDecl(eng *engine.Engine, dir, key string, kind engine.SymbolKind) (
 		if !ok {
 			return fmt.Errorf("source extraction failed for %q", key)
 		}
-		out.File = sym.File.String()
+		out.File = sym.File.Base()
 		out.Source = string(src)
 		out.Diagnostics = diagStrings(v.SymbolDiagnostics(sym))
 		return nil

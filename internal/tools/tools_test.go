@@ -125,13 +125,13 @@ func TestListSymbolsAndFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list_files: %v", err)
 	}
-	if !slices.Contains(files.Files, "shapes/groups.go") {
+	if !slices.Contains(files.Files, "groups.go") {
 		t.Errorf("list_files missing groups.go: %v", files.Files)
 	}
 
 	_, syms, err := listSymbols(eng)(context.Background(), nil, ListSymbolsInput{
 		Package: "shapes",
-		File:    "shapes/groups.go",
+		File:    "groups.go",
 	})
 	if err != nil {
 		t.Fatalf("list_symbols: %v", err)
@@ -163,7 +163,7 @@ func TestDescribers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("describe_type: %v", err)
 	}
-	if !strings.Contains(typ.Source, "type Circle struct") || typ.File != "shapes/shapes.go" {
+	if !strings.Contains(typ.Source, "type Circle struct") || typ.File != "shapes.go" {
 		t.Errorf("describe_type(Circle) wrong: file=%s", typ.File)
 	}
 	if !slices.ContainsFunc(typ.Methods, func(s string) bool {
@@ -274,7 +274,7 @@ func TestMutationTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create_declaration: %v", err)
 	}
-	if !slices.Contains(created.Files, "shapes/extra.go") || len(created.Diagnostics) != 0 {
+	if !slices.Contains(created.Files["shapes"], "extra.go") || len(created.Diagnostics) != 0 {
 		t.Errorf("create echo wrong: %+v", created)
 	}
 
