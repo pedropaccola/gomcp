@@ -23,6 +23,24 @@ Milestones we've agreed on but deliberately deferred, so they don't get lost.
   Point→Coord. Consider gopls-style rewriting of the doc comment's leading
   identifier.
 
+## Field notes — self-hosted development (move_declaration built through the toolset)
+
+- **Floating comments are unreachable.** The layer headers in mutation.go /
+  lookup.go and the tools.go package doc (the tool-prefix conventions line)
+  are not declaration-attached, so no tool can update them. The mutation.go
+  header and tools package doc are now slightly behind the code (no mention
+  of move semantics / `move_*` prefix) until edited directly.
+- **Placement policy vs semantic sections.** `insertOffset` puts new Tx
+  methods after the last existing Tx method, not under the intended
+  Creators/Editors/Refactorings section banner — the server can't know the
+  banners exist. `MoveSymbol`, `extractDecl`, and `groupUsesIota` need a
+  manual reshuffle into their sections.
+- **Two address styles for files.** `list_files`/`list_symbols` speak
+  workspace-relative paths (`internal/engine/mutation.go`) while mutation
+  verbs demand bare names (`mutation.go`). Both refusals steer correctly,
+  but the round-trip from a read output into a mutation input needs a
+  mental conversion — consider accepting either form.
+
 ## Gaps
 
 - **Read-only inspection of external packages by import path.** Everything

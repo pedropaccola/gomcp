@@ -23,7 +23,7 @@ Because the server owns the live model, the loop is: query, edit, see the blast 
 - **Go only, by leaning on Go.** The server delegates to the standard toolchain rather than re-implementing language semantics, tying it to the language but keeping it honest.
 
 ## Tools
-Small set of 23 tools:
+Small set of 24 tools:
 
 ### Read
 * Enumerators (consistent sorted output): `list_packages`, `list_files`, `list_symbols`, `list_methods`
@@ -34,7 +34,7 @@ Small set of 23 tools:
 ### Write
 * Creators (fail if the address already exists; cannot destroy code): `create_package`, `create_file`, `create_declaration`
 * Editors (fail if the address doesn't exist): `edit_declaration`, `delete_declaration`, `delete_file`, `delete_package`
-* Refactorings (propagate through resolved references): `rename_declaration`, `rename_file`, `rename_package`
+* Refactorings (structure-preserving transformations): `move_declaration`, `rename_declaration`, `rename_file`, `rename_package`
 * Session (writes the in-memory state to disk): `flush`
 
 More on [tools/tools.go](../main/internal/tools/tools.go)

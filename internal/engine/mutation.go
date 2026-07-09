@@ -24,7 +24,8 @@ import (
 //
 //   - Creators      fail if the address already exists; can never destroy.
 //   - Editors       fail if the address doesn't exist; delete included.
-//   - Refactorings  multi-site transformations driven by semantic scans.
+//   - Refactorings  structure-preserving transformations; refused whenever
+//                    preservation cannot be guaranteed.
 //
 // Pipeline principle: every content mutation is a byte-span splice on a
 // file's canonical Src — the AST locates spans but is never re-printed, so
@@ -339,6 +340,50 @@ func (tx *Tx) DeletePackage(dir RelativePath) error {
 }
 
 // ----- Refactorings -----
+
+// MoveSymbol relocates key's declaration to another file of the same
+// package: a pure splice, no reference is touched. A member of a grouped
+// declaration is extracted as a standalone declaration; extraction refuses
+// members whose meaning depends on their position in the group. Moves
+// never cross the test build boundary, and the destination file is created
+// when missing.
+func (tx *Tx) MoveSymbol(dir RelativePath, key, fileName string) error {
+	sym, owner, ok := tx.Symbol(dir, key)
+	if !ok {
+		return fmt.Errorf("no symbol %q in %q", key, dir)
+	}
+	destPath, err := fileAddress(owner, fileName)
+	if err != nil {
+		return err
+	}
+	if destPath == sym.File {
+		return fmt.Errorf("%q already lives in %q", key, destPath)
+	}
+	if strings.HasSuffix(fileName, "_test.go") != strings.HasSuffix(sym.File.String(), "_test.go") {
+		return fmt.Errorf("moving %q from %q to %q would cross the test build boundary", key, sym.File, destPath)
+	}
+	file := owner.Files[sym.File]
+	src, sp, err := tx.extractDecl(sym, file)
+	if err != nil {
+		return err
+	}
+	frag, err := parseDeclFragment(src)
+	if err != nil {
+		return err
+	}
+	dest, inOwner := owner.Files[destPath]
+	if _, _, exists := tx.File(destPath); exists && !inOwner {
+		return fmt.Errorf("file %q belongs to another package", destPath)
+	}
+	if err := tx.reloadFile(owner, sym.File, applyEdits(file.Src, []edit{{span: sp}})); err != nil {
+		return err
+	}
+	if !inOwner {
+		return tx.reloadFile(owner, destPath, []byte("package "+owner.Name+"\n\n"+src+"\n"))
+	}
+	at := tx.insertOffset(dest, frag)
+	return tx.reloadFile(owner, destPath, applyEdits(dest.Src, []edit{{span: span{start: at, end: at}, repl: []byte("\n\n" + src + "\n")}}))
+}
 
 // RenameSymbol renames key to newName everywhere: the defining identifier
 // and every resolved use across the workspace, matched by qualified name.
@@ -985,6 +1030,60 @@ func (v *View) specSpan(sym *Symbol) (span, bool) {
 		start = doc.Pos()
 	}
 	return v.offsetSpan(sym.File, start, sym.Spec.End())
+}
+
+// extractDecl returns sym's declaration as standalone source together with
+// the span its removal splices out, doc comment included in both. A member
+// of a grouped declaration with siblings is rebuilt ungrouped — doc first,
+// then the group's keyword before the spec. Extraction refuses members
+// whose meaning depends on their surroundings: names sharing a spec, and
+// const-group values taken from their position (iota, inherited values).
+func (tx *Tx) extractDecl(sym *Symbol, file *File) (string, span, error) {
+	if spec, ok := sym.Spec.(*ast.ValueSpec); ok && len(spec.Names) > 1 {
+		return "", span{}, fmt.Errorf("%q is declared together with other names: replace the spec instead", sym.Key())
+	}
+	gen, grouped := groupOf(sym)
+	if !grouped || len(gen.Specs) == 1 {
+		sp, ok := tx.declSpan(sym)
+		if !ok {
+			return "", span{}, fmt.Errorf("cannot locate %q in source", sym.Key())
+		}
+		return string(file.Src[sp.start:sp.end]), sp, nil
+	}
+	if spec, ok := sym.Spec.(*ast.ValueSpec); ok && gen.Tok == token.CONST && (len(spec.Values) == 0 || groupUsesIota(gen)) {
+		return "", span{}, fmt.Errorf("%q takes its value from its position in a const group: move refused", sym.Key())
+	}
+	sp, ok := tx.specSpan(sym)
+	if !ok {
+		return "", span{}, fmt.Errorf("cannot locate %q in source", sym.Key())
+	}
+	body, ok := tx.offsetSpan(sym.File, sym.Spec.Pos(), sym.Spec.End())
+	if !ok {
+		return "", span{}, fmt.Errorf("cannot locate %q in source", sym.Key())
+	}
+	doc := string(file.Src[sp.start:body.start])
+	return doc + gen.Tok.String() + " " + string(file.Src[body.start:body.end]), sp, nil
+}
+
+// groupUsesIota reports whether any value expression in a grouped
+// declaration references iota, making member meaning position-dependent.
+func groupUsesIota(gen *ast.GenDecl) bool {
+	found := false
+	for _, spec := range gen.Specs {
+		vs, ok := spec.(*ast.ValueSpec)
+		if !ok {
+			continue
+		}
+		for _, value := range vs.Values {
+			ast.Inspect(value, func(n ast.Node) bool {
+				if ident, ok := n.(*ast.Ident); ok && ident.Name == "iota" {
+					found = true
+				}
+				return !found
+			})
+		}
+	}
+	return found
 }
 
 // fileAddress validates a bare *.go name inside pkg's directory.

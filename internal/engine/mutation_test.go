@@ -471,3 +471,106 @@ func TestRenameFileAndFlush(t *testing.T) {
 		t.Errorf("old path still on disk: %v", err)
 	}
 }
+
+func TestMoveSymbol(t *testing.T) {
+	e := sandboxEngine(t)
+	report := mustEdit(t, e, func(tx *Tx) error {
+		return tx.MoveSymbol("shapes", "NotShape", "groups.go")
+	})
+	if len(report.Delta) != 0 {
+		t.Errorf("move introduced diagnostics: %v", deltaStrings(report))
+	}
+	e.Read(func(v *View) error {
+		sym, _, ok := v.Symbol("shapes", "NotShape")
+		if !ok {
+			t.Fatal("NotShape lost by move")
+		}
+		if sym.File != "shapes/groups.go" {
+			t.Errorf("NotShape lives in %q, want shapes/groups.go", sym.File)
+		}
+		return nil
+	})
+	// A method moves too: without its receiver anchor in the destination it
+	// falls to the bottom, and interface satisfaction stays intact.
+	report = mustEdit(t, e, func(tx *Tx) error {
+		return tx.MoveSymbol("shapes", "Circle.Area", "groups.go")
+	})
+	if len(report.Delta) != 0 {
+		t.Errorf("method move introduced diagnostics: %v", deltaStrings(report))
+	}
+}
+
+func TestMoveGroupedSpec(t *testing.T) {
+	e := sandboxEngine(t)
+	report := mustEdit(t, e, func(tx *Tx) error {
+		return tx.MoveSymbol("shapes", "DefaultScale", "shapes.go")
+	})
+	if len(report.Delta) != 0 {
+		t.Errorf("grouped move introduced diagnostics: %v", deltaStrings(report))
+	}
+	e.Read(func(v *View) error {
+		sym, _, ok := v.Symbol("shapes", "DefaultScale")
+		if !ok {
+			t.Fatal("DefaultScale lost by move")
+		}
+		if sym.File != "shapes/shapes.go" {
+			t.Errorf("DefaultScale lives in %q, want shapes/shapes.go", sym.File)
+		}
+		if _, _, ok := v.Symbol("shapes", "debugMode"); !ok {
+			t.Error("sibling spec destroyed by grouped move")
+		}
+		file, _, _ := v.File("shapes/shapes.go")
+		if !bytes.Contains(file.Src, []byte("var DefaultScale")) {
+			t.Errorf("grouped member not extracted as standalone declaration:\n%s", file.Src)
+		}
+		return nil
+	})
+}
+
+func TestMoveRefusals(t *testing.T) {
+	e := sandboxEngine(t)
+	cases := []struct {
+		key, file, want string
+	}{
+		{"KindCircle", "shapes.go", "position in a const group"},
+		{"minX", "shapes.go", "declared together"},
+		{"NotShape", "shapes.go", "already lives"},
+		{"Missing", "shapes.go", "no symbol"},
+		{"NotShape", "extra_test.go", "test build boundary"},
+	}
+	for _, tc := range cases {
+		_, err := e.Edit(context.Background(), func(tx *Tx) error {
+			return tx.MoveSymbol("shapes", tc.key, tc.file)
+		})
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("MoveSymbol(%q, %q) error = %v, want it to contain %q", tc.key, tc.file, err, tc.want)
+		}
+	}
+}
+
+func TestMoveToNewFile(t *testing.T) {
+	e := sandboxEngine(t)
+	mustEdit(t, e, func(tx *Tx) error {
+		return tx.CreateSymbol("shapes", "extra.go", "// Doubled reports twice the default scale.\nfunc Doubled() float64 { return 2 * DefaultScale }")
+	})
+	report := mustEdit(t, e, func(tx *Tx) error {
+		return tx.MoveSymbol("shapes", "Doubled", "moved.go")
+	})
+	if len(report.Delta) != 0 {
+		t.Errorf("move introduced diagnostics: %v", deltaStrings(report))
+	}
+	e.Read(func(v *View) error {
+		sym, _, ok := v.Symbol("shapes", "Doubled")
+		if !ok {
+			t.Fatal("Doubled lost by move")
+		}
+		if sym.File != "shapes/moved.go" {
+			t.Errorf("Doubled lives in %q, want shapes/moved.go", sym.File)
+		}
+		file, _, _ := v.File("shapes/moved.go")
+		if !bytes.Contains(file.Src, []byte("// Doubled reports twice the default scale.")) {
+			t.Errorf("doc comment did not travel with the move:\n%s", file.Src)
+		}
+		return nil
+	})
+}

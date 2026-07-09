@@ -67,7 +67,10 @@ Diagnostics):
 
 **mutation.go** (sections: Creators / Editors / Refactorings):
 - Creators fail if the address exists (can never destroy). Editors fail if
-  it doesn't. Refactorings are multi-site, driven by the semantic scanners.
+  it doesn't. Refactorings are structure-preserving: multi-site renames
+  driven by the semantic scanners, and moves that refuse anything whose
+  meaning depends on its surroundings (iota groups, shared specs, the test
+  build boundary).
 - New declarations land at canonical positions: const/var top, types next,
   funcs bottom, methods right after their receiver's group (`insertOffset`).
 - The server owns import blocks: goimports runs in every `reloadFile`, and
@@ -77,7 +80,7 @@ Diagnostics):
 - Symbol keys: `"Name"`, methods `"Recv.Name"`. Same address space as reads.
 
 **tools/** — `list_*` enumerate, `describe_*` render one address, `search_*`
-scan, `diagnostics` reports, `create_*`/`edit_*`/`delete_*`/`rename_*`
+scan, `diagnostics` reports, `create_*`/`edit_*`/`delete_*`/`move_*`/`rename_*`
 mutate, `flush` writes to disk. tools.go holds the entire declared surface
 (names, descriptions, schemas); handlers hold no presentation decisions the
 shapes don't show. Every reader output may carry a `DiagBlock` scoped to

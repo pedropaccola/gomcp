@@ -5,8 +5,8 @@
 // This file declares the tool surface — registration and I/O shapes — while
 // the implementation lives beside its semantic section (read.go, edit.go).
 // Tool naming convention: list_* enumerate a scope, describe_* render one
-// address, search_* scan the workspace, diagnostics reports problems,
-// create_*/edit_*/delete_*/rename_* mutate, flush writes to disk.
+// address, search_* scan the workspace, diagnostics reports problems, every
+// other prefix mirrors its mutation verb, and flush writes to disk.
 //
 // Output convention: every reader carries an optional diagnostics block
 // (DiagBlock) scoped to exactly what it read. Scoped blocks are views,
@@ -193,6 +193,16 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 	}, deletePackage(eng))
 
 	// Refactorings
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "move_declaration",
+		Annotations: mutates("Move declaration", true),
+		Description: "Move a declaration to another file of the same package — references " +
+			"are untouched and the destination file is created when missing. A member of a " +
+			"grouped const/var/type block is extracted as a standalone declaration; members " +
+			"whose value depends on their position in the group (iota) are refused, as are " +
+			"moves across the test build boundary." + echoNote,
+	}, moveDeclaration(eng))
+
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "rename_declaration",
 		Annotations: mutates("Rename declaration", true),
@@ -392,6 +402,12 @@ type DeleteFileInput struct {
 
 type DeletePackageInput struct {
 	Package string `json:"package"`
+}
+
+type MoveDeclarationInput struct {
+	Package string `json:"package"`
+	Key     string `json:"key"`
+	File    string `json:"file"`
 }
 
 type RenameDeclarationInput struct {

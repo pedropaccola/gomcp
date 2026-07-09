@@ -132,6 +132,18 @@ func deletePackage(eng *engine.Engine) mcp.ToolHandlerFor[DeletePackageInput, Mu
 
 // ----- Refactorings -----
 
+func moveDeclaration(eng *engine.Engine) mcp.ToolHandlerFor[MoveDeclarationInput, MutationOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in MoveDeclarationInput) (*mcp.CallToolResult, MutationOutput, error) {
+		dir, err := packageArg(in.Package)
+		if err != nil {
+			return nil, MutationOutput{}, err
+		}
+		return runEdit(ctx, eng, func(tx *engine.Tx) error {
+			return tx.MoveSymbol(dir, in.Key, in.File)
+		})
+	}
+}
+
 func renameDeclaration(eng *engine.Engine) mcp.ToolHandlerFor[RenameDeclarationInput, MutationOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in RenameDeclarationInput) (*mcp.CallToolResult, MutationOutput, error) {
 		dir, err := packageArg(in.Package)
