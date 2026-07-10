@@ -104,7 +104,7 @@ func TestLookupSymbolsAndExtraction(t *testing.T) {
 		if methods := v.Methods(owner, "Stack"); len(methods) != 1 || methods[0].Key() != "Stack.Push" {
 			t.Errorf("Methods(Stack) = %v", methods)
 		}
-		for _, f := range v.Files(owner) {
+		for _, f := range owner.Files() {
 			if _, o, ok := v.File(f.Path); !ok || o != owner {
 				t.Errorf("Files entry %s does not resolve back to its package", f.Path)
 			}

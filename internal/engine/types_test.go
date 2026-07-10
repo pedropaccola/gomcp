@@ -117,7 +117,7 @@ func TestExternalLoading(t *testing.T) {
 		if !ok {
 			t.Fatal("io missing from the external cache")
 		}
-		reader, ok := pkg.Symbols["Reader"]
+		reader, ok := pkg.Symbol("Reader")
 		if !ok {
 			t.Fatal("io.Reader not indexed")
 		}
@@ -125,9 +125,9 @@ func TestExternalLoading(t *testing.T) {
 		if !ok || !bytes.Contains(src, []byte("Read(p []byte) (n int, err error)")) {
 			t.Errorf("DeclSource(io.Reader) = %q, %v", src, ok)
 		}
-		for key := range pkg.Symbols {
-			if r := key[0]; r >= 'a' && r <= 'z' {
-				t.Errorf("unexported symbol %q leaked into the external index", key)
+		for _, sym := range pkg.Symbols() {
+			if r := sym.Key()[0]; r >= 'a' && r <= 'z' {
+				t.Errorf("unexported symbol %q leaked into the external index", sym.Key())
 			}
 		}
 		return nil

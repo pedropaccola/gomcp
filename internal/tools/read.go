@@ -13,7 +13,11 @@ import (
 
 // Read tool implementations, in the same semantic sections as the engine's
 // lookup layer: Enumerators, Describers, Finders, Diagnostics. Every handler
-// is one Engine.Read scope composing lookups; shapes live in tools.go.
+// is one read scope composing lookups (readPackage/readSymbol resolve the
+// address across workspace and dependencies); shapes live in tools.go.
+// Handlers carry no doc comments by design — they are mechanical relays,
+// documented by their tool descriptions in Register; only the shared
+// helpers at the bottom explain themselves.
 
 // ----- Enumerators -----
 
@@ -39,7 +43,7 @@ func listFiles(eng *engine.Engine) mcp.ToolHandlerFor[ListFilesInput, ListFilesO
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListFilesInput) (*mcp.CallToolResult, ListFilesOutput, error) {
 		var out ListFilesOutput
 		err := readPackage(ctx, eng, in.Package, func(v *engine.View, pkg *engine.Package) error {
-			for _, file := range v.Files(pkg) {
+			for _, file := range pkg.Files() {
 				out.Files = append(out.Files, file.Path.Base())
 			}
 			out.Diagnostics = diagStrings(v.Diagnostics(pkg.PkgPath))
@@ -59,7 +63,7 @@ func listSymbols(eng *engine.Engine) mcp.ToolHandlerFor[ListSymbolsInput, ListSy
 				if err != nil {
 					return err
 				}
-				for _, f := range v.Files(pkg) {
+				for _, f := range pkg.Files() {
 					if f.Path.Base() == name {
 						target = f
 						break
@@ -69,7 +73,7 @@ func listSymbols(eng *engine.Engine) mcp.ToolHandlerFor[ListSymbolsInput, ListSy
 					return fmt.Errorf("no file %q in package %q", name, in.Package)
 				}
 			}
-			for _, sym := range v.Symbols(pkg) {
+			for _, sym := range pkg.Symbols() {
 				if target != nil && sym.File != target.Path {
 					continue
 				}
@@ -142,6 +146,8 @@ func describeMethod(eng *engine.Engine) mcp.ToolHandlerFor[DescribeMethodInput, 
 	}
 }
 
+// describeDecl is the shared body of describe_function and describe_method:
+// resolve, kind-check with a steering error, extract source.
 func describeDecl(ctx context.Context, eng *engine.Engine, addr, key string, kind engine.SymbolKind) (*mcp.CallToolResult, DescribeOutput, error) {
 	var out DescribeOutput
 	err := readSymbol(ctx, eng, addr, key, func(v *engine.View, sym *engine.Symbol, _ *engine.Package) error {
@@ -297,7 +303,7 @@ func readSymbol(ctx context.Context, eng *engine.Engine, addr, key string, fn fu
 		if sym, owner, ok := v.Symbol(pkg.PkgPath, key); ok {
 			return fn(v, sym, owner)
 		}
-		if sym, ok := pkg.Symbols[key]; ok {
+		if sym, ok := pkg.Symbol(key); ok {
 			return fn(v, sym, pkg)
 		}
 		return fmt.Errorf("no symbol %q in package %q: call list_symbols for valid keys", key, addr)
@@ -367,6 +373,8 @@ func summarize(v *engine.View, sym *engine.Symbol) string {
 	return sym.Kind.String() + " " + sym.Key()
 }
 
+// methodSignatures renders a type's method list the way list_methods and
+// describe_type present it: one signature line each.
 func methodSignatures(v *engine.View, pkg *engine.Package, typeName string) []string {
 	var out []string
 	for _, m := range v.Methods(pkg, typeName) {
@@ -377,6 +385,8 @@ func methodSignatures(v *engine.View, pkg *engine.Package, typeName string) []st
 	return out
 }
 
+// matchEntries renders scan hits for the search_* outputs: canonical
+// package address, key, kind.
 func matchEntries(matches []engine.Match) []MatchEntry {
 	out := make([]MatchEntry, 0, len(matches))
 	for _, m := range matches {

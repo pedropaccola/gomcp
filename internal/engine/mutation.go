@@ -9,13 +9,13 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/pedropaccola/gomcp/internal/engine/state"
 	"golang.org/x/tools/imports"
 )
 
@@ -38,6 +38,22 @@ import (
 // Placement policy for new declarations: const and var groups sit at the
 // top (after imports), types after them, functions at the bottom, and
 // methods immediately after the last declaration of their receiver group.
+//
+// The file reads top-down from interface to machinery. The external
+// interface is exactly Edit, Flush, Reload, and the Tx verbs; every
+// section after Refactorings is internal:
+//
+//   Transaction         Tx, EditReport, Edit — the write gate.
+//   Session             Flush and Reload — the disk boundary.
+//   Creators/Editors/Refactorings — the Tx verbs.
+//   Pipeline            byte splices, the goimports reload choke point,
+//                       import self-repair, use gathering.
+//   Placement           where a new declaration lands in a file.
+//   Fragments           validation of agent-supplied source.
+//   Spans & extraction  locating and cutting declaration bytes.
+//   Workspace state     the changed-set and the commit-time recheck.
+
+// ----- Transaction -----
 
 // Tx is a mutable view over a cloned workspace. It embeds View, so every
 // lookup composes inside a transaction. Mid-Tx reads are parse-fresh but
@@ -75,9 +91,8 @@ func (e *Engine) Edit(ctx context.Context, fn func(*Tx) error) (*EditReport, err
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	origUnits, origRemoved := e.Packages, e.removed
-	e.Packages = cloneUnits(origUnits)
-	e.removed = maps.Clone(origRemoved)
+	orig := e.ws
+	e.ws = orig.Clone()
 
 	view := &View{eng: e}
 	beforeDiags := make(map[string]Diagnostic)
@@ -87,7 +102,7 @@ func (e *Engine) Edit(ctx context.Context, fn func(*Tx) error) (*EditReport, err
 
 	tx := &Tx{View: view, changed: make(map[RelativePath]bool)}
 	if err := fn(tx); err != nil {
-		e.Packages, e.removed = origUnits, origRemoved
+		e.ws = orig
 		return nil, err
 	}
 
@@ -130,34 +145,33 @@ func (e *Engine) Edit(ctx context.Context, fn func(*Tx) error) (*EditReport, err
 func (e *Engine) Flush() (written, removed []RelativePath, err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	for _, dir := range sortedKeys(e.Packages) {
-		unit := e.Packages[dir]
+	for _, addr := range e.ws.UnitKeys() {
+		unit, _ := e.ws.Unit(addr)
 		for _, pkg := range []*Package{unit.Prod, unit.XTest} {
 			if pkg == nil {
 				continue
 			}
-			for _, path := range sortedKeys(pkg.Files) {
-				file := pkg.Files[path]
-				if !file.IsDirty {
+			for _, file := range pkg.Files() {
+				if !file.Dirty() {
 					continue
 				}
-				abs := e.absPath(path)
+				abs := e.absPath(file.Path)
 				if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 					return written, removed, err
 				}
-				if err := os.WriteFile(abs, file.Src, 0o644); err != nil {
+				if err := os.WriteFile(abs, file.Src(), 0o644); err != nil {
 					return written, removed, err
 				}
-				file.IsDirty = false
-				written = append(written, path)
+				file.MarkFlushed()
+				written = append(written, file.Path)
 			}
 		}
 	}
-	for _, path := range sortedKeys(e.removed) {
+	for _, path := range e.ws.Tombstones() {
 		if err := os.Remove(e.absPath(path)); err != nil && !os.IsNotExist(err) {
 			return written, removed, err
 		}
-		delete(e.removed, path)
+		e.ws.ClearTombstone(path)
 		removed = append(removed, path)
 	}
 	return written, removed, nil
@@ -170,21 +184,20 @@ func (e *Engine) Flush() (written, removed []RelativePath, err error) {
 func (e *Engine) Reload(ctx context.Context) ([]RelativePath, error) {
 	e.mu.RLock()
 	var discarded []RelativePath
-	for _, unit := range e.Packages {
+	for _, addr := range e.ws.UnitKeys() {
+		unit, _ := e.ws.Unit(addr)
 		for _, pkg := range []*Package{unit.Prod, unit.XTest} {
 			if pkg == nil {
 				continue
 			}
-			for path, file := range pkg.Files {
-				if file.IsDirty {
-					discarded = append(discarded, path)
+			for _, file := range pkg.Files() {
+				if file.Dirty() {
+					discarded = append(discarded, file.Path)
 				}
 			}
 		}
 	}
-	for path := range e.removed {
-		discarded = append(discarded, path)
-	}
+	discarded = append(discarded, e.ws.Tombstones()...)
 	e.mu.RUnlock()
 	slices.Sort(discarded)
 	discarded = slices.Compact(discarded)
@@ -201,10 +214,10 @@ func (e *Engine) Reload(ctx context.Context) ([]RelativePath, error) {
 // the address already holds a package; the directory is created at Flush.
 func (tx *Tx) CreatePackage(pkg PkgPath, name string) error {
 	dir, ok := tx.eng.dirOf(pkg)
-	if !ok || dir == "." || dir.escapesRoot() {
-		return fmt.Errorf("cannot create a package at %q: workspace packages live under module %q", pkg, tx.eng.Module)
+	if !ok || dir == "." || dir.EscapesRoot() {
+		return fmt.Errorf("cannot create a package at %q: workspace packages live under module %q", pkg, tx.eng.ws.Module())
 	}
-	if _, exists := tx.eng.Packages[pkg]; exists {
+	if _, exists := tx.eng.ws.Unit(pkg); exists {
 		return fmt.Errorf("a package already exists at %q", pkg)
 	}
 	if name == "" {
@@ -217,13 +230,11 @@ func (tx *Tx) CreatePackage(pkg PkgPath, name string) error {
 		Name:    name,
 		Path:    dir,
 		PkgPath: pkg,
-		Files:   make(map[RelativePath]*File),
-		Symbols: make(map[string]*Symbol),
 	}
 	if err := tx.reloadFile(p, dir.Join(name+".go"), []byte("package "+name+"\n")); err != nil {
 		return err
 	}
-	tx.eng.Packages[pkg] = &Unit{Prod: p}
+	tx.eng.ws.InstallUnit(pkg, &Unit{Prod: p})
 	return nil
 }
 
@@ -260,7 +271,7 @@ func (tx *Tx) CreateSymbol(pkg PkgPath, fileName, src string) error {
 		if key == "init" {
 			continue // any number of init functions is legal
 		}
-		if _, exists := p.Symbols[key]; exists {
+		if _, exists := p.Symbol(key); exists {
 			return fmt.Errorf("symbol %q already exists in %q: use ReplaceSymbol", key, pkg)
 		}
 	}
@@ -268,13 +279,13 @@ func (tx *Tx) CreateSymbol(pkg PkgPath, fileName, src string) error {
 	if err != nil {
 		return err
 	}
-	file, ok := p.Files[path]
+	file, ok := p.File(path)
 	if !ok {
 		candidate := []byte("package " + p.Name + "\n\n" + src + "\n")
 		return tx.reloadFile(p, path, candidate)
 	}
 	at := tx.insertOffset(file, frag)
-	return tx.reloadFile(p, path, applyEdits(file.Src, []edit{{span: span{start: at, end: at}, repl: []byte("\n\n" + src + "\n")}}))
+	return tx.reloadFile(p, path, applySplices(file.Src(), []splice{{span: span{start: at, end: at}, repl: []byte("\n\n" + src + "\n")}}))
 }
 
 // ----- Editors -----
@@ -308,12 +319,12 @@ func (tx *Tx) ReplaceSymbol(pkg PkgPath, key, src string) error {
 		if newKey == key || newKey == "init" {
 			continue
 		}
-		if _, exists := owner.Symbols[newKey]; exists {
+		if _, exists := owner.Symbol(newKey); exists {
 			return fmt.Errorf("replacement declares %q, which already exists in %q", newKey, pkg)
 		}
 	}
-	file := owner.Files[sym.File]
-	return tx.reloadFile(owner, sym.File, applyEdits(file.Src, []edit{{span: sp, repl: []byte(src)}}))
+	file, _ := owner.File(sym.File)
+	return tx.reloadFile(owner, sym.File, applySplices(file.Src(), []splice{{span: sp, repl: []byte(src)}}))
 }
 
 // DeleteSymbol removes key's declaration — its spec alone when it lives in
@@ -333,14 +344,14 @@ func (tx *Tx) DeleteSymbol(pkg PkgPath, key string) error {
 	if !ok {
 		return fmt.Errorf("cannot locate %q in source", key)
 	}
-	file := owner.Files[sym.File]
-	return tx.reloadFile(owner, sym.File, applyEdits(file.Src, []edit{{span: sp}}))
+	file, _ := owner.File(sym.File)
+	return tx.reloadFile(owner, sym.File, applySplices(file.Src(), []splice{{span: sp}}))
 }
 
 // DeleteFile removes one file and every declaration in it, tombstoning the
 // path for Flush.
 func (tx *Tx) DeleteFile(pkg PkgPath, name string) error {
-	unit, ok := tx.eng.Packages[pkg]
+	unit, ok := tx.eng.ws.Unit(pkg)
 	if !ok {
 		return fmt.Errorf("no package at %q", pkg)
 	}
@@ -352,14 +363,11 @@ func (tx *Tx) DeleteFile(pkg PkgPath, name string) error {
 		if err != nil {
 			return err
 		}
-		if _, ok := owner.Files[path]; !ok {
+		if _, ok := owner.File(path); !ok {
 			continue
 		}
-		delete(owner.Files, path)
-		owner.RebuildIndex()
-		tx.eng.removed[path] = tombstone(owner.Name)
+		tx.eng.ws.DropFile(pkg, owner, path)
 		tx.touch(path)
-		tx.pruneEmpty(pkg)
 		return nil
 	}
 	return fmt.Errorf("no file %q in %q", name, pkg)
@@ -367,7 +375,7 @@ func (tx *Tx) DeleteFile(pkg PkgPath, name string) error {
 
 // DeletePackage removes a whole package address, tombstoning every file.
 func (tx *Tx) DeletePackage(pkg PkgPath) error {
-	unit, ok := tx.eng.Packages[pkg]
+	unit, ok := tx.eng.ws.Unit(pkg)
 	if !ok {
 		return fmt.Errorf("no package at %q", pkg)
 	}
@@ -375,12 +383,12 @@ func (tx *Tx) DeletePackage(pkg PkgPath) error {
 		if p == nil {
 			continue
 		}
-		for path := range p.Files {
-			tx.eng.removed[path] = tombstone(p.Name)
-			tx.touch(path)
+		for _, file := range p.Files() {
+			tx.eng.ws.Tombstone(file.Path, p.Name)
+			tx.touch(file.Path)
 		}
 	}
-	delete(tx.eng.Packages, pkg)
+	tx.eng.ws.RemoveUnit(pkg)
 	return nil
 }
 
@@ -407,7 +415,7 @@ func (tx *Tx) MoveSymbol(pkg PkgPath, key, fileName string) error {
 	if strings.HasSuffix(fileName, "_test.go") != strings.HasSuffix(sym.File.String(), "_test.go") {
 		return fmt.Errorf("moving %q from %q to %q would cross the test build boundary", key, sym.File, destPath)
 	}
-	file := owner.Files[sym.File]
+	file, _ := owner.File(sym.File)
 	src, sp, err := tx.extractDecl(sym, file)
 	if err != nil {
 		return err
@@ -416,18 +424,18 @@ func (tx *Tx) MoveSymbol(pkg PkgPath, key, fileName string) error {
 	if err != nil {
 		return err
 	}
-	dest, inOwner := owner.Files[destPath]
+	dest, inOwner := owner.File(destPath)
 	if _, _, exists := tx.File(destPath); exists && !inOwner {
 		return fmt.Errorf("file %q belongs to another package", destPath)
 	}
-	if err := tx.reloadFile(owner, sym.File, applyEdits(file.Src, []edit{{span: sp}})); err != nil {
+	if err := tx.reloadFile(owner, sym.File, applySplices(file.Src(), []splice{{span: sp}})); err != nil {
 		return err
 	}
 	if !inOwner {
 		return tx.reloadFile(owner, destPath, []byte("package "+owner.Name+"\n\n"+src+"\n"))
 	}
 	at := tx.insertOffset(dest, frag)
-	return tx.reloadFile(owner, destPath, applyEdits(dest.Src, []edit{{span: span{start: at, end: at}, repl: []byte("\n\n" + src + "\n")}}))
+	return tx.reloadFile(owner, destPath, applySplices(dest.Src(), []splice{{span: span{start: at, end: at}, repl: []byte("\n\n" + src + "\n")}}))
 }
 
 // RenameSymbol renames key to newName everywhere: the defining identifier
@@ -446,7 +454,7 @@ func (tx *Tx) RenameSymbol(pkg PkgPath, key, newName string) error {
 	if sym.Kind == KindMethod {
 		newKey = sym.Recv + "." + newName
 	}
-	if _, exists := owner.Symbols[newKey]; exists {
+	if _, exists := owner.Symbol(newKey); exists {
 		return fmt.Errorf("symbol %q already exists in %q", newKey, pkg)
 	}
 	target := objKey(tx.objectOf(sym))
@@ -454,21 +462,21 @@ func (tx *Tx) RenameSymbol(pkg PkgPath, key, newName string) error {
 		return fmt.Errorf("type information unavailable for %q", key)
 	}
 
-	edits := make(map[RelativePath][]edit)
+	edits := make(map[RelativePath][]splice)
 	def := definingIdent(sym)
 	if sp, ok := tx.offsetSpan(sym.File, def.Pos(), def.End()); ok {
-		edits[sym.File] = append(edits[sym.File], edit{span: sp, repl: []byte(newName)})
+		edits[sym.File] = append(edits[sym.File], splice{span: sp, repl: []byte(newName)})
 	}
 	tx.gatherUses(target, func(relFile RelativePath, sp span) {
-		edits[relFile] = append(edits[relFile], edit{span: sp, repl: []byte(newName)})
+		edits[relFile] = append(edits[relFile], splice{span: sp, repl: []byte(newName)})
 	})
-	return tx.applyFileEdits(edits)
+	return tx.applyFileSplices(edits)
 }
 
 // RenameFile renames a file within its package — semantically free in Go,
 // files are storage. The old path is tombstoned for Flush.
 func (tx *Tx) RenameFile(pkg PkgPath, name, newName string) error {
-	unit, ok := tx.eng.Packages[pkg]
+	unit, ok := tx.eng.ws.Unit(pkg)
 	if !ok {
 		return fmt.Errorf("no package at %q", pkg)
 	}
@@ -480,8 +488,7 @@ func (tx *Tx) RenameFile(pkg PkgPath, name, newName string) error {
 		if err != nil {
 			return err
 		}
-		file, ok := owner.Files[path]
-		if !ok {
+		if _, ok := owner.File(path); !ok {
 			continue
 		}
 		newPath, err := fileAddress(owner, newName)
@@ -491,15 +498,8 @@ func (tx *Tx) RenameFile(pkg PkgPath, name, newName string) error {
 		if _, _, exists := tx.File(newPath); exists {
 			return fmt.Errorf("file %q already exists", newPath)
 		}
-		moved := *file
-		moved.Path = newPath
-		moved.IsDirty = true
-		delete(owner.Files, path)
-		owner.Files[newPath] = &moved
-		tx.eng.removed[path] = tombstone(owner.Name)
-		delete(tx.eng.removed, newPath)
+		tx.eng.ws.MoveFile(owner, path, newPath)
 		tx.touch(path, newPath)
-		owner.RebuildIndex()
 		return nil
 	}
 	return fmt.Errorf("no file %q in %q", name, pkg)
@@ -515,14 +515,14 @@ func (tx *Tx) RenamePackage(oldPkg, newPkg PkgPath) error {
 		return fmt.Errorf("no workspace package at %q", oldPkg)
 	}
 	newDir, ok := tx.eng.dirOf(newPkg)
-	if !ok || newDir == "." || newDir.escapesRoot() {
-		return fmt.Errorf("cannot rename %q to %q: workspace packages live under module %q", oldPkg, newPkg, tx.eng.Module)
+	if !ok || newDir == "." || newDir.EscapesRoot() {
+		return fmt.Errorf("cannot rename %q to %q: workspace packages live under module %q", oldPkg, newPkg, tx.eng.ws.Module())
 	}
-	unit, ok := tx.eng.Packages[oldPkg]
+	unit, ok := tx.eng.ws.Unit(oldPkg)
 	if !ok {
 		return fmt.Errorf("no package at %q", oldPkg)
 	}
-	if _, exists := tx.eng.Packages[newPkg]; exists {
+	if _, exists := tx.eng.ws.Unit(newPkg); exists {
 		return fmt.Errorf("a package already exists at %q", newPkg)
 	}
 	oldBase, newBase := filepath.Base(string(dir)), filepath.Base(string(newDir))
@@ -535,18 +535,18 @@ func (tx *Tx) RenamePackage(oldPkg, newPkg PkgPath) error {
 	// Importers first: their files are disjoint from the moving package's.
 	// The unit's own XTest package is an importer too — it imports its
 	// production sibling — so only Prod itself is skipped.
-	edits := make(map[RelativePath][]edit)
+	edits := make(map[RelativePath][]splice)
 	for _, pkg := range tx.Packages() {
 		if pkg == unit.Prod {
 			continue
 		}
-		for _, file := range tx.Files(pkg) {
-			for _, imp := range file.Ast.Imports {
+		for _, file := range pkg.Files() {
+			for _, imp := range file.Ast().Imports {
 				if imp.Path.Value != strconv.Quote(oldImport) {
 					continue
 				}
 				if sp, ok := tx.offsetSpan(file.Path, imp.Path.Pos(), imp.Path.End()); ok {
-					edits[file.Path] = append(edits[file.Path], edit{span: sp, repl: []byte(strconv.Quote(newImport))})
+					edits[file.Path] = append(edits[file.Path], splice{span: sp, repl: []byte(strconv.Quote(newImport))})
 				}
 			}
 		}
@@ -559,118 +559,111 @@ func (tx *Tx) RenamePackage(oldPkg, newPkg PkgPath) error {
 				if ident.Name != oldBase {
 					continue // aliased import: the alias survives the move
 				}
-				relFile, err := tx.eng.relativePath(tx.eng.FileSet.Position(ident.Pos()).Filename)
-				if err != nil || relFile.escapesRoot() {
+				relFile, err := tx.eng.relativePath(tx.eng.ws.FileSet().Position(ident.Pos()).Filename)
+				if err != nil || relFile.EscapesRoot() {
 					continue
 				}
 				if sp, ok := tx.offsetSpan(relFile, ident.Pos(), ident.End()); ok {
-					edits[relFile] = append(edits[relFile], edit{span: sp, repl: []byte(newBase)})
+					edits[relFile] = append(edits[relFile], splice{span: sp, repl: []byte(newBase)})
 				}
 			}
 		}
 	}
-	if err := tx.applyFileEdits(edits); err != nil {
+	if err := tx.applyFileSplices(edits); err != nil {
 		return err
 	}
 
 	// Move the address's packages, renaming package clauses when due.
+	// Every moved file re-enters through the content pipeline, so SwapFile
+	// stays the one door for file content.
 	newUnit := &Unit{}
 	for i, pkg := range []*Package{unit.Prod, unit.XTest} {
 		if pkg == nil {
 			continue
 		}
-		moved := pkg.clone()
+		moved := pkg.CloneShell()
 		moved.Path = newDir
 		moved.PkgPath = PkgPath(strings.Replace(string(pkg.PkgPath), oldImport, newImport, 1))
-		moved.Files = make(map[RelativePath]*File, len(pkg.Files))
 		if renameName {
 			moved.Name = newBase + strings.TrimPrefix(pkg.Name, oldBase)
 		}
-		for path, file := range pkg.Files {
-			newPath := newDir.Join(filepath.Base(string(path)))
-			tx.eng.removed[path] = tombstone(pkg.Name)
-			delete(tx.eng.removed, newPath)
-			tx.touch(path, newPath)
+		for _, file := range pkg.Files() {
+			newPath := newDir.Join(filepath.Base(string(file.Path)))
+			tx.eng.ws.Tombstone(file.Path, pkg.Name)
+			tx.eng.ws.ClearTombstone(newPath)
+			tx.touch(file.Path, newPath)
+			candidate := file.Src()
 			if renameName {
-				sp, ok := tx.offsetSpan(path, file.Ast.Name.Pos(), file.Ast.Name.End())
+				sp, ok := tx.offsetSpan(file.Path, file.Ast().Name.Pos(), file.Ast().Name.End())
 				if !ok {
-					return fmt.Errorf("cannot locate package clause of %q", path)
+					return fmt.Errorf("cannot locate package clause of %q", file.Path)
 				}
-				candidate := applyEdits(file.Src, []edit{{span: sp, repl: []byte(moved.Name)}})
-				if err := tx.reloadFile(moved, newPath, candidate); err != nil {
-					return err
-				}
-				continue
+				candidate = applySplices(file.Src(), []splice{{span: sp, repl: []byte(moved.Name)}})
 			}
-			copied := *file
-			copied.Path = newPath
-			copied.IsDirty = true
-			moved.Files[newPath] = &copied
+			if err := tx.reloadFile(moved, newPath, candidate); err != nil {
+				return err
+			}
 		}
-		moved.RebuildIndex()
 		if i == 0 {
 			newUnit.Prod = moved
 		} else {
 			newUnit.XTest = moved
 		}
 	}
-	delete(tx.eng.Packages, oldPkg)
-	tx.eng.Packages[newPkg] = newUnit
+	tx.eng.ws.RemoveUnit(oldPkg)
+	tx.eng.ws.InstallUnit(newPkg, newUnit)
 	return nil
 }
 
 // ----- Pipeline -----
 
-// edit is one splice: replace span with repl (nil deletes).
-type edit struct {
+// splice is one byte-span edit: replace span with repl (nil deletes).
+type splice struct {
 	span
 	repl []byte
 }
 
-// applyEdits splices every edit into src, applying in descending offset
-// order so earlier spans stay valid.
-func applyEdits(src []byte, edits []edit) []byte {
-	slices.SortFunc(edits, func(a, b edit) int { return cmp.Compare(b.start, a.start) })
+// applySplices applies every splice to src in descending offset order so
+// earlier spans stay valid.
+func applySplices(src []byte, splices []splice) []byte {
+	slices.SortFunc(splices, func(a, b splice) int { return cmp.Compare(b.start, a.start) })
 	out := slices.Clone(src)
-	for _, e := range edits {
-		out = slices.Concat(out[:e.start], e.repl, out[e.end:])
+	for _, s := range splices {
+		out = slices.Concat(out[:s.start], s.repl, out[s.end:])
 	}
 	return out
 }
 
-// reloadFile is the single choke point every content mutation commits
-// through: run candidate bytes through goimports and a reparse, install a
-// fresh File, rebuild the package index. It never touches disk, and every
-// fallible step precedes the swap.
+// reloadFile is the goimports half of the content pipeline: format the
+// candidate bytes, then hand them to the workspace's parse-enforcing
+// SwapFile — the one door through which file content enters the model.
+// Every fallible step precedes the swap; an error means state is
+// untouched.
 func (tx *Tx) reloadFile(pkg *Package, path RelativePath, candidate []byte) error {
 	abs := tx.eng.absPath(path)
 	formatted, err := imports.Process(abs, candidate, nil)
 	if err != nil {
 		return fmt.Errorf("%s does not format: %w", path, err)
 	}
-	astFile, err := parser.ParseFile(tx.eng.FileSet, abs, formatted, parser.ParseComments|parser.SkipObjectResolution)
-	if err != nil {
-		return fmt.Errorf("%s does not parse: %w", path, err)
+	if err := tx.eng.ws.SwapFile(pkg, path, abs, formatted); err != nil {
+		return err
 	}
-	pkg.Files[path] = &File{Path: path, Src: formatted, Ast: astFile, IsDirty: true}
-	delete(tx.eng.removed, path)
 	tx.touch(path)
-	pkg.RebuildIndex()
 	return nil
 }
 
-// applyFileEdits splices per-file edit batches and reloads each touched
+// applyFileSplices applies per-file splice batches and reloads each touched
 // file, deduplicating overlapping gathers.
-func (tx *Tx) applyFileEdits(edits map[RelativePath][]edit) error {
-	for _, path := range sortedKeys(edits) {
+func (tx *Tx) applyFileSplices(splices map[RelativePath][]splice) error {
+	for _, path := range sortedKeys(splices) {
 		file, owner, ok := tx.File(path)
 		if !ok {
-			return fmt.Errorf("cannot resolve %q while applying edits", path)
+			return fmt.Errorf("cannot resolve %q while applying splices", path)
 		}
-		batch := edits[path]
-		slices.SortFunc(batch, func(a, b edit) int { return cmp.Compare(a.start, b.start) })
-		batch = slices.CompactFunc(batch, func(a, b edit) bool { return a.span == b.span })
-		if err := tx.reloadFile(owner, path, applyEdits(file.Src, batch)); err != nil {
+		batch := splices[path]
+		slices.SortFunc(batch, func(a, b splice) int { return cmp.Compare(a.start, b.start) })
+		batch = slices.CompactFunc(batch, func(a, b splice) bool { return a.span == b.span })
+		if err := tx.reloadFile(owner, path, applySplices(file.Src(), batch)); err != nil {
 			return err
 		}
 	}
@@ -690,7 +683,8 @@ func (tx *Tx) repairMissingImports() bool {
 	// Unique importable package names known to the workspace.
 	candidates := make(map[string]PkgPath) // package name -> import path
 	ambiguous := make(map[string]bool)
-	for _, unit := range tx.eng.Packages {
+	for _, addr := range tx.eng.ws.UnitKeys() {
+		unit, _ := tx.eng.ws.Unit(addr)
 		pkg := unit.Prod
 		if pkg == nil || pkg.PkgPath == "" || pkg.Name == "main" {
 			continue
@@ -717,7 +711,7 @@ func (tx *Tx) repairMissingImports() bool {
 			continue
 		}
 		file, owner, ok := tx.File(diag.File)
-		if !ok || owner.PkgPath == path || importsPath(file.Ast, string(path)) {
+		if !ok || owner.PkgPath == path || importsPath(file.Ast(), string(path)) {
 			continue
 		}
 		if needed[diag.File] == nil {
@@ -732,7 +726,7 @@ func (tx *Tx) repairMissingImports() bool {
 		if !ok {
 			continue
 		}
-		sp, ok := tx.offsetSpan(filePath, file.Ast.Name.Pos(), file.Ast.Name.End())
+		sp, ok := tx.offsetSpan(filePath, file.Ast().Name.Pos(), file.Ast().Name.End())
 		if !ok {
 			continue
 		}
@@ -740,7 +734,7 @@ func (tx *Tx) repairMissingImports() bool {
 		for _, path := range sortedKeys(needed[filePath]) {
 			fmt.Fprintf(&repl, "\n\nimport %q", path)
 		}
-		candidate := applyEdits(file.Src, []edit{{span: span{start: sp.end, end: sp.end}, repl: []byte(repl.String())}})
+		candidate := applySplices(file.Src(), []splice{{span: span{start: sp.end, end: sp.end}, repl: []byte(repl.String())}})
 		if err := tx.reloadFile(owner, filePath, candidate); err != nil {
 			continue // repair is best-effort; the diagnostic stays visible
 		}
@@ -749,6 +743,8 @@ func (tx *Tx) repairMissingImports() bool {
 	return repaired
 }
 
+// importsPath reports whether the file already imports path, so the import
+// self-repair never splices a duplicate.
 func importsPath(astFile *ast.File, path string) bool {
 	for _, imp := range astFile.Imports {
 		if imp.Path.Value == strconv.Quote(path) {
@@ -769,8 +765,8 @@ func (tx *Tx) gatherUses(target string, fn func(RelativePath, span)) {
 			if objKey(obj) != target {
 				continue
 			}
-			relFile, err := tx.eng.relativePath(tx.eng.FileSet.Position(ident.Pos()).Filename)
-			if err != nil || relFile.escapesRoot() {
+			relFile, err := tx.eng.relativePath(tx.eng.ws.FileSet().Position(ident.Pos()).Filename)
+			if err != nil || relFile.EscapesRoot() {
 				continue
 			}
 			if sp, ok := tx.offsetSpan(relFile, ident.Pos(), ident.End()); ok {
@@ -780,32 +776,34 @@ func (tx *Tx) gatherUses(target string, fn func(RelativePath, span)) {
 	}
 }
 
+// ----- Placement -----
+
 // insertOffset returns the canonical insertion offset for a new declaration
 // per the placement policy: const/var at the top after imports, types after
 // values, funcs at the bottom, methods right after their receiver group. A
 // method whose receiver group isn't in this file falls to the bottom.
 func (tx *Tx) insertOffset(file *File, frag fragment) int {
 	effective := frag
-	if frag.kind == KindMethod && !hasReceiverAnchor(file.Ast, frag.recv) {
+	if frag.kind == KindMethod && !hasReceiverAnchor(file.Ast(), frag.recv) {
 		effective = fragment{kind: KindFunc}
 	}
 	var anchor ast.Decl
-	for _, decl := range file.Ast.Decls {
+	for _, decl := range file.Ast().Decls {
 		if declPrecedes(decl, effective) {
 			anchor = decl
 		}
 	}
 	if anchor == nil {
 		// Nothing precedes: insert right after the package clause.
-		if sp, ok := tx.offsetSpan(file.Path, file.Ast.Name.Pos(), file.Ast.Name.End()); ok {
+		if sp, ok := tx.offsetSpan(file.Path, file.Ast().Name.Pos(), file.Ast().Name.End()); ok {
 			return sp.end
 		}
-		return len(file.Src)
+		return len(file.Src())
 	}
 	if sp, ok := tx.offsetSpan(file.Path, anchor.Pos(), anchor.End()); ok {
 		return sp.end
 	}
-	return len(file.Src)
+	return len(file.Src())
 }
 
 // declPrecedes reports whether decl belongs at or before the fragment's
@@ -818,14 +816,17 @@ func declPrecedes(decl ast.Decl, frag fragment) bool {
 			return d.Tok == token.IMPORT || d.Tok == token.CONST || d.Tok == token.VAR ||
 				(d.Tok == token.TYPE && declaresType(d, frag.recv))
 		case *ast.FuncDecl:
-			return d.Recv != nil && recvTypeName(d.Recv) == frag.recv
+			return d.Recv != nil && state.RecvTypeName(d.Recv) == frag.recv
 		}
 		return false
 	}
-	return declRank(decl) <= fragRank(frag.kind)
+	return declRegion(decl) <= kindRegion(frag.kind)
 }
 
-func declRank(decl ast.Decl) int {
+// declRegion places an existing declaration in the file's canonical region
+// order: imports (0) < const/var (1) < types and their methods (2) < plain
+// funcs (3). declPrecedes compares it against kindRegion.
+func declRegion(decl ast.Decl) int {
 	switch d := decl.(type) {
 	case *ast.GenDecl:
 		switch d.Tok {
@@ -845,7 +846,10 @@ func declRank(decl ast.Decl) int {
 	return 3
 }
 
-func fragRank(kind SymbolKind) int {
+// kindRegion places a new fragment in the same region order declRegion
+// uses for existing declarations; methods never reach it (they anchor to
+// their receiver group instead).
+func kindRegion(kind SymbolKind) int {
 	switch kind {
 	case KindConst, KindVar:
 		return 1
@@ -856,6 +860,9 @@ func fragRank(kind SymbolKind) int {
 	}
 }
 
+// hasReceiverAnchor reports whether the file declares recv's type or any of
+// its methods — the anchor a new method is placed after; without one the
+// method falls to the plain-func region at the bottom.
 func hasReceiverAnchor(astFile *ast.File, recv string) bool {
 	for _, decl := range astFile.Decls {
 		switch d := decl.(type) {
@@ -864,7 +871,7 @@ func hasReceiverAnchor(astFile *ast.File, recv string) bool {
 				return true
 			}
 		case *ast.FuncDecl:
-			if d.Recv != nil && recvTypeName(d.Recv) == recv {
+			if d.Recv != nil && state.RecvTypeName(d.Recv) == recv {
 				return true
 			}
 		}
@@ -872,6 +879,8 @@ func hasReceiverAnchor(astFile *ast.File, recv string) bool {
 	return false
 }
 
+// declaresType reports whether the type declaration declares name, grouped
+// or not.
 func declaresType(gen *ast.GenDecl, name string) bool {
 	for _, spec := range gen.Specs {
 		if ts, ok := spec.(*ast.TypeSpec); ok && ts.Name.Name == name {
@@ -920,156 +929,26 @@ func parseSpecFragment(tok token.Token, src string) (fragment, error) {
 // classifyFragment derives keys and placement class by reusing the same
 // indexer that builds the real symbol tables.
 func classifyFragment(astFile *ast.File) fragment {
-	tmp := &File{Path: "fragment.go", Ast: astFile}
 	symbols := make(map[string]*Symbol)
-	tmp.index(symbols)
+	inits := state.IndexAST("fragment.go", astFile, symbols)
 	frag := fragment{keys: sortedKeys(symbols)}
 	for _, key := range frag.keys {
 		frag.kind = symbols[key].Kind
 		frag.recv = symbols[key].Recv
 	}
-	for range tmp.Inits {
+	for range inits {
 		frag.keys = append(frag.keys, "init")
 		frag.kind = KindFunc
 	}
 	return frag
 }
 
-// ----- Internal helpers -----
-
-func cloneUnits(units map[PkgPath]*Unit) map[PkgPath]*Unit {
-	out := make(map[PkgPath]*Unit, len(units))
-	for pkg, unit := range units {
-		cloned := &Unit{}
-		if unit.Prod != nil {
-			cloned.Prod = unit.Prod.clone()
-		}
-		if unit.XTest != nil {
-			cloned.XTest = unit.XTest.clone()
-		}
-		out[pkg] = cloned
-	}
-	return out
-}
-
-// clone copies the package shallowly with fresh maps; File values are
-// shared and treated as immutable — mutations install fresh *File instances.
-func (p *Package) clone() *Package {
-	cloned := *p
-	cloned.Files = maps.Clone(p.Files)
-	cloned.Symbols = maps.Clone(p.Symbols)
-	return &cloned
-}
-
-// changedSet is the union of dirty files and tombstoned paths.
-func (e *Engine) changedSet() map[RelativePath]bool {
-	out := make(map[RelativePath]bool)
-	for _, unit := range e.Packages {
-		for _, pkg := range []*Package{unit.Prod, unit.XTest} {
-			if pkg == nil {
-				continue
-			}
-			for path, file := range pkg.Files {
-				if file.IsDirty {
-					out[path] = true
-				}
-			}
-		}
-	}
-	for path := range e.removed {
-		out[path] = true
-	}
-	return out
-}
-
-// recheckLocked reloads the workspace with the in-memory truth overlaid on
-// disk and swaps the fresh state in, carrying dirty marks over and pruning
-// tombstoned paths. Caller must hold the write lock.
-func (e *Engine) recheckLocked(ctx context.Context) error {
-	overlay := make(map[string][]byte)
-	dirty := make(map[RelativePath]bool)
-	for path := range e.changedSet() {
-		if mask, tombstoned := e.removed[path]; tombstoned {
-			overlay[e.absPath(path)] = mask
-			continue
-		}
-		if file, _, ok := (&View{eng: e}).File(path); ok {
-			overlay[e.absPath(path)] = file.Src
-			dirty[path] = true
-		}
-	}
-
-	fset, _, units, err := e.load(ctx, overlay)
-	if err != nil {
-		return err
-	}
-	for path := range e.removed {
-		e.pruneFileFrom(units, path)
-	}
-	for path := range dirty {
-		if unit, ok := units[e.pkgAt(path.Dir())]; ok {
-			for _, pkg := range []*Package{unit.Prod, unit.XTest} {
-				if pkg == nil {
-					continue
-				}
-				if file, ok := pkg.Files[path]; ok {
-					file.IsDirty = true
-				}
-			}
-		}
-	}
-	e.FileSet, e.Packages = fset, units
-	return nil
-}
-
-// pruneFileFrom removes a tombstoned path from freshly loaded state (the
-// overlay can only mask files as empty, not delete them).
-func (e *Engine) pruneFileFrom(units map[PkgPath]*Unit, path RelativePath) {
-	pkgAddr := e.pkgAt(path.Dir())
-	unit, ok := units[pkgAddr]
-	if !ok {
-		return
-	}
-	for _, pkg := range []*Package{unit.Prod, unit.XTest} {
-		if pkg == nil {
-			continue
-		}
-		if _, ok := pkg.Files[path]; ok {
-			delete(pkg.Files, path)
-			pkg.RebuildIndex()
-		}
-	}
-	if unit.Prod != nil && len(unit.Prod.Files) == 0 {
-		unit.Prod = nil
-	}
-	if unit.XTest != nil && len(unit.XTest.Files) == 0 {
-		unit.XTest = nil
-	}
-	if unit.Prod == nil && unit.XTest == nil {
-		delete(units, pkgAddr)
-	}
-}
-
-func (tx *Tx) pruneEmpty(pkg PkgPath) {
-	unit, ok := tx.eng.Packages[pkg]
-	if !ok {
-		return
-	}
-	if unit.Prod != nil && len(unit.Prod.Files) == 0 {
-		unit.Prod = nil
-	}
-	if unit.XTest != nil && len(unit.XTest.Files) == 0 {
-		unit.XTest = nil
-	}
-	if unit.Prod == nil && unit.XTest == nil {
-		delete(tx.eng.Packages, pkg)
-	}
-}
+// ----- Spans & extraction -----
 
 // declSpan is the byte span of the whole declaration, doc comment included.
 func (v *View) declSpan(sym *Symbol) (span, bool) {
 	start := sym.Decl.Pos()
-	if doc := docOf(sym.Decl); doc != nil {
+	if doc := state.DocOf(sym.Decl); doc != nil {
 		start = doc.Pos()
 	}
 	return v.offsetSpan(sym.File, start, sym.Decl.End())
@@ -1081,7 +960,7 @@ func (v *View) specSpan(sym *Symbol) (span, bool) {
 		return v.declSpan(sym)
 	}
 	start := sym.Spec.Pos()
-	if doc := docOf(sym.Spec); doc != nil {
+	if doc := state.DocOf(sym.Spec); doc != nil {
 		start = doc.Pos()
 	}
 	return v.offsetSpan(sym.File, start, sym.Spec.End())
@@ -1103,7 +982,7 @@ func (tx *Tx) extractDecl(sym *Symbol, file *File) (string, span, error) {
 		if !ok {
 			return "", span{}, fmt.Errorf("cannot locate %q in source", sym.Key())
 		}
-		return string(file.Src[sp.start:sp.end]), sp, nil
+		return string(file.Src()[sp.start:sp.end]), sp, nil
 	}
 	if spec, ok := sym.Spec.(*ast.ValueSpec); ok && gen.Tok == token.CONST && (len(spec.Values) == 0 || groupUsesIota(gen)) {
 		return "", span{}, fmt.Errorf("%q takes its value from its position in a const group: move refused", sym.Key())
@@ -1116,8 +995,8 @@ func (tx *Tx) extractDecl(sym *Symbol, file *File) (string, span, error) {
 	if !ok {
 		return "", span{}, fmt.Errorf("cannot locate %q in source", sym.Key())
 	}
-	doc := string(file.Src[sp.start:body.start])
-	return doc + gen.Tok.String() + " " + string(file.Src[body.start:body.end]), sp, nil
+	doc := string(file.Src()[sp.start:body.start])
+	return doc + gen.Tok.String() + " " + string(file.Src()[body.start:body.end]), sp, nil
 }
 
 // groupUsesIota reports whether any value expression in a grouped
@@ -1139,6 +1018,63 @@ func groupUsesIota(gen *ast.GenDecl) bool {
 		}
 	}
 	return found
+}
+
+// ----- Workspace state -----
+
+// changedSet is the union of dirty files and tombstoned paths.
+func (e *Engine) changedSet() map[RelativePath]bool {
+	out := make(map[RelativePath]bool)
+	for _, addr := range e.ws.UnitKeys() {
+		unit, _ := e.ws.Unit(addr)
+		for _, pkg := range []*Package{unit.Prod, unit.XTest} {
+			if pkg == nil {
+				continue
+			}
+			for _, file := range pkg.Files() {
+				if file.Dirty() {
+					out[file.Path] = true
+				}
+			}
+		}
+	}
+	for _, path := range e.ws.Tombstones() {
+		out[path] = true
+	}
+	return out
+}
+
+// recheckLocked reloads the workspace with the in-memory truth overlaid on
+// disk and swaps the fresh state in, carrying dirty marks over and pruning
+// tombstoned paths. Caller must hold the write lock.
+func (e *Engine) recheckLocked(ctx context.Context) error {
+	overlay := make(map[string][]byte)
+	dirty := make(map[RelativePath]bool)
+	for path := range e.changedSet() {
+		if mask, tombstoned := e.ws.Tombstoned(path); tombstoned {
+			overlay[e.absPath(path)] = mask
+			continue
+		}
+		if file, _, ok := (&View{eng: e}).File(path); ok {
+			overlay[e.absPath(path)] = file.Src()
+			dirty[path] = true
+		}
+	}
+
+	fset, _, units, err := e.load(ctx, overlay)
+	if err != nil {
+		return err
+	}
+	for _, path := range e.ws.Tombstones() {
+		state.PruneFile(units, e.pkgAt(path.Dir()), path)
+	}
+	for path := range dirty {
+		if unit, ok := units[e.pkgAt(path.Dir())]; ok {
+			unit.MarkDirty(path)
+		}
+	}
+	e.ws.SwapLoaded(fset, units)
+	return nil
 }
 
 // fileAddress validates a bare *.go name inside pkg's directory.

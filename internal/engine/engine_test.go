@@ -18,28 +18,28 @@ func TestBootstrapLiveRepo(t *testing.T) {
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
-	if e.Module != "github.com/pedropaccola/gomcp" {
-		t.Errorf("Module = %q, module path not learned at bootstrap", e.Module)
+	if e.ws.Module() != "github.com/pedropaccola/gomcp" {
+		t.Errorf("Module = %q, module path not learned at bootstrap", e.ws.Module())
 	}
-	unit := e.Packages[PkgPath("github.com/pedropaccola/gomcp/internal/engine")]
-	if unit == nil || unit.Prod == nil {
+	unit, ok := e.ws.Unit("github.com/pedropaccola/gomcp/internal/engine")
+	if !ok || unit.Prod == nil {
 		t.Fatal("internal/engine unit missing after bootstrap")
 	}
 	if unit.Prod.PkgPath != "github.com/pedropaccola/gomcp/internal/engine" {
 		t.Errorf("unexpected PkgPath %q", unit.Prod.PkgPath)
 	}
-	if sym := unit.Prod.Symbols["Engine.Bootstrap"]; sym == nil || sym.Kind != KindMethod {
-		t.Error(`Symbols["Engine.Bootstrap"] missing or not a method`)
+	if sym, ok := unit.Prod.Symbol("Engine.Bootstrap"); !ok || sym.Kind != KindMethod {
+		t.Error(`Symbol("Engine.Bootstrap") missing or not a method`)
 	}
 }
 
 func TestBootstrapSandbox(t *testing.T) {
 	e := sandboxEngine(t)
-	if e.Module != "example.com/sandbox" {
-		t.Errorf("Module = %q, module path not learned at bootstrap", e.Module)
+	if e.ws.Module() != "example.com/sandbox" {
+		t.Errorf("Module = %q, module path not learned at bootstrap", e.ws.Module())
 	}
-	unit := e.Packages[spkg("shapes")]
-	if unit == nil || unit.Prod == nil {
+	unit, ok := e.ws.Unit(spkg("shapes"))
+	if !ok || unit.Prod == nil {
 		t.Fatal("shapes unit missing")
 	}
 	pkg := unit.Prod
@@ -48,10 +48,10 @@ func TestBootstrapSandbox(t *testing.T) {
 		t.Errorf("Prod = %q %q, synthesized variants not filtered?", pkg.Name, pkg.PkgPath)
 	}
 	// Widest-variant preference: the in-package test file folds into Prod.
-	if _, ok := pkg.Files[RelativePath("shapes/internal_test.go")]; !ok {
+	if _, ok := pkg.File(RelativePath("shapes/internal_test.go")); !ok {
 		t.Error("internal_test.go not in Prod: widest variant was not preferred")
 	}
-	if sym := pkg.Symbols["TestAreaInternal"]; sym == nil {
+	if _, ok := pkg.Symbol("TestAreaInternal"); !ok {
 		t.Error("in-package test symbol not indexed")
 	}
 
@@ -63,38 +63,39 @@ func TestBootstrapSandbox(t *testing.T) {
 	if unit.XTest.PkgPath != "example.com/sandbox/shapes_test" {
 		t.Errorf("XTest.PkgPath = %q", unit.XTest.PkgPath)
 	}
-	if sym := unit.XTest.Symbols["TestAreaExternal"]; sym == nil {
+	if _, ok := unit.XTest.Symbol("TestAreaExternal"); !ok {
 		t.Error("external test symbol not indexed")
 	}
 
 	// Generic receivers unwrap to the base type name.
-	if sym := pkg.Symbols["Stack.Push"]; sym == nil || sym.Recv != "Stack" {
-		t.Errorf(`Symbols["Stack.Push"] = %+v, generic receiver not unwrapped`, pkg.Symbols["Stack.Push"])
+	if sym, ok := pkg.Symbol("Stack.Push"); !ok || sym.Recv != "Stack" {
+		t.Errorf(`Symbol("Stack.Push") = %+v, generic receiver not unwrapped`, sym)
 	}
 	// init functions are keyless, collected per file.
-	groups := pkg.Files[RelativePath("shapes/groups.go")]
-	if groups == nil || len(groups.Inits) != 1 {
+	groups, ok := pkg.File(RelativePath("shapes/groups.go"))
+	if !ok || len(groups.Inits) != 1 {
 		t.Errorf("groups.go Inits = %v, want exactly one", groups)
 	}
 	// Blank identifiers are not addressable.
-	if _, ok := pkg.Symbols["_"]; ok {
+	if _, ok := pkg.Symbol("_"); ok {
 		t.Error("blank identifier was indexed")
 	}
 
-	for _, u := range e.Packages {
+	for _, addr := range e.ws.UnitKeys() {
+		u, _ := e.ws.Unit(addr)
 		for _, p := range []*Package{u.Prod, u.XTest} {
 			if p == nil {
 				continue
 			}
-			for path, f := range p.Files {
-				if path.escapesRoot() {
-					t.Errorf("%s: tracked file escapes workspace root", path)
+			for _, f := range p.Files() {
+				if f.Path.EscapesRoot() {
+					t.Errorf("%s: tracked file escapes workspace root", f.Path)
 				}
-				if len(f.Src) == 0 {
-					t.Errorf("%s: empty Src, canonical-bytes invariant broken", path)
+				if len(f.Src()) == 0 {
+					t.Errorf("%s: empty Src, canonical-bytes invariant broken", f.Path)
 				}
-				if f.IsDirty {
-					t.Errorf("%s: dirty right after bootstrap", path)
+				if f.Dirty() {
+					t.Errorf("%s: dirty right after bootstrap", f.Path)
 				}
 			}
 		}
@@ -103,12 +104,12 @@ func TestBootstrapSandbox(t *testing.T) {
 
 func TestBootstrapIsIdempotent(t *testing.T) {
 	e := sandboxEngine(t)
-	first := len(e.Packages)
+	first := len(e.ws.UnitKeys())
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatalf("second Bootstrap: %v", err)
 	}
-	if len(e.Packages) != first {
-		t.Errorf("package count changed across re-bootstrap: %d -> %d", first, len(e.Packages))
+	if len(e.ws.UnitKeys()) != first {
+		t.Errorf("package count changed across re-bootstrap: %d -> %d", first, len(e.ws.UnitKeys()))
 	}
 }
 
@@ -163,14 +164,14 @@ func TestIngestErrorsOnBrokenFile(t *testing.T) {
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatalf("Bootstrap must not fail on diagnostics: %v", err)
 	}
-	unit := e.Packages["example.com/broken"]
-	if unit == nil || unit.Prod == nil {
+	unit, ok := e.ws.Unit("example.com/broken")
+	if !ok || unit.Prod == nil {
 		t.Fatal("broken package missing from state")
 	}
 	var diags []Diagnostic
-	if f := unit.Prod.Files["main.go"]; f != nil {
+	if f, ok := unit.Prod.File("main.go"); ok {
 		diags = append(diags, f.Diags...)
-		if !bytes.Contains(f.Src, []byte("func main()")) {
+		if !bytes.Contains(f.Src(), []byte("func main()")) {
 			t.Error("broken file Src not captured")
 		}
 	}

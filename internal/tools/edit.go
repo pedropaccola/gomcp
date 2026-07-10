@@ -12,7 +12,10 @@ import (
 // Mutation tool implementations, in the same semantic sections as the
 // engine's mutation layer: Creators, Editors, Refactorings, Session. Every
 // handler is one Engine.Edit transaction relayed through runEdit; shapes
-// live in tools.go.
+// live in tools.go. Handlers carry no doc comments by design — they are
+// mechanical relays, documented by their tool descriptions in Register;
+// only the address gates and grouping helpers at the bottom explain
+// themselves.
 
 // runEdit is the composite every mutating handler flows through: one
 // transaction, echoed as files changed plus the diagnostics delta.

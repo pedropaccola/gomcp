@@ -52,7 +52,7 @@ func TestCreateSymbolAndRollback(t *testing.T) {
 			t.Error("doc comment lost through the pipeline")
 		}
 		file, _, _ := v.File("shapes/extra.go")
-		if file == nil || !file.IsDirty {
+		if file == nil || !file.Dirty() {
 			t.Error("new file must be dirty until flushed")
 		}
 		return nil
@@ -157,8 +157,8 @@ func TestRenameSymbolPropagates(t *testing.T) {
 			t.Error("method key did not follow the renamed receiver")
 		}
 		file, _, _ := v.File("use/use.go")
-		if !bytes.Contains(file.Src, []byte("shapes.Round{")) || bytes.Contains(file.Src, []byte("shapes.Circle")) {
-			t.Errorf("use/use.go not rewritten:\n%s", file.Src)
+		if !bytes.Contains(file.Src(), []byte("shapes.Round{")) || bytes.Contains(file.Src(), []byte("shapes.Circle")) {
+			t.Errorf("use/use.go not rewritten:\n%s", file.Src())
 		}
 		return nil
 	})
@@ -181,20 +181,20 @@ func TestRenamePackagePropagates(t *testing.T) {
 			t.Fatalf("geo package wrong after rename: %+v", pkg)
 		}
 		file, _, _ := v.File("use/use.go")
-		if !bytes.Contains(file.Src, []byte(`"example.com/sandbox/geo"`)) {
-			t.Errorf("import path not rewritten:\n%s", file.Src)
+		if !bytes.Contains(file.Src(), []byte(`"example.com/sandbox/geo"`)) {
+			t.Errorf("import path not rewritten:\n%s", file.Src())
 		}
-		if !bytes.Contains(file.Src, []byte("geo.Circle{")) {
-			t.Errorf("qualifiers not renamed:\n%s", file.Src)
+		if !bytes.Contains(file.Src(), []byte("geo.Circle{")) {
+			t.Errorf("qualifiers not renamed:\n%s", file.Src())
 		}
 
 		// Aliased imports: path rewritten, alias untouched.
 		alias, _, _ := v.File("use/alias.go")
-		if !bytes.Contains(alias.Src, []byte(`sh "example.com/sandbox/geo"`)) {
-			t.Errorf("aliased import path not rewritten:\n%s", alias.Src)
+		if !bytes.Contains(alias.Src(), []byte(`sh "example.com/sandbox/geo"`)) {
+			t.Errorf("aliased import path not rewritten:\n%s", alias.Src())
 		}
-		if !bytes.Contains(alias.Src, []byte("sh.Base{}")) {
-			t.Errorf("alias qualifier must survive the rename:\n%s", alias.Src)
+		if !bytes.Contains(alias.Src(), []byte("sh.Base{}")) {
+			t.Errorf("alias qualifier must survive the rename:\n%s", alias.Src())
 		}
 
 		// The external test package moves with its production sibling: new
@@ -204,8 +204,8 @@ func TestRenamePackagePropagates(t *testing.T) {
 			t.Fatalf("XTest did not follow the rename: %+v", xtest)
 		}
 		ext, _, _ := v.File("geo/external_test.go")
-		if !bytes.Contains(ext.Src, []byte(`"example.com/sandbox/geo"`)) || !bytes.Contains(ext.Src, []byte("geo.Circle{")) {
-			t.Errorf("external test not rewritten:\n%s", ext.Src)
+		if !bytes.Contains(ext.Src(), []byte(`"example.com/sandbox/geo"`)) || !bytes.Contains(ext.Src(), []byte("geo.Circle{")) {
+			t.Errorf("external test not rewritten:\n%s", ext.Src())
 		}
 		return nil
 	})
@@ -250,7 +250,7 @@ func TestPlacementPolicy(t *testing.T) {
 	})
 	e.Read(func(v *View) error {
 		file, _, _ := v.File("use/use.go")
-		src := string(file.Src)
+		src := string(file.Src())
 		idx := func(needle string) int {
 			i := strings.Index(src, needle)
 			if i < 0 {
@@ -301,8 +301,8 @@ func TestImportSelfRepair(t *testing.T) {
 	}
 	e.Read(func(v *View) error {
 		file, _, _ := v.File("use/use.go")
-		if !bytes.Contains(file.Src, []byte(`"example.com/sandbox/colors"`)) {
-			t.Errorf("import not spliced:\n%s", file.Src)
+		if !bytes.Contains(file.Src(), []byte(`"example.com/sandbox/colors"`)) {
+			t.Errorf("import not spliced:\n%s", file.Src())
 		}
 		return nil
 	})
@@ -328,8 +328,8 @@ func TestImportRepairRefusesAmbiguity(t *testing.T) {
 	}
 	e.Read(func(v *View) error {
 		file, _, _ := v.File("use/use.go")
-		if bytes.Contains(file.Src, []byte("/dup")) {
-			t.Errorf("repair guessed between ambiguous packages:\n%s", file.Src)
+		if bytes.Contains(file.Src(), []byte("/dup")) {
+			t.Errorf("repair guessed between ambiguous packages:\n%s", file.Src())
 		}
 		return nil
 	})
@@ -406,8 +406,8 @@ func TestDeleteGroupedSpec(t *testing.T) {
 	})
 	e.Read(func(v *View) error {
 		file, _, _ := v.File("shapes/groups.go")
-		if bytes.Contains(file.Src, []byte("type (")) {
-			t.Errorf("empty type group left behind:\n%s", file.Src)
+		if bytes.Contains(file.Src(), []byte("type (")) {
+			t.Errorf("empty type group left behind:\n%s", file.Src())
 		}
 		return nil
 	})
@@ -437,8 +437,8 @@ func TestRenameMethodReportsBrokenSatisfaction(t *testing.T) {
 	}
 	e.Read(func(v *View) error {
 		file, _, _ := v.File("use/use.go")
-		if !bytes.Contains(file.Src, []byte("c.Extent()")) {
-			t.Errorf("direct method call not renamed:\n%s", file.Src)
+		if !bytes.Contains(file.Src(), []byte("c.Extent()")) {
+			t.Errorf("direct method call not renamed:\n%s", file.Src())
 		}
 		return nil
 	})
@@ -520,8 +520,8 @@ func TestMoveGroupedSpec(t *testing.T) {
 			t.Error("sibling spec destroyed by grouped move")
 		}
 		file, _, _ := v.File("shapes/shapes.go")
-		if !bytes.Contains(file.Src, []byte("var DefaultScale")) {
-			t.Errorf("grouped member not extracted as standalone declaration:\n%s", file.Src)
+		if !bytes.Contains(file.Src(), []byte("var DefaultScale")) {
+			t.Errorf("grouped member not extracted as standalone declaration:\n%s", file.Src())
 		}
 		return nil
 	})
@@ -568,8 +568,8 @@ func TestMoveToNewFile(t *testing.T) {
 			t.Errorf("Doubled lives in %q, want shapes/moved.go", sym.File)
 		}
 		file, _, _ := v.File("shapes/moved.go")
-		if !bytes.Contains(file.Src, []byte("// Doubled reports twice the default scale.")) {
-			t.Errorf("doc comment did not travel with the move:\n%s", file.Src)
+		if !bytes.Contains(file.Src(), []byte("// Doubled reports twice the default scale.")) {
+			t.Errorf("doc comment did not travel with the move:\n%s", file.Src())
 		}
 		return nil
 	})

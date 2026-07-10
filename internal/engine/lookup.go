@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/pedropaccola/gomcp/internal/engine/state"
 )
 
 // Lookup layer: pure reads over a consistent snapshot of the workspace,
@@ -52,12 +54,12 @@ func (e *Engine) Read(fn func(*View) error) error {
 // Module is the workspace's module path: the prefix of every workspace
 // package address. Valid inside Read, where the snapshot is held.
 func (v *View) Module() PkgPath {
-	return v.eng.Module
+	return v.eng.ws.Module()
 }
 
 // Package resolves a canonical package address to its production package.
 func (v *View) Package(pkg PkgPath) (*Package, bool) {
-	unit, ok := v.eng.Packages[pkg]
+	unit, ok := v.eng.ws.Unit(pkg)
 	if !ok || unit.Prod == nil {
 		return nil, false
 	}
@@ -66,7 +68,7 @@ func (v *View) Package(pkg PkgPath) (*Package, bool) {
 
 // XTest resolves a canonical package address to its external test package.
 func (v *View) XTest(pkg PkgPath) (*Package, bool) {
-	unit, ok := v.eng.Packages[pkg]
+	unit, ok := v.eng.ws.Unit(pkg)
 	if !ok || unit.XTest == nil {
 		return nil, false
 	}
@@ -76,8 +78,7 @@ func (v *View) XTest(pkg PkgPath) (*Package, bool) {
 // ExternalPackage resolves a dependency resident in the external cache;
 // LoadExternal fills the cache outside the read gate.
 func (v *View) ExternalPackage(pkg PkgPath) (*Package, bool) {
-	p, ok := v.eng.external[pkg]
-	return p, ok
+	return v.eng.ws.ExternalPackage(pkg)
 }
 
 // File resolves a file path to the file and its owning package, checking
@@ -85,18 +86,18 @@ func (v *View) ExternalPackage(pkg PkgPath) (*Package, bool) {
 // files resolve through their import-path-qualified pseudo-paths.
 func (v *View) File(path RelativePath) (*File, *Package, bool) {
 	path = path.Clean()
-	if unit, ok := v.eng.Packages[v.eng.pkgAt(path.Dir())]; ok {
+	if unit, ok := v.eng.ws.Unit(v.eng.pkgAt(path.Dir())); ok {
 		for _, pkg := range []*Package{unit.Prod, unit.XTest} {
 			if pkg == nil {
 				continue
 			}
-			if file, ok := pkg.Files[path]; ok {
+			if file, ok := pkg.File(path); ok {
 				return file, pkg, true
 			}
 		}
 	}
-	if pkg, ok := v.eng.external[PkgPath(path.Dir())]; ok {
-		if file, ok := pkg.Files[path]; ok {
+	if pkg, ok := v.eng.ws.ExternalPackage(PkgPath(path.Dir())); ok {
+		if file, ok := pkg.File(path); ok {
 			return file, pkg, true
 		}
 	}
@@ -106,7 +107,7 @@ func (v *View) File(path RelativePath) (*File, *Package, bool) {
 // Symbol resolves a package address and symbol key ("Name" or "Recv.Name")
 // to the symbol and its owning package, checking Prod before XTest.
 func (v *View) Symbol(pkg PkgPath, key string) (*Symbol, *Package, bool) {
-	unit, ok := v.eng.Packages[pkg]
+	unit, ok := v.eng.ws.Unit(pkg)
 	if !ok {
 		return nil, nil, false
 	}
@@ -114,7 +115,7 @@ func (v *View) Symbol(pkg PkgPath, key string) (*Symbol, *Package, bool) {
 		if p == nil {
 			continue
 		}
-		if sym, ok := p.Symbols[key]; ok {
+		if sym, ok := p.Symbol(key); ok {
 			return sym, p, true
 		}
 	}
@@ -123,12 +124,12 @@ func (v *View) Symbol(pkg PkgPath, key string) (*Symbol, *Package, bool) {
 
 // ----- Enumerators -----
 
-// Packages enumerates every package in the workspace: directories in path
+// Packages enumerates every package in the workspace: addresses in path
 // order, Prod before XTest.
 func (v *View) Packages() []*Package {
 	var out []*Package
-	for _, dir := range sortedKeys(v.eng.Packages) {
-		unit := v.eng.Packages[dir]
+	for _, pkg := range v.eng.ws.UnitKeys() {
+		unit, _ := v.eng.ws.Unit(pkg)
 		if unit.Prod != nil {
 			out = append(out, unit.Prod)
 		}
@@ -139,28 +140,10 @@ func (v *View) Packages() []*Package {
 	return out
 }
 
-// Files enumerates a package's files in path order.
-func (v *View) Files(pkg *Package) []*File {
-	out := make([]*File, 0, len(pkg.Files))
-	for _, path := range sortedKeys(pkg.Files) {
-		out = append(out, pkg.Files[path])
-	}
-	return out
-}
-
-// Symbols enumerates a package's symbols in key order.
-func (v *View) Symbols(pkg *Package) []*Symbol {
-	out := make([]*Symbol, 0, len(pkg.Symbols))
-	for _, key := range sortedKeys(pkg.Symbols) {
-		out = append(out, pkg.Symbols[key])
-	}
-	return out
-}
-
 // Methods enumerates the methods declared on typeName in one package.
 func (v *View) Methods(pkg *Package, typeName string) []*Symbol {
 	var out []*Symbol
-	for _, sym := range v.Symbols(pkg) {
+	for _, sym := range pkg.Symbols() {
 		if sym.Kind == KindMethod && sym.Recv == typeName {
 			out = append(out, sym)
 		}
@@ -182,7 +165,7 @@ type Match struct {
 func (v *View) SymbolsWhere(pred func(*Package, *Symbol) bool) []Match {
 	var out []Match
 	for _, pkg := range v.Packages() {
-		for _, sym := range v.Symbols(pkg) {
+		for _, sym := range pkg.Symbols() {
 			if pred(pkg, sym) {
 				out = append(out, Match{Pkg: pkg, Sym: sym})
 			}
@@ -279,8 +262,8 @@ func (v *View) SymbolsReferencing(sym *Symbol) ([]Match, error) {
 			if objKey(obj) != target {
 				continue
 			}
-			relFile, err := v.eng.relativePath(v.eng.FileSet.Position(ident.Pos()).Filename)
-			if err != nil || relFile.escapesRoot() {
+			relFile, err := v.eng.relativePath(v.eng.ws.FileSet().Position(ident.Pos()).Filename)
+			if err != nil || relFile.EscapesRoot() {
 				continue
 			}
 			encl, owner, ok := v.SymbolAt(relFile, ident.Pos())
@@ -305,13 +288,12 @@ func (v *View) SymbolAt(path RelativePath, pos token.Pos) (*Symbol, *Package, bo
 		return nil, nil, false
 	}
 	var groupHit *Symbol
-	for _, key := range sortedKeys(owner.Symbols) {
-		sym := owner.Symbols[key]
+	for _, sym := range owner.Symbols() {
 		if sym.File != path {
 			continue
 		}
 		start := sym.Decl.Pos()
-		if doc := docOf(sym.Decl); doc != nil {
+		if doc := state.DocOf(sym.Decl); doc != nil {
 			start = doc.Pos()
 		}
 		if pos < start || pos >= sym.Decl.End() {
@@ -340,7 +322,7 @@ func (v *View) SymbolAt(path RelativePath, pos token.Pos) (*Symbol, *Package, bo
 // is the entire group; see SpecSource for the narrow slice.
 func (v *View) DeclSource(sym *Symbol) ([]byte, bool) {
 	start := sym.Decl.Pos()
-	if doc := docOf(sym.Decl); doc != nil {
+	if doc := state.DocOf(sym.Decl); doc != nil {
 		start = doc.Pos()
 	}
 	return v.sliceSrc(sym.File, start, sym.Decl.End())
@@ -355,7 +337,7 @@ func (v *View) SpecSource(sym *Symbol) ([]byte, bool) {
 		return v.DeclSource(sym)
 	}
 	start := sym.Spec.Pos()
-	if doc := docOf(sym.Spec); doc != nil {
+	if doc := state.DocOf(sym.Spec); doc != nil {
 		start = doc.Pos()
 	}
 	return v.sliceSrc(sym.File, start, sym.Spec.End())
@@ -394,7 +376,7 @@ func (v *View) offsetSpan(path RelativePath, from, to token.Pos) (span, bool) {
 	fset := v.eng.fsetOf(owner)
 	start := fset.Position(from).Offset
 	end := fset.Position(to).Offset
-	if start < 0 || end > len(file.Src) || start > end {
+	if start < 0 || end > len(file.Src()) || start > end {
 		return span{}, false
 	}
 	return span{start: start, end: end}, true
@@ -411,7 +393,7 @@ func (v *View) sliceSrc(path RelativePath, from, to token.Pos) ([]byte, bool) {
 	if !ok {
 		return nil, false
 	}
-	return file.Src[sp.start:sp.end], true
+	return file.Src()[sp.start:sp.end], true
 }
 
 // ----- Diagnostics -----
@@ -419,7 +401,7 @@ func (v *View) sliceSrc(path RelativePath, from, to token.Pos) ([]byte, bool) {
 // Diagnostics aggregates one package address's package- and file-scoped
 // diagnostics across its Prod and XTest packages.
 func (v *View) Diagnostics(pkg PkgPath) []Diagnostic {
-	unit, ok := v.eng.Packages[pkg]
+	unit, ok := v.eng.ws.Unit(pkg)
 	if !ok {
 		return nil
 	}
@@ -429,7 +411,7 @@ func (v *View) Diagnostics(pkg PkgPath) []Diagnostic {
 			continue
 		}
 		out = append(out, p.Diags...)
-		for _, file := range v.Files(p) {
+		for _, file := range p.Files() {
 			out = append(out, file.Diags...)
 		}
 	}
@@ -442,16 +424,17 @@ func (v *View) Diagnostics(pkg PkgPath) []Diagnostic {
 // It is a positional view, never the inventory: diagnostics that fall outside
 // every declaration remain visible only at file scope and coarser.
 func (v *View) SymbolDiagnostics(sym *Symbol) []Diagnostic {
-	file, _, ok := v.File(sym.File)
+	file, owner, ok := v.File(sym.File)
 	if !ok {
 		return nil
 	}
 	start := sym.Decl.Pos()
-	if doc := docOf(sym.Decl); doc != nil {
+	if doc := state.DocOf(sym.Decl); doc != nil {
 		start = doc.Pos()
 	}
-	from := v.eng.FileSet.Position(start).Line
-	to := v.eng.FileSet.Position(sym.Decl.End()).Line
+	fset := v.eng.fsetOf(owner)
+	from := fset.Position(start).Line
+	to := fset.Position(sym.Decl.End()).Line
 	var out []Diagnostic
 	for _, diag := range file.Diags {
 		if diag.Line >= from && diag.Line <= to {
@@ -464,15 +447,15 @@ func (v *View) SymbolDiagnostics(sym *Symbol) []Diagnostic {
 // WorkspaceDiagnostics enumerates only the workspace-scoped diagnostics:
 // module/driver-level problems not attributable to any package.
 func (v *View) WorkspaceDiagnostics() []Diagnostic {
-	return slices.Clone(v.eng.Diags)
+	return v.eng.ws.WorkspaceDiags()
 }
 
 // AllDiagnostics aggregates workspace-scoped diagnostics followed by every
-// directory's, in path order.
+// address's, in path order.
 func (v *View) AllDiagnostics() []Diagnostic {
 	out := v.WorkspaceDiagnostics()
-	for _, dir := range sortedKeys(v.eng.Packages) {
-		out = append(out, v.Diagnostics(dir)...)
+	for _, pkg := range v.eng.ws.UnitKeys() {
+		out = append(out, v.Diagnostics(pkg)...)
 	}
 	return out
 }
@@ -489,7 +472,7 @@ func objKey(obj types.Object) string {
 	name := obj.Name()
 	if fn, ok := obj.(*types.Func); ok {
 		if recv := fn.Signature().Recv(); recv != nil {
-			if recvName := typeRecvName(recv.Type()); recvName != "" {
+			if recvName := recvNameOfType(recv.Type()); recvName != "" {
 				name = recvName + "." + name
 			}
 		}
@@ -529,8 +512,10 @@ func definingIdent(sym *Symbol) *ast.Ident {
 	return nil
 }
 
-// typeRecvName unwraps a receiver type down to its base type name.
-func typeRecvName(t types.Type) string {
+// recvNameOfType unwraps a receiver's types.Type down to its base type
+// name — the semantic sibling of recvTypeName, which does the same on the
+// AST.
+func recvNameOfType(t types.Type) string {
 	if ptr, ok := t.(*types.Pointer); ok {
 		t = ptr.Elem()
 	}
@@ -540,6 +525,9 @@ func typeRecvName(t types.Type) string {
 	return ""
 }
 
+// sortMatches orders scan hits by package, then key — determinism
+// (invariant 6): Uses and Symbols are maps, and map order must never
+// reach an output.
 func sortMatches(matches []Match) {
 	slices.SortFunc(matches, func(a, b Match) int {
 		if c := cmp.Compare(a.Pkg.Path, b.Pkg.Path); c != 0 {
@@ -552,6 +540,8 @@ func sortMatches(matches []Match) {
 	})
 }
 
+// sortDiagnostics orders problem reports by position, then message —
+// determinism (invariant 6) for every diagnostics aggregation.
 func sortDiagnostics(diags []Diagnostic) {
 	slices.SortFunc(diags, func(a, b Diagnostic) int {
 		if c := cmp.Compare(a.File, b.File); c != 0 {
@@ -567,6 +557,7 @@ func sortDiagnostics(diags []Diagnostic) {
 	})
 }
 
+// sortedKeys is the deterministic way to walk any map (invariant 6).
 func sortedKeys[K cmp.Ordered, V any](m map[K]V) []K {
 	return slices.Sorted(maps.Keys(m))
 }

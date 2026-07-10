@@ -19,81 +19,80 @@ agreed-but-deferred work.
 ## Layout
 
     cmd/mcpgo/          entrypoint: flags, workspace root, MCP stdio server
-    internal/engine/    the model: state, lookups, mutations
-      engine.go         data structures, path API, Bootstrap/load pipeline
+    internal/engine/    the model's gates: lookups, mutations, load pipeline
+      engine.go         state re-exports, path API, Bootstrap/load pipeline
       lookup.go         read layer (all methods on View)
       mutation.go       write layer (all verbs on Tx)
+      state/            the trusted core: model vocabulary and the
+                        Workspace, mutable only through its primitives
     internal/tools/     presentation layer: MCP tools
       tools.go          the declared surface: registration + I/O shapes
       read.go           read handlers + shared resolvers/renderers
       edit.go           mutation handlers, all flowing through runEdit
     testdata/sandbox/   fixture module for semantic and mutation tests
 
-## Core invariants (violating any of these is a bug)
+## Core invariants
 
-1. **`File.Src` is canonical; `File.Ast` is a parse of exactly `Src`.**
-   Positions convert to byte offsets and back losslessly. Never re-print an
-   AST to produce source — mutations splice byte spans located via the AST,
-   then reparse (`reloadFile` in mutation.go is the only choke point).
-2. **Everything else is derived and rebuilt, never patched.** Symbol tables,
-   inits, diagnostics: rebuild from `Files` (`RebuildIndex`), don't edit in
-   place. Nothing can drift because nothing is incrementally maintained.
-3. **Two doors for paths.** A string becomes a `RelativePath` only through
+The first three hold by construction: the state package owns the model,
+its hot fields are unexported, and code violating them does not build —
+know that they hold, not how to maintain them.
+
+1. **Canonical bytes.** A file's `Src()` is the source of truth and its
+   `Ast()` is a parse of exactly those bytes; positions convert to byte
+   offsets and back losslessly. Content enters through two doors only:
+   `Workspace.SwapFile` (mutation path — `reloadFile` runs goimports, the
+   swap enforces the parse) and `Package.AddLoadedFile` (load path — the
+   type checker's own AST). ASTs locate byte spans for splicing and are
+   never re-printed.
+2. **Derived state is rebuilt, never patched.** The symbol index and init
+   lists re-derive from files (`RebuildIndex`, inside every primitive);
+   nothing is incrementally maintained, so nothing drifts.
+3. **Determinism.** Everything the state package enumerates is sorted-only
+   (`Files()`, `Symbols()`, `UnitKeys()`, `Tombstones()`); the raw maps
+   never leave it. Any other map needs `sortedKeys` before it reaches an
+   output (see `sortMatches`).
+
+The rest is still discipline — violating any of these is a bug:
+
+4. **Two doors for paths.** A string becomes a `RelativePath` only through
    `CleanPath` (untrusted input; validates) or `Engine.relativePath`
    (absolute → workspace-relative). Map keys are always workspace-relative.
-4. **Error ⇒ untouched.** Mutation verbs do all fallible work on candidate
+5. **Error ⇒ untouched.** Mutation verbs do all fallible work on candidate
    bytes before swapping; `Edit` runs fn on a cloned workspace it discards
    on error. Post-change problems are never errors — they are the echo's
    diagnostics delta, because broken code is a valid state (Bootstrap holds
    the same principle: per-package errors become Diagnostics, not failures).
-5. **Pointers don't escape their gate.** `Read(fn(*View))` holds RLock,
+6. **Pointers don't escape their gate.** `Read(fn(*View))` holds RLock,
    `Edit(fn(*Tx))` holds the write lock; `*Symbol`/`*Package`/`*File`
    obtained inside must not outlive the closure. `Tx` embeds `*View`, so all
    lookups compose in-transaction (parse-fresh, type-stale until the
    commit-time recheck).
-6. **Determinism.** Anything that enumerates is sorted; map iteration order
-   must never reach an output (see `sortedKeys`, `sortMatches`).
 
 ## Nomenclature grammars (keep new code inside them)
 
-**lookup.go** (sections: Resolvers / Enumerators / Scanners / Source /
-Diagnostics):
-- `X(addr) (..., bool)` — resolve one resource; comma-ok, never error.
-- `Xs(scope)` — enumerate a scope's resources; sorted. Addresses derive from
-  resources (`pkg.Path`, `sym.Key()`), never returned separately.
-- `XsLike/XsWhere/XsRegexp` — workspace scans returning `[]Match` (scans
-  cross packages, so hits carry their owner). Semantic scanners
-  (`SymbolsImplementing`, `SymbolsReferencing`) return an error when type
-  info can't answer exactly — approximation is never the fallback.
-- Everything composes downward: scanners iterate enumerators, enumerators
-  use resolvers. New lookups keep to that layering.
+Names carry meaning before docs do: a symbol that needs its doc comment to
+be understood is a naming bug — rename it (rename_declaration makes that a
+one-call fix), then let the doc add what the name cannot. Prefer the
+domain vocabulary the headers already use (splice, region, tombstone,
+fragment); never let two helpers share permuted words for different
+domains.
 
-**mutation.go** (sections: Creators / Editors / Refactorings):
-- Creators fail if the address exists (can never destroy). Editors fail if
-  it doesn't. Refactorings are structure-preserving: multi-site renames
-  driven by the semantic scanners, and moves that refuse anything whose
-  meaning depends on its surroundings (iota groups, shared specs, the test
-  build boundary).
-- New declarations land at canonical positions: const/var top, types next,
-  funcs bottom, methods right after their receiver's group (`insertOffset`).
-- The server owns import blocks: goimports runs in every `reloadFile`, and
-  imports of in-memory-only packages (invisible to goimports, which scans
-  disk) self-repair between rechecks (`repairMissingImports` — one bounded,
-  best-effort pass that refuses ambiguous names).
-- Symbol keys: `"Name"`, methods `"Recv.Name"`. Same address space as reads.
+lookup.go, mutation.go, and tools.go each open with their own layer's
+grammar (X/Xs/XsWhere and the resolver→enumerator→scanner layering;
+Creators/Editors/Refactorings and the placement policy; tool naming and
+the DiagBlock output convention) — read the header before adding a verb.
+Restating them here would just be one more place to go stale; what
+doesn't live in any single header:
 
-**tools/** — `list_*` enumerate, `describe_*` render one address, `search_*`
-scan, `diagnostics` reports, `create_*`/`edit_*`/`delete_*`/`move_*`/`rename_*`
-mutate, `flush` writes to disk, `reload` rebuilds from it (discarding
-unflushed work — the recovery move when the filesystem changed behind the
-server, e.g. after manual edits or git operations). tools.go holds the entire declared surface
-(names, descriptions, schemas); handlers hold no presentation decisions the
-shapes don't show. Every reader output may carry a `DiagBlock` scoped to
-exactly what was read — a view, never the inventory (`diagnostics` is the
-inventory). Every mutation echo reports files touched, diagnostics
-introduced, and diagnostics resolved. Tool descriptions earn words only for
-what changes the agent's input or its reading of the output — server
-internals stay out of them.
+- Symbol keys are one address space across both layers: `"Name"`, methods
+  `"Recv.Name"`.
+- `reload` discards unflushed work — the recovery move when the
+  filesystem changed behind the server (manual edits, git operations).
+- Mutation echoes report files touched, diagnostics introduced, and
+  diagnostics resolved — one layer up from the read-scoped `DiagBlock`
+  a reader carries.
+- Tool descriptions earn words only for what changes the agent's input or
+  its reading of the output — server internals stay out of them.
 
 Address convention (both directions, gated by `canonPkg`/`fileArg`):
 `package` is the import path (`github.com/you/mod/internal/tools`) — the
