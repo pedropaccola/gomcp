@@ -1,27 +1,56 @@
-# gomcp
-An MCP server that keeps an in-memory, structurally-aware model of a Go codebase and exposes it to an agent through a small read/write interface. Built on `go/packages` and `go/types`.
+# gomcp 🧞‍♂️:
 
-Inspired by Kent Beck's [SmalltalkGenie](https://github.com/KentBeck/SmalltalkGenie) (more on his [Substack](https://newsletter.kentbeck.com/p/smalltalk-genie)).
+An experimental, declaration-scoped MCP server that exposes an in-memory Go compilation loop directly to coding agents.
 
-## About
-Coding agents today manage the noise problem by going bigger: larger context windows, embedding retrieval, repo maps, compaction. Precise, LSP-style symbol search and definition lookup already exists inside most of them. But it is always one option among many, with grep and whole-file reads as the fallback.
+Inspired by Kent Beck's 3Xs hypothesis (Explore, Expand, Extract) and his work on [SmalltalkGenie](https://github.com/KentBeck/SmalltalkGenie), **gomcp** explores an alternative approach to AI-assisted coding: *What if an agent could interact entirely within an in-memory compilation loop without touching the filesystem?*
 
-This project isn't introducing scoped access. It's removing everything else.
+Environments like Pharo (Smalltalk) are known for providing immediate developer feedback by bypassing file-based translation. **gomcp** aims to bring a similar style of immediate feedback to Go's compiled environment by leveraging Go’s native compiler packages (`go/parser`, `go/ast`, and `go/types`) to manage code state entirely in memory.
 
-Ask about a function and the response is that function's declaration as real Go source, and nothing more. Edits flow the same way in reverse: declaration-sized changes applied to the live in-memory model, with nothing touching the filesystem until the session is flushed. There is no browsing mode, no whole-file read, no escape hatch.
+---
 
-Everything runs on Go's own machinery: parsing, type-checking, cross-references, and formatting all come from the standard toolchain (`go/ast`, `go/types`, `go/packages`, `golang.org/x/tools`). No language server, no embedding index, no database, no background daemon — the only dependency outside the Go ecosystem is the MCP protocol SDK. If you can build the project, the server can model it.
+## Core Concepts
 
-### The bet
-Every widely used tool keeps the fallback available; this one removes it, betting that an agent can work effectively with precision as the only interface, and that the tokens and attention saved outweigh the lost safety net. Whether that trade holds is the open question this proof of concept tries to answer.
+Standard AI development tools treat LLMs like automated text editors. They require the model to navigate filesystems, calculate line offsets and manage patch blocks, which likely introduces unnecessary cognitive noise and wastes context tokens.
 
-Because the server owns the live model, the loop is: query, edit, see the blast radius, repeat. Every mutation triggers a re-check of the in-memory state and answers with the diagnostics it introduced — a signature change immediately reports the callers it broke, without a rebuild or a second read pass.
+**gomcp** changes this dynamic through three design choices:
 
-### The compromises
-- **The unit is the top-level declaration.** Anything between declarations — import blocks, package clauses, floating comments — is not addressable by the agent and must be managed by the server itself.
-- **Structural feedback is not correctness.** Diagnostics catch breakage the compiler can see. A type-correct edit can still implement the wrong logic, miss an edge case, or violate a convention no tool checks.
-- **Go only, by leaning on Go.** The server delegates to the standard toolchain rather than re-implementing language semantics, tying it to the language but keeping it honest.
-- **Dependencies are API surface, not code.** A dependency's exported declarations read like the workspace's; its internals are not modeled, its types stay outside the semantic-search universe, and it can never be edited.
+1. **In-Memory Operations:** The agent reads from and writes to an in-memory representation of the codebase. Changes do not touch the disk while the agent works.
+2. **Declaration Isolation:** Instead of sending an entire file or package context to the LLM, the server isolates and exposes only the specific declaration (such as a single struct, function, or interface) required for the current task.
+3. **Immediate Compiler Feedback:** Every write triggers a full-module re-typecheck in memory, sending compiler diagnostics directly back to the agent.
+
+
+## Operational Characteristics
+
+To optimize the tool for how Large Language Models process text, the server adheres to these specific operational behaviors:
+
+### Human-Readable Source
+While the backend manipulates Go's Abstract Syntax Tree (AST), **the model never encounters raw AST structures or JSON nodes**. LLMs are trained on standard source code, and forcing them to parse or generate structural tree nodes would likely require additional reasoning. **gomcp** exposes clean, human-readable Go source text at the declaration level, preserving the exact token relationships the model understands.
+
+### The "Dirty Buffer" Sandbox
+If an agent introduces a change that breaks typing rules, **gomcp retains the change**. Instead of rejecting invalid code, it updates the in-memory state like an IDE's unsaved buffer and returns the exact `go/types` diagnostics to the agent. This allows the model to perform multi-step refactors where intermediate states are broken, using the compiler's output to iteratively correct its work.
+
+### Dependency-Aware Reads
+The read tools aren't limited to the agent's own module. Any importable package (standard library or third-party) resolves through the same `list_*`/`describe_*` tools by import path, lazy loaded. Only the exported API is indexed, and dependencies are never mutable: they're workspace context, not workspace state.
+
+### Server-Managed Imports
+The agent writes identifiers, never import blocks. **gomcp** runs `goimports` on every write, and imports of packages that exist only in memory (invisible to disk-scanning tools) self-repair between rechecks. Import management is one thing the agent never has to think about.
+
+
+## Technical Footprint & Independence
+
+* **Independent of any LSP:** This tool operates independently of `gopls` or any running Language Server Protocol instance. The underlying mutation engine handles source parsing, syntax isolation, and error reporting natively through Go's internal compiler packages.
+* **Minimal Dependencies:** Two external dependencies: the MCP Go SDK and `golang.org/x/tools` (Go project's own tooling module).
+
+
+## The Execution Loop
+
+1. **Fetch:** The agent requests a specific declaration by name. `gomcp` extracts it from the in-memory AST and returns it as a plain text Go snippet.
+2. **Mutate:** The agent submits a single write or a batch of writes directly to the target declarations.
+3. **Type-Check:** `gomcp` applies the changes to the AST and evaluates the module state using `go/types`.
+4. **Echo:** The server returns any compiler errors or diagnostics (new or resolved) directly to the agent to guide its next iteration.
+
+
+---
 
 ## Tools
 Small set of 25 tools:
@@ -35,12 +64,14 @@ Small set of 25 tools:
 ### Write
 * Creators (fail if the address already exists; cannot destroy code): `create_package`, `create_file`, `create_declaration`
 * Editors (fail if the address doesn't exist): `edit_declaration`, `delete_declaration`, `delete_file`, `delete_package`
-* Refactorings (structure-preserving transformations): `move_declaration`, `rename_declaration`, `rename_file`, `rename_package`
+* Refactorings (structure-preserving transformations; renames propagate to every reference across the workspace): `move_declaration`, `rename_declaration`, `rename_file`, `rename_package`
 * Session (syncs the in-memory state with disk): `flush`, `reload`
 
-More on [tools/tools.go](../main/internal/tools/tools.go)
+More on `internal/tools/tools.go`
 
 ## Installation
+Requires a Go toolchain on your `PATH`. The `mcpgo` shells out to `go list` to load the workspace.
+
 ```bash
 go install github.com/pedropaccola/gomcp/cmd/mcpgo@latest
 ```
