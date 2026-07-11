@@ -1,4 +1,9 @@
-package state
+// Package address is the shared leaf vocabulary for locating things in the
+// workspace: RelativePath (disk-relative file paths) and PkgPath (import
+// paths). It depends on nothing else in this module, so workspace, engine,
+// and tools each depend on it directly instead of re-exporting it for one
+// another.
+package address
 
 import (
 	"path/filepath"

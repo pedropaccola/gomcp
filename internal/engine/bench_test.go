@@ -40,7 +40,7 @@ func BenchmarkEditRoundTrip(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, err := e.Edit(context.Background(), func(tx *Tx) error {
-			return tx.ReplaceSymbol(spkg("shapes"), "NotShape", bodies[i%2])
+			return tx.EditSymbol(spkg("shapes"), "NotShape", bodies[i%2])
 		})
 		if err != nil {
 			b.Fatal(err)
@@ -74,8 +74,7 @@ func BenchmarkScans(b *testing.B) {
 	b.Run("SymbolsReferencing", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			e.Read(func(v *View) error {
-				circle, _, _ := v.Symbol(spkg("shapes"), "Circle")
-				matches, err := v.SymbolsReferencing(circle)
+				matches, err := v.SymbolsReferencing(spkg("shapes"), "Circle")
 				if err != nil || len(matches) == 0 {
 					b.Fatalf("references: %v %v", matches, err)
 				}

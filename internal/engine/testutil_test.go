@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/pedropaccola/gomcp/internal/address"
 )
 
 // moduleRoot walks up from the package directory to the go.mod.
@@ -70,13 +72,13 @@ func copySandbox(tb testing.TB) string {
 func matchKeys(matches []Match) []string {
 	out := make([]string, 0, len(matches))
 	for _, m := range matches {
-		out = append(out, m.Pkg.Path.String()+":"+m.Sym.Key())
+		out = append(out, m.Pkg.Path().String()+":"+m.Sym.Key())
 	}
 	return out
 }
 
 // spkg addresses a sandbox package the way the engine now expects:
 // module-qualified.
-func spkg(dir string) PkgPath {
-	return PkgPath("example.com/sandbox/" + dir)
+func spkg(dir string) address.PkgPath {
+	return address.PkgPath("example.com/sandbox/" + dir)
 }

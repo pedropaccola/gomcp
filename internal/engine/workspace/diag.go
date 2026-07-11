@@ -1,16 +1,13 @@
-package state
+package workspace
 
-import "fmt"
+import (
+	"fmt"
 
-const (
-	KindFunc SymbolKind = iota
-	KindMethod
-	KindType
-	KindVar
-	KindConst
+	"github.com/pedropaccola/gomcp/internal/address"
 )
 
-var symbolKindNames = [...]string{"func", "method", "type", "var", "const"}
+// DiagKind classifies a problem report by its source in the load pipeline.
+type DiagKind int
 
 const (
 	DiagUnknown DiagKind = iota
@@ -20,19 +17,6 @@ const (
 )
 
 var diagKindNames = [...]string{"unknown", "list", "parse", "type"}
-
-// SymbolKind classifies a top-level declaration.
-type SymbolKind int
-
-func (k SymbolKind) String() string {
-	if k >= 0 && int(k) < len(symbolKindNames) {
-		return symbolKindNames[k]
-	}
-	return "unknown"
-}
-
-// DiagKind classifies a problem report by its source in the load pipeline.
-type DiagKind int
 
 func (k DiagKind) String() string {
 	if k >= 0 && int(k) < len(diagKindNames) {
@@ -45,7 +29,7 @@ func (k DiagKind) String() string {
 // [packages.Error] during loads; every later source (type re-checks after
 // mutations) funnels into the same shape.
 type Diagnostic struct {
-	File RelativePath // "" when not attributable to a workspace file
+	File address.RelativePath // "" when not attributable to a workspace file
 	Line int
 	Col  int
 	Kind DiagKind

@@ -1,9 +1,10 @@
 # AGENTS.md
 
 Orientation for agents working on this codebase. The normative documentation
-lives in the section-header comments of the source files themselves — this
-file is the map, not the territory. When this file and a source header
-disagree, the header wins; update whichever is stale.
+lives in the source files themselves — package and declaration doc comments,
+never section-banner comments (see Conventions) — this file is the map, not
+the territory. When this file and the code disagree, the code wins; update
+whichever is stale.
 
 ## What this is
 
@@ -16,76 +17,123 @@ API only, lazily cached (`LoadExternal`), never mutable, reset with the
 workspace snapshot. README.md explains the bet; ROADMAP.md tracks
 agreed-but-deferred work.
 
+## Pillars
+
+Three words settle every design disagreement in this codebase, cited by
+name when they do: **Consistency**, **Composition**, **Nomenclature**.
+When a change trades one against another, say which one wins and why —
+the trade is what's worth recording, not just the outcome.
+
+- **Consistency.** The same concept gets the same word, and the same
+  shape, everywhere it appears — even at the cost of an awkward fit in
+  one spot. A field name, a tool description, or a JSON tag that says
+  something the rest of the surface doesn't is a bug, not a style
+  preference: fix the outlier, don't let the reader re-derive the
+  exception.
+- **Composition.** New capability is built by combining already-existing,
+  already-tested primitives, never by duplicating their logic under a new
+  name. `View`'s resolver→enumerator→scanner layering and `Tx`'s verb
+  categories exist so the next verb composes on what's already proven,
+  instead of re-deriving it beside it.
+- **Nomenclature.** Names carry meaning before docs do (see "Nomenclature
+  grammars" below). A symbol that needs its doc comment to be understood
+  is a naming bug: rename it, then let the doc add only what the name
+  genuinely cannot.
+
 ## Layout
 
     cmd/gomcp/          entrypoint: flags, workspace root, MCP stdio server
-    internal/engine/    the model's gates: lookups, mutations, load pipeline
-      engine.go         state re-exports, path API, Bootstrap/load pipeline
-      lookup.go         read layer (all methods on View)
-      mutation.go       write layer (all verbs on Tx)
-      state/            the trusted core: model vocabulary and the
-                        Workspace, mutable only through its primitives
-    internal/tools/     presentation layer: MCP tools
-      tools.go          the declared surface: registration + I/O shapes
-      read.go           read handlers + shared resolvers/renderers
-      edit.go           mutation handlers, all flowing through runEdit
+    internal/address/   shared leaf vocabulary (RelativePath, PkgPath,
+                        CleanPath), depended on directly by workspace,
+                        engine, and tools
+    internal/engine/    the model's gates: View (reads) and Tx (writes),
+                        each split one semantic category per file, plus
+                        dto.go — engine's own public vocabulary, translated
+                        from workspace's model at the gate
+      workspace/        the trusted core: model vocabulary and the
+                        Workspace, mutable only through its named
+                        primitives, one concept per file
+    internal/tools/     presentation layer: MCP tools, split the same way
+                        as engine (read/write handlers, one category per
+                        file, a shared.go for helpers called from both)
     testdata/sandbox/   fixture module for semantic and mutation tests
+
+Every file's own doc comment gives the exact category breakdown —
+restating it here would be one more place to go stale. No section-banner
+comments exist anywhere in this codebase (see Conventions); a file's job is
+either self-evident from its name or explained in its own doc comment.
 
 ## Core invariants
 
-The first three hold by construction: the state package owns the model,
-its hot fields are unexported, and code violating them does not build —
-know that they hold, not how to maintain them.
+Three hold by construction — the workspace package owns the model, its hot
+fields are unexported, and violating code does not build:
+- **Canonical bytes.** A file's `Src()` is the source of truth and `Ast()`
+  is a parse of exactly those bytes. Content enters through two doors only:
+  `Workspace.SwapFile` (mutation path — goimports runs, the swap enforces
+  the parse) and `Package.AddLoadedFile` (load path — the type checker's
+  own AST). ASTs locate byte spans for splicing and are never re-printed.
+- **Derived state is rebuilt, never patched.** The symbol index and init
+  lists re-derive from files (`RebuildIndex`, inside every primitive);
+  nothing is incrementally maintained, so nothing drifts.
+- **Determinism.** Everything the workspace package enumerates is
+  sorted-only (`Files()`, `Symbols()`, `UnitKeys()`, `Tombstones()`); any
+  other map needs `sortedKeys` before it reaches an output.
 
-1. **Canonical bytes.** A file's `Src()` is the source of truth and its
-   `Ast()` is a parse of exactly those bytes; positions convert to byte
-   offsets and back losslessly. Content enters through two doors only:
-   `Workspace.SwapFile` (mutation path — `reloadFile` runs goimports, the
-   swap enforces the parse) and `Package.AddLoadedFile` (load path — the
-   type checker's own AST). ASTs locate byte spans for splicing and are
-   never re-printed.
-2. **Derived state is rebuilt, never patched.** The symbol index and init
-   lists re-derive from files (`RebuildIndex`, inside every primitive);
-   nothing is incrementally maintained, so nothing drifts.
-3. **Determinism.** Everything the state package enumerates is sorted-only
-   (`Files()`, `Symbols()`, `UnitKeys()`, `Tombstones()`); the raw maps
-   never leave it. Any other map needs `sortedKeys` before it reaches an
-   output (see `sortMatches`).
+Two are still discipline, not compiler-enforced — violating either is a bug:
+- **Two doors for paths.** A string becomes a `RelativePath` only through
+  `CleanPath` (untrusted input) or `Engine.relativePath` (absolute →
+  workspace-relative).
+- **Error ⇒ untouched.** Mutation verbs do all fallible work on candidate
+  bytes before swapping; `Edit` discards its cloned workspace on error.
+  Post-change problems are never errors — they're the echo's diagnostics
+  delta, because broken code is a valid state.
 
-The rest is still discipline — violating any of these is a bug:
+**Pointers don't escape their gate** is both, depending which surface you're
+on. `Read`/`Edit` hold the lock for the closure's lifetime; inside it,
+View/Tx's private resolvers still hand back live `*workspace.X` pointers for
+real work (splicing, type lookups) — must not outlive the closure, still
+discipline. View's *public* methods return engine's own DTOs (dto.go): plain
+copies with nothing to escape with, so for that surface the invariant holds
+by construction.
 
-4. **Two doors for paths.** A string becomes a `RelativePath` only through
-   `CleanPath` (untrusted input; validates) or `Engine.relativePath`
-   (absolute → workspace-relative). Map keys are always workspace-relative.
-5. **Error ⇒ untouched.** Mutation verbs do all fallible work on candidate
-   bytes before swapping; `Edit` runs fn on a cloned workspace it discards
-   on error. Post-change problems are never errors — they are the echo's
-   diagnostics delta, because broken code is a valid state (Bootstrap holds
-   the same principle: per-package errors become Diagnostics, not failures).
-6. **Pointers don't escape their gate.** `Read(fn(*View))` holds RLock,
-   `Edit(fn(*Tx))` holds the write lock; `*Symbol`/`*Package`/`*File`
-   obtained inside must not outlive the closure. `Tx` embeds `*View`, so all
-   lookups compose in-transaction (parse-fresh, type-stale until the
-   commit-time recheck).
+**Never call an `Engine`-level accessor (`ModulePath`, `IsExternal`, ...)
+from inside a `Read`/`Edit` closure.** `Read`/`Edit` already hold the lock
+for the closure's lifetime; `sync.RWMutex` isn't reentrant, so an `Engine`
+accessor's own lock acquisition inside that closure deadlocks the calling
+goroutine against itself — no error, no panic, just a permanent hang. Not
+compiler-enforced, not caught by `diagnostics()` (it's a runtime property,
+not a type error), only caught by actually running the code. Resolve every
+`packageArg`/`fileArg`/other `Engine`-touching argument *before* calling
+`Edit`, and pass only the resolved values into the closure — the existing
+single-statement tool handlers already do this; a batch handler that moves
+that resolution inside the loop-inside-the-closure breaks it.
 
 ## Nomenclature grammars (keep new code inside them)
 
-Names carry meaning before docs do: a symbol that needs its doc comment to
-be understood is a naming bug — rename it (rename_declaration makes that a
-one-call fix), then let the doc add what the name cannot. Prefer the
-domain vocabulary the headers already use (splice, region, tombstone,
-fragment); never let two helpers share permuted words for different
-domains.
+`move_symbol` makes the Pillars' naming-bug rule a one-call fix, not just
+an aspiration. Prefer the domain vocabulary the headers already use
+(splice, region, tombstone, fragment); never let two helpers share
+permuted words for different domains.
 
-lookup.go, mutation.go, and tools.go each open with their own layer's
-grammar (X/Xs/XsWhere and the resolver→enumerator→scanner layering;
-Creators/Editors/Refactorings and the placement policy; tool naming and
-the DiagBlock output convention) — read the header before adding a verb.
-Restating them here would just be one more place to go stale; what
-doesn't live in any single header:
+Each layer has its own grammar: engine's View (X/Xs/XsWhere and the
+resolver→enumerator→scanner layering, one file per category — see Layout)
+and Tx (Creators/Editors/Refactorings and the placement policy); tools.go
+(tool naming and the DiagBlock output convention). Read View's doc comment
+or the relevant file before adding a verb. Restating the grammars here
+would just be one more place to go stale; what doesn't live in any single
+file's doc:
 
 - Symbol keys are one address space across both layers: `"Name"`, methods
   `"Recv.Name"`.
+- A rename's prose fix stops at the boundary Go's own tooling already
+  checks (`go vet`'s comment convention: symbol docs open with the bare
+  name, package docs open with `"Package name"`) — the renamed entity's
+  *own* doc comment, its leading line only, never a scan of other
+  declarations' docs for mentions (a bare-word scan would corrupt any doc
+  using the identifier's text as an ordinary word: `Add`, `Set`, a package
+  named `io`). General rule for this class of automation: match an
+  existing, tool-checked convention; don't invent a heuristic where none
+  exists.
 - `reload` discards unflushed work — the recovery move when the
   filesystem changed behind the server (manual edits, git operations).
 - Mutation echoes report files touched, diagnostics introduced, and
@@ -93,6 +141,15 @@ doesn't live in any single header:
   a reader carries.
 - Tool descriptions earn words only for what changes the agent's input or
   its reading of the output — server internals stay out of them.
+- A new verb belongs in Refactorings only if the edit has exactly one
+  mechanically correct resolution everywhere it applies; otherwise it's
+  an Editor, however tempting the automation looks. `move_symbol`'s
+  rename qualifies (the object, and only that object, renamed everywhere
+  it's used); renaming an interface's required method doesn't (each
+  implementor may need a different fix — rename to match, add a
+  delegating method, or drop conformance on purpose), so that stays
+  `edit_symbol`'s job. Ask this question before adding the next verb,
+  not which category feels more capable.
 
 Address convention (both directions, gated by `canonPkg`/`fileArg`):
 `package` is the import path (`github.com/you/mod/internal/tools`) — the
@@ -108,7 +165,11 @@ was the input, package-keyed maps (`{"example.com/mod/pkg": ["file.go"]}`)
 when a result spans packages. Diagnostics strings stay `path:line:col` —
 positional prose, not addresses. Engine-internal: `Packages` is keyed by
 `PkgPath`, files stay `RelativePath` (disk truth for flush/reload/overlay),
-and `dirOf`/`pkgAt` convert only at the disk boundary.
+and `dirOf`/`pkgAt` convert only at the disk boundary. `RelativePath` and
+`PkgPath` themselves live in `internal/address`, not workspace or engine —
+workspace, engine, and tools each depend on that shared leaf package
+directly, so the address vocabulary has no re-export chain to leak
+through.
 
 ## Testing
 
@@ -147,3 +208,10 @@ transaction. Order edits so echoes stay interpretable (types before
 consumers, helpers before callers); batch all changes to one declaration
 into a single edit (replacement is whole-declaration); and always end with
 the test suite — echoes referee only what the type system distinguishes.
+
+**Always `flush` at the end of a turn** — this repo's own tools/schema
+change often and reconnects discard any unflushed edit silently, same as
+`reload`. Two consequences: `go test`/`gofmt`/`go vet` via a shell read
+disk, not the in-memory model — flush before trusting their output. And
+the connected server's tool schema reflects the *running binary*, not
+source you just edited — parameter names can be stale until reconnect.

@@ -1,3 +1,4 @@
+// Package shapes provides fixture shape types for tests.
 package shapes
 
 // Shape is anything with an area.

@@ -1,14 +1,16 @@
-package state
+package workspace
 
 import (
 	"go/parser"
 	"go/token"
 	"testing"
+
+	"github.com/pedropaccola/gomcp/internal/address"
 )
 
 func TestSwapFileParseEnforcedAndDirty(t *testing.T) {
 	w := NewWorkspace()
-	w.Reset("example.com/mod", token.NewFileSet(), map[PkgPath]*Unit{})
+	w.Reset("example.com/mod", token.NewFileSet(), map[address.PkgPath]*Unit{})
 	p := &Package{Name: "pkg", Path: "pkg", PkgPath: "example.com/mod/pkg"}
 	if err := w.SwapFile(p, "pkg/pkg.go", "pkg/pkg.go", []byte("package pkg\n\nfunc broken( {}\n")); err == nil {
 		t.Fatal("SwapFile accepted unparseable bytes")
@@ -56,7 +58,7 @@ func TestLoadPathAndExternalIndex(t *testing.T) {
 
 func TestCloneAndCloneShell(t *testing.T) {
 	w := NewWorkspace()
-	w.Reset("example.com/mod", token.NewFileSet(), map[PkgPath]*Unit{})
+	w.Reset("example.com/mod", token.NewFileSet(), map[address.PkgPath]*Unit{})
 	p := &Package{Name: "pkg", Path: "pkg", PkgPath: "example.com/mod/pkg"}
 	if err := w.SwapFile(p, "pkg/pkg.go", "pkg/pkg.go", []byte("package pkg\n\nfunc Hello() {}\n")); err != nil {
 		t.Fatal(err)
@@ -78,7 +80,7 @@ func TestCloneAndCloneShell(t *testing.T) {
 
 func TestUnitDirtyCarryAndPrune(t *testing.T) {
 	w := NewWorkspace()
-	w.Reset("example.com/mod", token.NewFileSet(), map[PkgPath]*Unit{})
+	w.Reset("example.com/mod", token.NewFileSet(), map[address.PkgPath]*Unit{})
 	p := &Package{Name: "pkg", Path: "pkg", PkgPath: "example.com/mod/pkg"}
 	if err := w.SwapFile(p, "pkg/pkg.go", "pkg/pkg.go", []byte("package pkg\n\nfunc Hello() {}\n")); err != nil {
 		t.Fatal(err)
@@ -90,7 +92,7 @@ func TestUnitDirtyCarryAndPrune(t *testing.T) {
 	if !file.Dirty() {
 		t.Error("MarkDirty did not re-mark the carried-over file")
 	}
-	units := map[PkgPath]*Unit{"example.com/mod/pkg": unit}
+	units := map[address.PkgPath]*Unit{"example.com/mod/pkg": unit}
 	PruneFile(units, "example.com/mod/pkg", "pkg/pkg.go")
 	if _, ok := units["example.com/mod/pkg"]; ok {
 		t.Error("unit must be pruned once its last file is gone")

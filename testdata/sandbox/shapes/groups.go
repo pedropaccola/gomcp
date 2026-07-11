@@ -1,3 +1,4 @@
+// Kinds are grouped separately from shapes themselves.
 package shapes
 
 // Kind classifies the fixture shapes.

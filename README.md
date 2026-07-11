@@ -53,18 +53,23 @@ The agent writes identifiers, never import blocks. **gomcp** runs `goimports` on
 ---
 
 ## Tools
-Small set of 25 tools:
+Small set of 27 tools:
 
 ### Read
 * Enumerators (consistent sorted output): `list_packages`, `list_files`, `list_methods`, `list_symbols`
-* Describers (declarations source): `describe_type`, `describe_function`, `describe_method`
+* Describers (symbol source, any kind — func, method, type, var, or const): `describe_package`, `describe_file`, `describe_symbol`
 * Finders (grep-like): `search_declarations_like`, `search_source`, `search_implementors`, `search_references`
 * Diagnostics (full workspace diagnostics): `diagnostics`
 
 ### Write
-* Creators (fail if the address already exists; cannot destroy code): `create_package`, `create_file`, `create_declaration`
-* Editors (fail if the address doesn't exist): `edit_declaration`, `delete_declaration`, `delete_file`, `delete_package`
-* Refactorings (structure-preserving transformations; renames propagate to every reference across the workspace): `move_declaration`, `rename_declaration`, `rename_file`, `rename_package`
+* Creators (fail if the address already exists; cannot destroy code): `create_package`, `create_file`, `create_symbol`, `create_symbol_batch`
+* Editors (fail if the address doesn't exist): `edit_symbol`, `edit_symbol_batch`, `edit_file`, `delete_symbol`, `delete_file`, `delete_package`
+* Refactorings (structure-preserving transformations; renames propagate to every reference across the workspace): `move_symbol` (rename, relocate, or both), `move_file`, `move_package`
 * Session (syncs the in-memory state with disk): `flush`, `reload`
+
+Batch variants (`create_symbol_batch`, `edit_symbol_batch`) take an array of the
+same input as their single-statement counterpart, apply sequentially inside one
+transaction, and abort the whole batch untouched on the first failure — a
+duplicate target address is refused outright rather than silently deduplicated.
 
 More on `internal/tools/tools.go`

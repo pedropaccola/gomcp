@@ -1,3 +1,7 @@
+// Package engine is the model's gate: Bootstrap loads the workspace, View
+// and Tx expose reads and writes to it, and dto.go translates workspace's
+// internal vocabulary into engine's own public types at the boundary —
+// nothing from workspace crosses out unaliased.
 package engine
 
 import (
@@ -11,73 +15,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pedropaccola/gomcp/internal/engine/state"
+	"github.com/pedropaccola/gomcp/internal/address"
+	"github.com/pedropaccola/gomcp/internal/engine/workspace"
 	"golang.org/x/tools/go/packages"
 )
-
-// ----- State re-exports -----
-//
-// The model's vocabulary lives in the state package (the trusted core);
-// these aliases keep the engine's public surface and every consumer
-// unchanged. New code may import state directly.
-
-// RelativePath is the state package's disk-path address, re-exported for
-// the engine's public signatures.
-type RelativePath = state.RelativePath
-
-// CleanPath re-exports the state package's untrusted-path constructor for
-// the engine's public surface.
-func CleanPath(s string) (RelativePath, bool) {
-	return state.CleanPath(s)
-}
-
-// PkgPath is re-exported from the state package.
-type PkgPath = state.PkgPath
-
-// SymbolKind is re-exported from the state package.
-type SymbolKind = state.SymbolKind
-
-const (
-	KindFunc   = state.KindFunc
-	KindMethod = state.KindMethod
-	KindType   = state.KindType
-	KindVar    = state.KindVar
-	KindConst  = state.KindConst
-)
-
-// DiagKind is re-exported from the state package.
-type DiagKind = state.DiagKind
-
-const (
-	DiagUnknown = state.DiagUnknown
-	DiagList    = state.DiagList
-	DiagParse   = state.DiagParse
-	DiagType    = state.DiagType
-)
-
-// Diagnostic is re-exported from the state package.
-type Diagnostic = state.Diagnostic
-
-// Symbol is re-exported from the state package.
-type Symbol = state.Symbol
-
-// File is re-exported from the state package.
-type File = state.File
-
-// Package is re-exported from the state package.
-type Package = state.Package
-
-// Unit is re-exported from the state package.
-type Unit = state.Unit
 
 // Engine owns the gates and the disk boundary: locking, the load
 // pipeline, goimports, and flushing live here, while the model itself —
 // units, tombstones, position tables, the dependency cache — lives behind
-// the state.Workspace and is only reshaped through its primitives.
+// the workspace.Workspace and is only reshaped through its primitives.
 type Engine struct {
 	mu      sync.RWMutex
 	RootDir string
-	ws      *state.Workspace
+	ws      *workspace.Workspace
 	logf    func(string, ...any)
 }
 
@@ -86,13 +36,13 @@ type Engine struct {
 func NewEngine(rootDir string, logf func(string, ...any)) *Engine {
 	return &Engine{
 		RootDir: rootDir,
-		ws:      state.NewWorkspace(),
+		ws:      workspace.NewWorkspace(),
 		logf:    logf,
 	}
 }
 
 // absPath maps a workspace-relative path back to the filesystem.
-func (e *Engine) absPath(p RelativePath) string {
+func (e *Engine) absPath(p address.RelativePath) string {
 	return filepath.Join(e.RootDir, string(p))
 }
 
@@ -114,7 +64,7 @@ func (e *Engine) Bootstrap(ctx context.Context) error {
 
 // ModulePath returns the workspace's module path under the read lock: the
 // gate-safe accessor for callers outside Read and Edit.
-func (e *Engine) ModulePath() PkgPath {
+func (e *Engine) ModulePath() address.PkgPath {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.ws.Module()
@@ -123,7 +73,7 @@ func (e *Engine) ModulePath() PkgPath {
 // load runs the full pipeline — go/packages load, variant selection, package
 // building — against disk plus an optional overlay of in-memory contents.
 // It is the shared machinery of Bootstrap and the post-mutation recheck.
-func (e *Engine) load(ctx context.Context, overlay map[string][]byte) (*token.FileSet, PkgPath, map[PkgPath]*Unit, error) {
+func (e *Engine) load(ctx context.Context, overlay map[string][]byte) (*token.FileSet, address.PkgPath, map[address.PkgPath]*workspace.Unit, error) {
 	fset := token.NewFileSet()
 	loadStart := time.Now()
 	srcPkgs, err := packages.Load(&packages.Config{
@@ -144,10 +94,10 @@ func (e *Engine) load(ctx context.Context, overlay map[string][]byte) (*token.Fi
 	}
 	buildStart := time.Now()
 
-	var module PkgPath
+	var module address.PkgPath
 	for _, srcPkg := range srcPkgs {
 		if srcPkg.Module != nil && srcPkg.Module.Path != "" {
-			module = PkgPath(srcPkg.Module.Path)
+			module = address.PkgPath(srcPkg.Module.Path)
 			break
 		}
 	}
@@ -180,12 +130,12 @@ func (e *Engine) load(ctx context.Context, overlay map[string][]byte) (*token.Fi
 
 	// Pass 2: build only the winners, keyed by canonical package address —
 	// an external-test-only unit answers to its production sibling's path.
-	units := make(map[PkgPath]*Unit)
+	units := make(map[address.PkgPath]*workspace.Unit)
 	for _, cand := range selected {
 		if ctx.Err() != nil {
 			return nil, "", nil, fmt.Errorf("workspace load aborted by context cancellation: %w", ctx.Err())
 		}
-		unit := &Unit{}
+		unit := &workspace.Unit{}
 		if cand.prod != nil {
 			if unit.Prod, err = e.buildPackage(cand.prod, fset, overlay); err != nil {
 				return nil, "", nil, err
@@ -200,7 +150,7 @@ func (e *Engine) load(ctx context.Context, overlay map[string][]byte) (*token.Fi
 		case unit.Prod != nil:
 			units[unit.Prod.PkgPath] = unit
 		case unit.XTest != nil:
-			units[PkgPath(strings.TrimSuffix(string(unit.XTest.PkgPath), "_test"))] = unit
+			units[address.PkgPath(strings.TrimSuffix(string(unit.XTest.PkgPath), "_test"))] = unit
 		}
 	}
 	if e.logf != nil {
@@ -214,18 +164,12 @@ func (e *Engine) load(ctx context.Context, overlay map[string][]byte) (*token.Fi
 // and a fresh symbol index. Files outside the workspace (generated cgo
 // output) are skipped with a diagnostic rather than tracked as
 // untouchable paths.
-func (e *Engine) buildPackage(srcPkg *packages.Package, fset *token.FileSet, overlay map[string][]byte) (*Package, error) {
+func (e *Engine) buildPackage(srcPkg *packages.Package, fset *token.FileSet, overlay map[string][]byte) (*workspace.Package, error) {
 	relPath, err := e.relativePath(srcPkg.Dir)
 	if err != nil {
 		return nil, fmt.Errorf("package mapping failure for %s: %w", srcPkg.Dir, err)
 	}
-	pkg := &Package{
-		Name:      srcPkg.Name,
-		Path:      relPath,
-		PkgPath:   PkgPath(srcPkg.PkgPath),
-		Types:     srcPkg.Types,
-		TypesInfo: srcPkg.TypesInfo,
-	}
+	pkg := workspace.NewPackage(srcPkg.Name, relPath, address.PkgPath(srcPkg.PkgPath), srcPkg.Types, srcPkg.TypesInfo, false)
 
 	for _, astFile := range srcPkg.Syntax {
 		absFilePath := fset.File(astFile.FileStart).Name()
@@ -233,8 +177,8 @@ func (e *Engine) buildPackage(srcPkg *packages.Package, fset *token.FileSet, ove
 		if err != nil || relFilePath.EscapesRoot() {
 			// Generated files (e.g. cgo output) live outside the workspace;
 			// record and move on rather than tracking untouchable paths.
-			pkg.Diags = append(pkg.Diags, Diagnostic{
-				Kind: DiagList,
+			pkg.Diags = append(pkg.Diags, workspace.Diagnostic{
+				Kind: workspace.DiagList,
 				Msg:  fmt.Sprintf("skipped file outside workspace: %s", absFilePath),
 			})
 			continue
@@ -255,7 +199,7 @@ func (e *Engine) buildPackage(srcPkg *packages.Package, fset *token.FileSet, ove
 
 // ingestErrors converts load errors into Diagnostics, attaching them to the
 // file they point at when it is tracked, and to the package otherwise.
-func (e *Engine) ingestErrors(pkg *Package, errs []packages.Error) {
+func (e *Engine) ingestErrors(pkg *workspace.Package, errs []packages.Error) {
 	for _, pkgErr := range errs {
 		// go list relays compiler output prefixed with "# pkg" and positions
 		// pointing into overlay temp copies; the same problems arrive again
@@ -264,7 +208,7 @@ func (e *Engine) ingestErrors(pkg *Package, errs []packages.Error) {
 		if pkgErr.Kind == packages.ListError && strings.HasPrefix(pkgErr.Msg, "# ") {
 			continue
 		}
-		diag := Diagnostic{Kind: toDiagKind(pkgErr.Kind), Msg: pkgErr.Msg}
+		diag := workspace.Diagnostic{Kind: toDiagKind(pkgErr.Kind), Msg: pkgErr.Msg}
 		if absFile, line, col, ok := splitPos(pkgErr.Pos); ok {
 			if relFile, err := e.relativePath(absFile); err == nil && !relFile.EscapesRoot() {
 				diag.File, diag.Line, diag.Col = relFile, line, col
@@ -279,37 +223,37 @@ func (e *Engine) ingestErrors(pkg *Package, errs []packages.Error) {
 }
 
 // Returns a path relative to [Engine]'s RootDir
-func (e *Engine) relativePath(fullPath string) (RelativePath, error) {
+func (e *Engine) relativePath(fullPath string) (address.RelativePath, error) {
 	relPath, err := filepath.Rel(e.RootDir, fullPath)
 	if err != nil {
 		return "", err
 	}
-	return RelativePath(relPath), nil
+	return address.RelativePath(relPath), nil
 }
 
 // pkgAt wraps a workspace directory into its canonical package address.
-func (e *Engine) pkgAt(dir RelativePath) PkgPath {
+func (e *Engine) pkgAt(dir address.RelativePath) address.PkgPath {
 	if dir == "." {
 		return e.ws.Module()
 	}
-	return PkgPath(string(e.ws.Module()) + "/" + string(dir))
+	return address.PkgPath(string(e.ws.Module()) + "/" + string(dir))
 }
 
 // dirOf unwraps a workspace package address to its directory, comma-ok
 // false outside the module: dependencies have no workspace location.
-func (e *Engine) dirOf(pkg PkgPath) (RelativePath, bool) {
+func (e *Engine) dirOf(pkg address.PkgPath) (address.RelativePath, bool) {
 	if pkg == e.ws.Module() {
 		return ".", true
 	}
 	if rest, ok := strings.CutPrefix(string(pkg), string(e.ws.Module())+"/"); ok {
-		return RelativePath(rest), true
+		return address.RelativePath(rest), true
 	}
 	return "", false
 }
 
 // fsetOf is the FileSet a package's positions live in: the external
 // cache's for dependencies, the workspace FileSet otherwise.
-func (e *Engine) fsetOf(pkg *Package) *token.FileSet {
+func (e *Engine) fsetOf(pkg *workspace.Package) *token.FileSet {
 	return e.ws.FsetOf(pkg)
 }
 
@@ -317,7 +261,7 @@ func (e *Engine) fsetOf(pkg *Package) *token.FileSet {
 // external cache — the lazy counterpart of the workspace load, serving
 // exported API only. It is never called under the read gate: callers load
 // first, then Read; ExternalPackage resolves what this installed.
-func (e *Engine) LoadExternal(ctx context.Context, pkg PkgPath) error {
+func (e *Engine) LoadExternal(ctx context.Context, pkg address.PkgPath) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if _, ok := e.ws.ExternalPackage(pkg); ok {
@@ -341,7 +285,7 @@ func (e *Engine) LoadExternal(ctx context.Context, pkg PkgPath) error {
 		return fail(fmt.Errorf("dependency %q failed to load: %w", pkg, err))
 	}
 	for _, srcPkg := range srcPkgs {
-		if PkgPath(srcPkg.PkgPath) != pkg || srcPkg.Name == "" || len(srcPkg.Syntax) == 0 {
+		if address.PkgPath(srcPkg.PkgPath) != pkg || srcPkg.Name == "" || len(srcPkg.Syntax) == 0 {
 			continue
 		}
 		built, err := e.buildExternal(srcPkg)
@@ -363,20 +307,15 @@ func (e *Engine) LoadExternal(ctx context.Context, pkg PkgPath) error {
 // are addressed by import-path-qualified pseudo-paths (never flushable),
 // and only exported symbols survive indexing — a dependency is API
 // surface, not editable code.
-func (e *Engine) buildExternal(srcPkg *packages.Package) (*Package, error) {
-	pkg := &Package{
-		Name:     srcPkg.Name,
-		PkgPath:  PkgPath(srcPkg.PkgPath),
-		Types:    srcPkg.Types,
-		External: true,
-	}
+func (e *Engine) buildExternal(srcPkg *packages.Package) (*workspace.Package, error) {
+	pkg := workspace.NewPackage(srcPkg.Name, "", address.PkgPath(srcPkg.PkgPath), srcPkg.Types, nil, true)
 	for _, astFile := range srcPkg.Syntax {
 		abs := e.ws.ExternalFset().File(astFile.FileStart).Name()
 		src, err := os.ReadFile(abs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read dependency source %s: %w", abs, err)
 		}
-		path := RelativePath(srcPkg.PkgPath).Join(filepath.Base(abs))
+		path := address.RelativePath(srcPkg.PkgPath).Join(filepath.Base(abs))
 		pkg.AddLoadedFile(path, src, astFile)
 	}
 	pkg.RebuildIndex()
@@ -385,7 +324,7 @@ func (e *Engine) buildExternal(srcPkg *packages.Package) (*Package, error) {
 
 // IsExternal reports whether pkg is resident in the dependency cache — the
 // gate-safe accessor behind refusing mutations on read-only packages.
-func (e *Engine) IsExternal(pkg PkgPath) bool {
+func (e *Engine) IsExternal(pkg address.PkgPath) bool {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	_, ok := e.ws.ExternalPackage(pkg)
@@ -393,16 +332,16 @@ func (e *Engine) IsExternal(pkg PkgPath) bool {
 }
 
 // toDiagKind maps the loader's error classification onto ours.
-func toDiagKind(kind packages.ErrorKind) DiagKind {
+func toDiagKind(kind packages.ErrorKind) workspace.DiagKind {
 	switch kind {
 	case packages.ListError:
-		return DiagList
+		return workspace.DiagList
 	case packages.ParseError:
-		return DiagParse
+		return workspace.DiagParse
 	case packages.TypeError:
-		return DiagType
+		return workspace.DiagType
 	default:
-		return DiagUnknown
+		return workspace.DiagUnknown
 	}
 }
 
