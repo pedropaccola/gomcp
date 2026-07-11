@@ -204,7 +204,7 @@ that practice taught:
   `diagStrings`, so it stays the uncapped inventory by construction, not
   by a separate no-cap branch. The cap is a process-wide flag,
   `-diagnostics-limit` (default 20), set once via `tools.SetDiagLimit`
-  ahead of `Register` in cmd/mcpgo/main.go — deliberately a package
+  ahead of `Register` in cmd/gomcp/main.go — deliberately a package
   var-and-setter rather than a parameter threaded through every one of
   the ~8 call sites, since it's genuinely singleton config (one server
   process, one cap) and not per-instance state like `Engine`. Negative

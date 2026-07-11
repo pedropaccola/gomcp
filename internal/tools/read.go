@@ -11,20 +11,12 @@ import (
 	"github.com/pedropaccola/gomcp/internal/engine"
 )
 
-// diagLimit caps the diagnostics rendered in every scoped DiagBlock —
-// list_* output, describe_* output, and mutation echoes — so a
-// wide-blast-radius read or edit can't drown the agent in text; the
-// diagnostics tool remains the uncapped inventory. SetDiagLimit overrides
-// the default once at startup, ahead of Register.
-var diagLimit = 20
-
 // Read tool implementations, in the same semantic sections as the engine's
 // lookup layer: Enumerators, Describers, Finders, Diagnostics. Every handler
 // is one read scope composing lookups (readPackage/readSymbol resolve the
 // address across workspace and dependencies); shapes live in tools.go.
 // Handlers carry no doc comments by design — they are mechanical relays,
-// documented by their tool descriptions in Register; only the shared
-// helpers at the bottom explain themselves.
+// documented by their tool descriptions in Register.
 
 // ----- Enumerators -----
 
@@ -256,7 +248,7 @@ func diagnostics(eng *engine.Engine) mcp.ToolHandlerFor[DiagnosticsInput, Diagno
 	}
 }
 
-// ----- Shared helpers -----
+// ----- helpers -----
 
 // readPackage resolves a package address across both worlds and runs fn
 // under the read gate with the resolved package: workspace first, then the
@@ -315,29 +307,6 @@ func readSymbol(ctx context.Context, eng *engine.Engine, addr, key string, fn fu
 		}
 		return fmt.Errorf("no symbol %q in package %q: call list_symbols for valid keys", key, addr)
 	})
-}
-
-// diagStrings renders diagnostics for a DiagBlock, capped to diagLimit and
-// closed with a pointer back to the uncapped diagnostics tool when
-// truncated; nil when empty so that omitempty drops the block entirely on
-// healthy scopes.
-func diagStrings(diags []engine.Diagnostic) []string {
-	if len(diags) == 0 {
-		return nil
-	}
-	shown := diags
-	truncated := len(diags) > diagLimit
-	if truncated {
-		shown = diags[:diagLimit]
-	}
-	out := make([]string, len(shown), len(shown)+1)
-	for i, diag := range shown {
-		out[i] = diag.String()
-	}
-	if truncated {
-		out = append(out, fmt.Sprintf("+%d more diagnostics: run the diagnostics tool for the full inventory", len(diags)-diagLimit))
-	}
-	return out
 }
 
 // resolveAnySymbol resolves a workspace package address and symbol key —
@@ -414,13 +383,4 @@ func matchEntries(matches []engine.Match) []MatchEntry {
 		})
 	}
 	return out
-}
-
-// SetDiagLimit overrides diagLimit (see its doc); call before Register.
-// Negative n is ignored — there is no such thing as showing fewer than
-// zero diagnostics.
-func SetDiagLimit(n int) {
-	if n >= 0 {
-		diagLimit = n
-	}
 }

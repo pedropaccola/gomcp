@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	Name         = "mcpgo"
+	Name         = "gomcp"
 	Version      = "1.0.0"
 	Instructions = "Structured Go coding tools operating on an in-memory AST of the workspace. " +
 		"Never read, navigate, or modify Go source files (.go) through raw file I/O or shell " +
@@ -32,7 +32,7 @@ func main() {
 
 	flagCwd := flag.String("cwd", "", "Workspace root directory")
 	flagVerbose := flag.Bool("verbose", false, "Log go/packages loader output to stderr")
-	flagDiagLimit := flag.Int("diagnostics-limit", 20, "Limit diagnostics rendered per scoped list_*/describe_* and mutation echo; the diagnostics tool itself always reports the full inventory.")
+	flagDiagLimit := flag.Int("diagnostics-limit", 20, "Limit diagnostics rendered per read/write tool; the diagnostics tool always reports the full inventory.")
 	flag.Parse()
 
 	var cwd string

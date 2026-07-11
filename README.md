@@ -56,7 +56,7 @@ The agent writes identifiers, never import blocks. **gomcp** runs `goimports` on
 Small set of 25 tools:
 
 ### Read
-* Enumerators (consistent sorted output): `list_packages`, `list_files`, `list_symbols`, `list_methods`
+* Enumerators (consistent sorted output): `list_packages`, `list_files`, `list_methods`, `list_symbols`
 * Describers (declarations source): `describe_type`, `describe_function`, `describe_method`
 * Finders (grep-like): `search_declarations_like`, `search_source`, `search_implementors`, `search_references`
 * Diagnostics (full workspace diagnostics): `diagnostics`
@@ -68,26 +68,3 @@ Small set of 25 tools:
 * Session (syncs the in-memory state with disk): `flush`, `reload`
 
 More on `internal/tools/tools.go`
-
-## Installation
-Requires a Go toolchain on your `PATH`. The `mcpgo` shells out to `go list` to load the workspace.
-
-```bash
-go install github.com/pedropaccola/gomcp/cmd/mcpgo@latest
-```
-
-## MCP configuration
-`mcpgo` speaks MCP over stdio. Most clients (Claude Code, Cursor, Windsurf, ...) share the same configuration shape:
-
-```json
-{
-  "mcpServers": {
-    "gomcp": {
-      "command": "mcpgo",
-      "args": ["-cwd", "/absolute/path/to/your/go/workspace"]
-    }
-  }
-}
-```
-
-The workspace root resolves in order: the `-cwd` flag, the `CLAUDE_WORKSPACE` environment variable, then the server process working directory.

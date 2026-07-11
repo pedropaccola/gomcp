@@ -1,8 +1,15 @@
 {
   "mcpServers": {
     "gomcp": {
+      "type": "stdio",
       "command": "go",
-      "args": ["run", "./cmd/mcpgo"]
+      "args": [
+        "run",
+        "./cmd/gomcp/main.go",
+        "-diagnostics-limit",
+        "2"
+      ],
+      "env": {}
     }
   }
 }

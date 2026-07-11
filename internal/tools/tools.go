@@ -47,12 +47,28 @@ func mutates(title string, destructive bool) *mcp.ToolAnnotations {
 	}
 }
 
+// diagLimit caps the diagnostics rendered in every scoped DiagBlock —
+// list_* output, describe_* output, and mutation echoes — so a
+// wide-blast-radius read or edit can't drown the agent in text; the
+// diagnostics tool remains the uncapped inventory. SetDiagLimit overrides
+// the default once at startup, ahead of Register.
+var diagLimit = 20
+
+// SetDiagLimit overrides diagLimit (see its doc); call before Register.
+// Negative n is ignored — there is no such thing as showing fewer than
+// zero diagnostics.
+func SetDiagLimit(n int) {
+	if n >= 0 {
+		diagLimit = n
+	}
+}
+
 // Register wires every tool into the server.
 func Register(server *mcp.Server, eng *engine.Engine) {
 	// Enumerators
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_packages",
-		Annotations: reads("List packages"),
+		Annotations: reads("List Packages"),
 		Description: "List every Go package in the workspace by import path — the package " +
 			"address every other tool expects (workspace-relative directories are accepted " +
 			"too). Workspace-level diagnostics (module or toolchain problems) are included " +
@@ -61,14 +77,14 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_files",
-		Annotations: reads("List files"),
+		Annotations: reads("List Files"),
 		Description: "List the Go files of one package by bare name — combined with the " +
 			"package they form the file address every other tool expects." + depNote,
 	}, listFiles(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_symbols",
-		Annotations: reads("List symbols"),
+		Annotations: reads("List Symbols"),
 		Description: "List the top-level symbols of one package: key, kind, and a one-line " +
 			"summary (the signature for funcs and methods, the declaration line for types, " +
 			"vars, and consts — var/const values appear here; they have no describe_* tool). " +
@@ -77,41 +93,41 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_methods",
-		Annotations: reads("List methods"),
+		Annotations: reads("List Methods"),
 		Description: "List the method signatures declared on one type." + depNote,
 	}, listMethods(eng))
 
 	// Describers
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "describe_type",
-		Annotations: reads("Describe type"),
+		Annotations: reads("Describe Type"),
 		Description: "Show a type's full declaration source (doc comment included) " +
 			"together with the signatures of its methods." + depNote,
 	}, describeType(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "describe_function",
-		Annotations: reads("Describe function"),
+		Annotations: reads("Describe Function"),
 		Description: "Show a function's full declaration source, doc comment and body included." + depNote,
 	}, describeFunction(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "describe_method",
-		Annotations: reads("Describe method"),
+		Annotations: reads("Describe Method"),
 		Description: "Show a method's full declaration source, doc comment and body included." + depNote,
 	}, describeMethod(eng))
 
 	// Finders
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search_declarations_like",
-		Annotations: reads("Search declarations"),
+		Annotations: reads("Search Declarations Like"),
 		Description: "Find top-level declarations across the whole workspace whose key " +
 			"contains the given name, case-insensitively. Methods match as \"Type.Name\".",
 	}, searchDeclarationsLike(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search_source",
-		Annotations: reads("Search source"),
+		Annotations: reads("Search Source"),
 		Description: "Find top-level declarations across the whole workspace whose source " +
 			"text matches a Go regular expression — bodies, doc comments, and string " +
 			"literals included. The general-purpose finder when no name is known. " +
@@ -120,7 +136,7 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search_implementors",
-		Annotations: reads("Find implementors"),
+		Annotations: reads("Search Implementors"),
 		Description: "Find every named type in the workspace whose method set satisfies the " +
 			"given interface, checked with full type information — embedded and promoted " +
 			"methods included. The target must be a non-empty workspace interface; " +
@@ -129,7 +145,7 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search_references",
-		Annotations: reads("Find references"),
+		Annotations: reads("Search References"),
 		Description: "Find every top-level declaration in the workspace that references the " +
 			"given symbol, resolved with full type information. Results are declaration " +
 			"addresses, not line positions; the definition itself and self-references " +
@@ -139,7 +155,7 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 	// Diagnostics
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "diagnostics",
-		Annotations: reads("Workspace diagnostics"),
+		Annotations: reads("Workspace Diagnostics"),
 		Description: "Report every compiler and loader problem in the workspace: parse, load, " +
 			"and type errors, each positioned as file:line:col.",
 	}, diagnostics(eng))
@@ -147,20 +163,20 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 	// Creators
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_package",
-		Annotations: mutates("Create package", false),
+		Annotations: mutates("Create Package", false),
 		Description: "Create a new package directory with one starter file. The package name " +
 			"defaults to the directory base. Fails if a package already exists there." + echoNote,
 	}, createPackage(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_file",
-		Annotations: mutates("Create file", false),
+		Annotations: mutates("Create File", false),
 		Description: "Add an empty file to an existing package. Fails if the file exists." + echoNote,
 	}, createFile(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_declaration",
-		Annotations: mutates("Create declaration", false),
+		Annotations: mutates("Create Declaration", false),
 		Description: "Add one new top-level declaration to a file of an existing package. The " +
 			"file is created if missing; the declaration's name must not exist. Imports and " +
 			"placement are managed by the server — just write the declaration." + echoNote,
@@ -169,7 +185,7 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 	// Editors
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "edit_declaration",
-		Annotations: mutates("Replace declaration", true),
+		Annotations: mutates("Edit Declaration", true),
 		Description: "Replace a declaration's entire source (doc comment included). For a member " +
 			"of a grouped const/var/type block, pass the member's spec as written inside the " +
 			"group. Renaming via replacement is allowed if the new name doesn't collide. " +
@@ -178,27 +194,27 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_declaration",
-		Annotations: mutates("Delete declaration", true),
+		Annotations: mutates("Delete Declaration", true),
 		Description: "Delete a declaration — its spec alone when it lives in a grouped block " +
 			"with siblings." + echoNote,
 	}, deleteDeclaration(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_file",
-		Annotations: mutates("Delete file", true),
+		Annotations: mutates("Delete File", true),
 		Description: "Delete a file and every declaration in it." + echoNote,
 	}, deleteFile(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_package",
-		Annotations: mutates("Delete package", true),
+		Annotations: mutates("Delete Package", true),
 		Description: "Delete a whole package directory." + echoNote,
 	}, deletePackage(eng))
 
 	// Refactorings
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "move_declaration",
-		Annotations: mutates("Move declaration", true),
+		Annotations: mutates("Move Declaration", true),
 		Description: "Move a declaration to another file of the same package — references " +
 			"are untouched and the destination file is created when missing. A member of a " +
 			"grouped const/var/type block is extracted as a standalone declaration; members " +
@@ -208,7 +224,7 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "rename_declaration",
-		Annotations: mutates("Rename declaration", true),
+		Annotations: mutates("Rename Declaration", true),
 		Description: "Rename a declaration and every resolved reference to it across the whole " +
 			"workspace. Renaming an interface method does not chase implementors — broken " +
 			"satisfactions appear in the returned diagnostics instead." + echoNote,
@@ -216,13 +232,13 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "rename_file",
-		Annotations: mutates("Rename file", true),
+		Annotations: mutates("Rename File", true),
 		Description: "Rename a file within its package. Declarations are unaffected." + echoNote,
 	}, renameFile(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "rename_package",
-		Annotations: mutates("Move package", true),
+		Annotations: mutates("Move Package", true),
 		Description: "Move a package directory, rewriting its import path in every importer. " +
 			"When the package name matches the old directory base, the name and every " +
 			"unaliased qualifier are renamed too." + echoNote,
@@ -231,14 +247,14 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 	// Session
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "flush",
-		Annotations: mutates("Flush to disk", true),
+		Annotations: mutates("Flush to Disk", true),
 		Description: "Write every in-memory edit to disk: dirty files are written, deleted and " +
 			"renamed-away paths are unlinked. Until flush, the filesystem is untouched.",
 	}, flush(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "reload",
-		Annotations: mutates("Reload from disk", true),
+		Annotations: mutates("Reload from Disk", true),
 		Description: "Rebuild the in-memory workspace from disk, discarding every unflushed " +
 			"edit and pending deletion — the inverse of flush. The echo reports what was " +
 			"discarded, grouped by package, plus the fresh workspace diagnostics. Use after " +

@@ -1,5 +1,5 @@
 BIN=bin/gomcp
-MAIN=cmd/mcpgo/main.go
+MAIN=cmd/gomcp/main.go
 
 .PHONY: all
 all: build

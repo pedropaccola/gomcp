@@ -17,7 +17,6 @@ bin/
 coverage.*
 *.coverprofile
 profile.cov
-playground/
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
@@ -33,3 +32,6 @@ go.work.sum
 # .idea/
 # .vscode/
 TAGS
+
+# Agents
+.claude/settings.local.json

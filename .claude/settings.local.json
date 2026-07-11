@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "mcp__gomcp__list_packages",
+      "mcp__gomcp__list_files",
+      "mcp__gomcp__list_methods",
+      "mcp__gomcp__list_symbols",
+      "mcp__gomcp__describe_type",
+      "mcp__gomcp__describe_function",
+      "mcp__gomcp__describe_method",
+      "mcp__gomcp__search_declarations_like",
+      "mcp__gomcp__search_source",
+      "mcp__gomcp__search_implementors",
+      "mcp__gomcp__search_references",
+      "mcp__gomcp__diagnostics",
+      "mcp__gomcp__create_package",
+      "mcp__gomcp__create_file",
+      "mcp__gomcp__create_declaration",
+      "mcp__gomcp__edit_declaration",
+      "mcp__gomcp__delete_declaration",
+      "mcp__gomcp__delete_file",
+      "mcp__gomcp__delete_package",
+      "mcp__gomcp__move_declaration",
+      "mcp__gomcp__rename_declaration",
+      "mcp__gomcp__rename_file",
+      "mcp__gomcp__rename_package",
+      "mcp__gomcp__flush",
+      "mcp__gomcp__reload"
+    ],
+    "deny": [
+      "Edit(**/*.go)",
+      "Read(**/*.go)",
+      "Write(**/*.go)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "gomcp"
+  ]
+}

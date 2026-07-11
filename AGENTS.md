@@ -18,7 +18,7 @@ agreed-but-deferred work.
 
 ## Layout
 
-    cmd/mcpgo/          entrypoint: flags, workspace root, MCP stdio server
+    cmd/gomcp/          entrypoint: flags, workspace root, MCP stdio server
     internal/engine/    the model's gates: lookups, mutations, load pipeline
       engine.go         state re-exports, path API, Bootstrap/load pipeline
       lookup.go         read layer (all methods on View)
