@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -406,5 +407,44 @@ func TestExternalReadToolsAndRefusals(t *testing.T) {
 	// A workspace typo still errors after the failed dependency attempt.
 	if _, _, err := listFiles(eng)(context.Background(), nil, ListFilesInput{Package: "shaeps"}); err == nil {
 		t.Error("typo'd address must error")
+	}
+}
+
+func TestDiagStringsPagination(t *testing.T) {
+	orig := diagLimit
+	defer func() { diagLimit = orig }()
+
+	diags := make([]engine.Diagnostic, 5)
+	for i := range diags {
+		diags[i] = engine.Diagnostic{Kind: engine.DiagType, Msg: fmt.Sprintf("problem %d", i)}
+	}
+
+	SetDiagLimit(3)
+	out := diagStrings(diags)
+	if len(out) != 4 {
+		t.Fatalf("len(out) = %d, want 4 (3 shown + 1 trailer)", len(out))
+	}
+	if want := "+2 more diagnostics: run the diagnostics tool for the full inventory"; out[3] != want {
+		t.Errorf("trailer = %q, want %q", out[3], want)
+	}
+
+	SetDiagLimit(10)
+	if out := diagStrings(diags); len(out) != 5 {
+		t.Errorf("below the limit: len(out) = %d, want 5 with no trailer", len(out))
+	}
+
+	SetDiagLimit(0)
+	if out := diagStrings(diags); len(out) != 1 || !strings.HasPrefix(out[0], "+5 more diagnostics") {
+		t.Errorf("zero limit must still count everything as truncated: %v", out)
+	}
+
+	diagLimit = 3
+	SetDiagLimit(-1)
+	if diagLimit != 3 {
+		t.Errorf("SetDiagLimit must ignore negative n, got %d", diagLimit)
+	}
+
+	if out := diagStrings(nil); out != nil {
+		t.Errorf("empty input must stay nil for omitempty, got %v", out)
 	}
 }

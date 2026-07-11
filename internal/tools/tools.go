@@ -253,7 +253,10 @@ const echoNote = " Returns the files changed, the diagnostics the edit introduce
 const depNote = " Dependencies resolve by import path too: read-only, exported API only, loaded on first touch."
 
 // DiagBlock is the shared optional diagnostics view, scoped to whatever the
-// carrying tool read. See the package doc's output convention.
+// carrying tool read. See the package doc's output convention. Capped at
+// diagLimit (default 20, tunable via -diagnostics-limit) and closed with a
+// "+N more" pointer to the diagnostics tool when truncated — the
+// diagnostics tool itself is never capped.
 type DiagBlock struct {
 	Diagnostics []string `json:"diagnostics,omitempty"`
 }

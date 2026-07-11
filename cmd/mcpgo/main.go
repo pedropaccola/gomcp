@@ -32,6 +32,7 @@ func main() {
 
 	flagCwd := flag.String("cwd", "", "Workspace root directory")
 	flagVerbose := flag.Bool("verbose", false, "Log go/packages loader output to stderr")
+	flagDiagLimit := flag.Int("diagnostics-limit", 20, "Limit diagnostics rendered per scoped list_*/describe_* and mutation echo; the diagnostics tool itself always reports the full inventory.")
 	flag.Parse()
 
 	var cwd string
@@ -81,6 +82,7 @@ func main() {
 		},
 	)
 
+	tools.SetDiagLimit(*flagDiagLimit)
 	tools.Register(server, eng)
 
 	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {

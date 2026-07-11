@@ -68,10 +68,6 @@ Design sketch:
 
 ## Diagnostics presentation
 
-- **Must: paginate every diagnostics block.** Cap displayed diagnostics
-  (~20) and close with "+N more diagnostics: run the diagnostics tool for
-  the full inventory". Applies to mutation echoes and scoped reader
-  blocks alike; the diagnostics tool remains the uncapped inventory.
 - **Idea written by the user: optionality of scoping diagnostics().**.
   If the agent requests for additional diagnostics, we can leverage
   optional output scope. That move speak towards the same "do not drown
@@ -199,6 +195,20 @@ that practice taught:
   deliberately, behind `-short`. Everything else runs on fixtures.
 
 ## Fixed
+
+- **Diagnostics pagination.** Every scoped `DiagBlock` — list_*/describe_*
+  output and mutation echoes — is capped at `diagLimit` (`diagStrings` in
+  read.go) and closed with "+N more diagnostics: run the diagnostics tool
+  for the full inventory" when truncated; the `diagnostics` tool builds
+  its own list directly from `AllDiagnostics` and never goes through
+  `diagStrings`, so it stays the uncapped inventory by construction, not
+  by a separate no-cap branch. The cap is a process-wide flag,
+  `-diagnostics-limit` (default 20), set once via `tools.SetDiagLimit`
+  ahead of `Register` in cmd/mcpgo/main.go — deliberately a package
+  var-and-setter rather than a parameter threaded through every one of
+  the ~8 call sites, since it's genuinely singleton config (one server
+  process, one cap) and not per-instance state like `Engine`. Negative
+  values are ignored; 0 is legal and shows only the "+N more" counter.
 
 - **State extraction.** The informal agreements became architectural: the
   trusted core lives in `internal/engine/state`, where a Workspace with
