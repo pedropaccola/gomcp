@@ -27,7 +27,7 @@ To optimize the tool for how Large Language Models process text, the server adhe
 While the backend manipulates Go's Abstract Syntax Tree (AST), **the model never encounters raw AST structures or JSON nodes**. LLMs are trained on standard source code, and forcing them to parse or generate structural tree nodes would likely require additional reasoning. **gomcp** exposes clean, human-readable Go source text at the declaration level, preserving the exact token relationships the model understands.
 
 ### The "Dirty Buffer" Sandbox
-If an agent introduces a change that breaks typing rules, **gomcp retains the change**. Instead of rejecting invalid code, it updates the in-memory state like an IDE's unsaved buffer and returns the exact `go/types` diagnostics to the agent. This allows the model to perform multi-step refactors where intermediate states are broken, using the compiler's output to iteratively correct its work.
+If an agent introduces a change that breaks typing rules, **gomcp retains the change**. Instead of rejecting invalid code, it updates the in-memory state like an IDE's unsaved buffer and returns the exact `go/types` diagnostics to the agent. This allows the model to perform multi-step writes where intermediate states are broken, using the compiler's output to iteratively correct its work. Additional refactoring tools exists for safe refactorings.
 
 ### Dependency-Aware Reads
 The read tools aren't limited to the agent's own module. Any importable package (standard library or third-party) resolves through the same `list_*`/`describe_*` tools by import path, lazy loaded. Only the exported API is indexed, and dependencies are never mutable: they're workspace context, not workspace state.
@@ -63,13 +63,9 @@ Small set of 27 tools:
 
 ### Write
 * Creators (fail if the address already exists; cannot destroy code): `create_package`, `create_file`, `create_symbol`, `create_symbol_batch`
-* Editors (fail if the address doesn't exist): `edit_symbol`, `edit_symbol_batch`, `edit_file`, `delete_symbol`, `delete_file`, `delete_package`
+* Editors (fail if the address doesn't exist): `edit_symbol`, `edit_symbol_batch`, `edit_file`
+* Deleters (noop if the address doesn't exist — deletion is idempotent): `delete_symbol`, `delete_file`, `delete_package`
 * Refactorings (structure-preserving transformations; renames propagate to every reference across the workspace): `move_symbol` (rename, relocate, or both), `move_file`, `move_package`
 * Session (syncs the in-memory state with disk): `flush`, `reload`
-
-Batch variants (`create_symbol_batch`, `edit_symbol_batch`) take an array of the
-same input as their single-statement counterpart, apply sequentially inside one
-transaction, and abort the whole batch untouched on the first failure — a
-duplicate target address is refused outright rather than silently deduplicated.
 
 More on `internal/tools/tools.go`

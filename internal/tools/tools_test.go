@@ -665,3 +665,47 @@ func TestEditSymbolBatchRefusesEmpty(t *testing.T) {
 		t.Error("an empty batch must be refused")
 	}
 }
+
+func TestDeleteTools(t *testing.T) {
+	eng := sandboxEngine(t)
+
+	_, out, err := deleteSymbol(eng)(context.Background(), nil, DeleteSymbolInput{
+		PkgPath: "shapes", SymbolKey: "Circle",
+	})
+	if err != nil {
+		t.Fatalf("delete_symbol: %v", err)
+	}
+	if !slices.Contains(out.Files["example.com/sandbox/shapes"], "shapes.go") {
+		t.Errorf("delete echo missing the touched file: %+v", out)
+	}
+
+	_, noop, err := deleteSymbol(eng)(context.Background(), nil, DeleteSymbolInput{
+		PkgPath: "shapes", SymbolKey: "Circle",
+	})
+	if err != nil {
+		t.Fatalf("delete_symbol (already gone): %v", err)
+	}
+	if len(noop.Files) != 0 {
+		t.Errorf("deleting an already-gone symbol must be a noop, got %+v", noop)
+	}
+
+	_, fileNoop, err := deleteFile(eng)(context.Background(), nil, DeleteFileInput{
+		PkgPath: "shapes", FileName: "nosuch.go",
+	})
+	if err != nil {
+		t.Fatalf("delete_file (absent): %v", err)
+	}
+	if len(fileNoop.Files) != 0 {
+		t.Errorf("deleting a nonexistent file must be a noop, got %+v", fileNoop)
+	}
+
+	_, pkgNoop, err := deletePackage(eng)(context.Background(), nil, DeletePackageInput{
+		PkgPath: "nosuchpkg",
+	})
+	if err != nil {
+		t.Fatalf("delete_package (absent): %v", err)
+	}
+	if len(pkgNoop.Files) != 0 {
+		t.Errorf("deleting a nonexistent package must be a noop, got %+v", pkgNoop)
+	}
+}

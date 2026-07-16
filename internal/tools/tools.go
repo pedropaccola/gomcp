@@ -232,27 +232,35 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 			"clears it." + echoNote,
 	}, editFile(eng))
 
+	// Deleters
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_symbol",
 		Annotations: mutates("Delete Symbol", true),
-		Description: "[Editor] Delete a symbol — its spec alone when it lives in a grouped block " +
+		Description: "[Deleter] Delete a symbol — its spec alone when it lives in a grouped block " +
 			"with siblings, unless its value is derived from its position in the group " +
 			"(iota, or inheriting the previous spec's expression), in which case the whole " +
-			"group is deleted together. Deleting one such member and keeping the rest has " +
-			"no single correct resolution — use edit_symbol with the group's whole intended " +
-			"state instead." + keyNote + echoNote,
+			"group is deleted together, since deleting one such member and keeping the rest " +
+			"has no single correct resolution (use edit_symbol with the group's whole " +
+			"intended state instead). A name sharing a spec with others (`var a, b int`) is " +
+			"trimmed from it instead of taking the others down with it; names sharing one " +
+			"multi-valued expression (`var a, b = f()`) blank the targeted one to `_` instead, " +
+			"since the call's arity can't shrink — deleting every real name this way collapses " +
+			"to removing the whole statement. Idempotent: a symbol that's already gone is a " +
+			"noop, not an error." + keyNote + echoNote,
 	}, deleteSymbol(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_file",
 		Annotations: mutates("Delete File", true),
-		Description: "[Editor] Delete a file and every declaration in it." + echoNote,
+		Description: "[Deleter] Delete a file and every declaration in it. Idempotent: a file that's " +
+			"already gone is a noop, not an error." + echoNote,
 	}, deleteFile(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_package",
 		Annotations: mutates("Delete Package", true),
-		Description: "[Editor] Delete a whole package directory." + echoNote,
+		Description: "[Deleter] Delete a whole package directory. Idempotent: a package that's " +
+			"already gone is a noop, not an error." + echoNote,
 	}, deletePackage(eng))
 
 	// Refactorings

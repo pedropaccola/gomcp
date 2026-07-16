@@ -117,11 +117,11 @@ permuted words for different domains.
 
 Each layer has its own grammar: engine's View (X/Xs/XsWhere and the
 resolver→enumerator→scanner layering, one file per category — see Layout)
-and Tx (Creators/Editors/Refactorings and the placement policy); tools.go
-(tool naming and the DiagBlock output convention). Read View's doc comment
-or the relevant file before adding a verb. Restating the grammars here
-would just be one more place to go stale; what doesn't live in any single
-file's doc:
+and Tx (Creators/Editors/Deleters/Refactorings and the placement policy);
+tools.go (tool naming and the DiagBlock output convention). Read View's
+doc comment or the relevant file before adding a verb. Restating the
+grammars here would just be one more place to go stale; what doesn't live
+in any single file's doc:
 
 - Symbol keys are one address space across both layers: `"Name"`, methods
   `"Recv.Name"`.
@@ -150,6 +150,13 @@ file's doc:
   delegating method, or drop conformance on purpose), so that stays
   `edit_symbol`'s job. Ask this question before adding the next verb,
   not which category feels more capable.
+- Deletion is idempotent, not fail-if-absent like Editors:
+  `delete_symbol`/`delete_file`/`delete_package` noop when the target's
+  already gone — "gone" is deletion's success condition, whoever caused
+  it, the mirror of Creators' "fail if exists, can't destroy code." This
+  reaches even a name sharing a multi-name spec (`var a, b = f()`): it's
+  trimmed or blanked to `_` rather than refused — see `DeleteSymbol`'s
+  own doc for the two deterministic cases.
 
 Address convention (both directions, gated by `canonPkg`/`fileArg`):
 `package` is the import path (`github.com/you/mod/internal/tools`) — the

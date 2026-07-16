@@ -166,6 +166,89 @@ turn out orthogonal to it as specified:
   removing batch's other win — one round-trip with every precondition
   failure at once. No reason to sequence either ahead of the other.
 
+### Deletion semantics: new Deleters category, noop-if-absent — shipped 2026-07-16
+
+Raised while scoping `delete_symbol_batch` (above): deleting an
+already-gone target inside a batch — e.g. an iota group's second member,
+after the first member's delete already collapsed the whole group —
+shouldn't abort the batch over a technicality the agent already achieved.
+Generalized past batch once posed: deletion should be idempotent
+everywhere, not just inside a batch.
+
+**New Tx category, split out of Editors: Deleters** — `delete_symbol`,
+`delete_file`, `delete_package`. Editors keep "fail if the address doesn't
+exist" (a typo mid-edit should surface loudly); Deleters get "noop if the
+address doesn't exist" — the target being gone *is* the success
+condition, whoever caused it, the mirror image of Creators' "fail if
+exists, can't destroy code." Precedent: HTTP DELETE's specified
+idempotency (RFC 7231), `rm -f`, `kubectl delete --ignore-not-found`,
+`DROP TABLE IF EXISTS`. Accepted trade: a genuine typo on a first-ever
+delete now fails silently (noop) instead of loudly — judged acceptable
+specifically because every address in this model is read from a prior
+`list_*`/`describe_*` call, never guessed blind, so "target's gone"
+overwhelmingly means "already handled," not "never existed."
+
+Scope boundary — noop replaces only the *existence* check, not every
+refusal:
+- `DeleteFile`/`DeletePackage`: every current failure mode already *is*
+  an existence check, so the reclassification is total.
+- `DeleteSymbol` had a second, unrelated refusal: a multi-name
+  `*ast.ValueSpec` (`var a, b int`) couldn't be deleted by whole-span
+  removal without taking uninvolved names down with it. That refusal is
+  gone now that the capability below ships — deletion is well-defined
+  for it too, so there's no remaining exception: Deleters are noop-if-
+  absent, full stop.
+
+**New capability, previously missing, not actually ambiguous:**
+partial-spec deletion. The "declared together with other names" refusal
+was never a real ambiguity, just a missing one — `DeleteSymbol` only knew
+whole-span removal, never surgery within a spec. Fully deterministic once
+split on shape:
+- `len(Values) == len(Names)` (parallel, `var a, b = 1, 2`) or
+  `len(Values) == 0` (typed only, `var a, b int`): trim the targeted
+  name (and its paired value, if any); siblings keep their own values
+  untouched.
+- `len(Values) < len(Names)` (one shared multi-valued expression,
+  `var a, b = f()`): the call's arity is fixed by `f()`'s signature, so
+  the targeted name blanks to `_` instead of being removed — the only
+  transform leaving every other name's behavior byte-for-byte unaffected.
+  Not a side effect, the minimal-diff answer to "remove `a`, disturb
+  nothing else" — unlike position-dependent iota deletion, this case has
+  exactly one right answer, so no refusal is warranted.
+  - Convergence: once every real (non-blank) name in the spec has been
+    deleted this way, the whole statement collapses, call included —
+    matching solo deletion's existing behavior (nothing binds the call's
+    result anymore, no reason to keep it). Iteratively deleting every
+    name in a shared spec must reach the same end state as deleting a
+    solo one directly.
+- Noted in passing, not a design driver: shared multi-value assignment
+  (`a, b := f()`) is far more common as a *local* variable inside a
+  function body than as a package-level `var` — and locals aren't
+  addressable symbols in this model at all. Still correct to build
+  (nothing stops `var a, b = ParseTwoThings()` at package scope), just
+  expect it exercised rarely.
+
+**Files touched:** `internal/engine/editors.go` and `internal/tools/
+editors.go` each split — `DeleteSymbol`/`DeleteFile`/`DeletePackage` and
+their tool handlers moved to a new `deleters.go` in both packages, matching
+the existing one-file-per-category convention. Two new small helpers in
+`internal/engine/deleters.go`: `trimRange[T ast.Node]` (the comma-list
+byte-range arithmetic, shared between the Names and Values trim) and
+`Tx.trimSpecName` (the case split itself). `AGENTS.md`'s Tx category list
+and `README.md`'s Write section both updated: deletion gets its own
+Deleters line instead of folding under Editors. `WriteOutput` is
+unchanged — files-touched/diagnostics-delta already doubles as the
+noop-vs-real signal (empty ⇒ noop) without a new field. `testdata/sandbox/
+shapes/groups.go` gained `boundsOf()`/`boundX, boundY` as the shared
+multi-value-call fixture (`var minX, maxX = -10.0, 10.0` already covered
+the parallel-trim case).
+
+**Unblocked:** `delete_symbol_batch` — the iota-group aliasing problem
+(deleting one member consumes a sibling's address) now resolves for free,
+since a second lookup on an already-gone target is a noop instead of an
+abort; no alias pre-scan needed. Still not built — see "Batch mutations"
+above.
+
 ### Engine package audit
 
 Added 2026-07-14, originally gated on batch mutations landing first —
@@ -463,6 +546,36 @@ exact case as "would cause too much friction" if forced.
 None open.
 
 ## DONE
+
+- **Deletion semantics: new Deleters category, noop-if-absent — 2026-07-16.**
+  See "Deletion semantics" above for the full design record. `delete_symbol`/
+  `delete_file`/`delete_package` split out of Editors into their own Tx
+  category and Go file (`deleters.go`, both `internal/engine` and
+  `internal/tools`), and stopped erroring when the target's already gone —
+  idempotent deletion, the mirror of Creators' "fail if exists."
+  - Raised while scoping `delete_symbol_batch`: deleting an already-gone
+    iota-group sibling (the first member's delete already collapsed the
+    whole group) shouldn't abort a batch over a technicality the agent
+    already achieved. Generalized past batch once posed — resolves that
+    aliasing problem for free, no pre-scan needed, whenever
+    `delete_symbol_batch` gets built.
+  - **A refusal turned out to be a missing capability, not a real
+    ambiguity.** `DeleteSymbol` used to refuse a multi-name `*ast.ValueSpec`
+    (`var a, b int`) outright, described as "no single correct resolution."
+    Under scrutiny that was wrong: it's fully deterministic once split on
+    shape — one value per name (or none) trims the targeted name and its
+    paired value; one shared multi-valued expression (`var a, b = f()`)
+    blanks the targeted name to `_` instead, since the call's arity is
+    fixed and blanking is the only transform leaving every other name
+    unaffected. Deleting every real name in a shared spec converges to a
+    full removal, call included, matching solo deletion's existing
+    behavior. Caught by the same discipline as the iota-groups bugs:
+    working the concrete example by hand before accepting "ambiguous" as
+    the reason a refusal existed.
+  - New fixture: `testdata/sandbox/shapes/groups.go` gained
+    `boundsOf()`/`var boundX, boundY = boundsOf()` for the shared-call
+    case (`var minX, maxX = -10.0, 10.0` already covered the parallel
+    case) — "add the fixture shape that would have caught its absence."
 
 - **Batch mutations, per-verb, first two shipped: `create_symbol_batch`,
   `edit_symbol_batch` — 2026-07-15.** Superseded the original unified,

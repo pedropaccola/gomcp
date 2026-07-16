@@ -18,6 +18,12 @@ var (
 
 var minX, maxX = -10.0, 10.0
 
+// boundsOf returns a fixed coordinate pair — a shared multi-value
+// expression fixture for testing DeleteSymbol's blank-to-`_` behavior.
+func boundsOf() (float64, float64) { return 0, 1 }
+
+var boundX, boundY = boundsOf()
+
 type (
 	// Pair holds two scalars.
 	Pair struct{ A, B float64 }
@@ -38,3 +44,4 @@ func (s *Stack[T]) Push(v T) {
 }
 
 var _ = minX + maxX
+var _ = boundX + boundY

@@ -431,13 +431,26 @@ func TestDeleteGroupedSpec(t *testing.T) {
 	})
 }
 
-func TestDeleteMultiNameSpecRefused(t *testing.T) {
+func TestDeleteTrimsMultiNameSpec(t *testing.T) {
+	// var minX, maxX = -10.0, 10.0 — one value per name: the targeted
+	// name (and its paired value) is trimmed from the spec, not refused.
 	e := sandboxEngine(t)
-	if _, err := e.Edit(context.Background(), func(tx *Tx) error {
+	mustEdit(t, e, func(tx *Tx) error {
 		return tx.DeleteSymbol(spkg("shapes"), "minX")
-	}); err == nil || !strings.Contains(err.Error(), "declared together") {
-		t.Errorf("multi-name spec deletion must refuse with guidance, got %v", err)
-	}
+	})
+	e.Read(func(v *View) error {
+		if _, _, ok := v.resolveSymbol(spkg("shapes"), "minX"); ok {
+			t.Error("minX still resolvable after delete")
+		}
+		if _, _, ok := v.resolveSymbol(spkg("shapes"), "maxX"); !ok {
+			t.Error("maxX destroyed by trimming its sibling minX")
+		}
+		file, _, _ := v.resolveFile("shapes/groups.go")
+		if !bytes.Contains(file.Src(), []byte("var maxX = 10.0")) {
+			t.Errorf("maxX not trimmed to a standalone spec:\n%s", file.Src())
+		}
+		return nil
+	})
 }
 
 func TestRenameMethodReportsBrokenSatisfaction(t *testing.T) {
@@ -1098,4 +1111,101 @@ func TestCreateUntypedIotaGroupStandardRegion(t *testing.T) {
 		}
 		return nil
 	})
+}
+
+func TestDeleteBlanksSharedMultiValueSpec(t *testing.T) {
+	// var boundX, boundY = boundsOf() — one shared call: the call's
+	// arity is fixed, so the targeted name blanks to `_` instead of
+	// shrinking the list.
+	e := sandboxEngine(t)
+	mustEdit(t, e, func(tx *Tx) error {
+		return tx.DeleteSymbol(spkg("shapes"), "boundX")
+	})
+	e.Read(func(v *View) error {
+		if _, _, ok := v.resolveSymbol(spkg("shapes"), "boundX"); ok {
+			t.Error("boundX still resolvable after delete")
+		}
+		if _, _, ok := v.resolveSymbol(spkg("shapes"), "boundY"); !ok {
+			t.Error("boundY destroyed by blanking its sibling boundX")
+		}
+		file, _, _ := v.resolveFile("shapes/groups.go")
+		if !bytes.Contains(file.Src(), []byte("var _, boundY = boundsOf()")) {
+			t.Errorf("boundX not blanked to _:\n%s", file.Src())
+		}
+		return nil
+	})
+}
+
+func TestDeleteConvergesToFullRemovalWhenNoRealNameRemains(t *testing.T) {
+	// Deleting every real name out of a shared multi-value spec collapses
+	// the whole statement, call included — same as deleting a solo name,
+	// since nothing is bound to it anymore.
+	e := sandboxEngine(t)
+	mustEdit(t, e, func(tx *Tx) error {
+		return tx.DeleteSymbol(spkg("shapes"), "boundX")
+	})
+	mustEdit(t, e, func(tx *Tx) error {
+		return tx.DeleteSymbol(spkg("shapes"), "boundY")
+	})
+	e.Read(func(v *View) error {
+		if _, _, ok := v.resolveSymbol(spkg("shapes"), "boundY"); ok {
+			t.Error("boundY still resolvable after its spec should have collapsed")
+		}
+		file, _, _ := v.resolveFile("shapes/groups.go")
+		if bytes.Contains(file.Src(), []byte("= boundsOf()")) {
+			t.Errorf("shared-call spec not fully collapsed after its last real name was deleted:\n%s", file.Src())
+		}
+		return nil
+	})
+}
+
+func TestDeleteSymbolNoopIfAbsent(t *testing.T) {
+	e := sandboxEngine(t)
+	report := mustEdit(t, e, func(tx *Tx) error {
+		return tx.DeleteSymbol(spkg("shapes"), "NoSuchSymbol")
+	})
+	if len(report.Changed) != 0 || len(report.Delta) != 0 || len(report.Resolved) != 0 {
+		t.Errorf("deleting a nonexistent symbol must be a pure noop, got %+v", report)
+	}
+}
+
+func TestDeleteSymbolNoopAfterGroupCollapse(t *testing.T) {
+	// Deleting KindSquare removes the whole iota group, including
+	// KindCircle. A later delete targeting KindCircle must be a noop,
+	// not a failure — exactly what lets a batch name every member of a
+	// group without the second entry aborting just because the first
+	// already satisfied it.
+	e := sandboxEngine(t)
+	mustEdit(t, e, func(tx *Tx) error {
+		return tx.DeleteSymbol(spkg("shapes"), "KindSquare")
+	})
+	report := mustEdit(t, e, func(tx *Tx) error {
+		return tx.DeleteSymbol(spkg("shapes"), "KindCircle")
+	})
+	if len(report.Changed) != 0 || len(report.Delta) != 0 {
+		t.Errorf("deleting an already-collapsed group member must be a noop, got %+v", report)
+	}
+}
+
+func TestDeleteFileNoopIfAbsent(t *testing.T) {
+	e := sandboxEngine(t)
+	report := mustEdit(t, e, func(tx *Tx) error {
+		if err := tx.DeleteFile(spkg("shapes"), "nosuch.go"); err != nil {
+			return err
+		}
+		return tx.DeleteFile(spkg("nosuchpkg"), "nosuch.go")
+	})
+	if len(report.Changed) != 0 {
+		t.Errorf("deleting a nonexistent file (missing file, and missing package) must be a noop, got %+v", report)
+	}
+}
+
+func TestDeletePackageNoopIfAbsent(t *testing.T) {
+	e := sandboxEngine(t)
+	report := mustEdit(t, e, func(tx *Tx) error {
+		return tx.DeletePackage(spkg("nosuchpkg"))
+	})
+	if len(report.Changed) != 0 {
+		t.Errorf("deleting a nonexistent package must be a noop, got %+v", report)
+	}
 }

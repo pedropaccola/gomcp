@@ -2,11 +2,9 @@ package engine
 
 import (
 	"fmt"
-	"go/ast"
 	"slices"
 
 	"github.com/pedropaccola/gomcp/internal/address"
-	"github.com/pedropaccola/gomcp/internal/engine/workspace"
 )
 
 // EditSymbol replaces key's whole declaration with src — for members of
@@ -77,79 +75,6 @@ func (tx *Tx) EditSymbol(pkg address.PkgPath, key, src string) error {
 	}
 	file, _ := owner.File(sym.File)
 	return tx.reloadFile(owner, sym.File, applySplices(file.Src(), []splice{{span: sp, repl: []byte(replacement)}}))
-}
-
-// DeleteSymbol removes key's declaration — its spec alone when it lives in
-// a grouped declaration with siblings, unless its value is derived from
-// its position (iota, or inheriting the previous spec's expression), in
-// which case the whole group is removed together. Deleting one member of
-// a position-dependent group and leaving the rest as-is has no single
-// correct resolution (keep everyone else's original values? renumber
-// them?) — that's edit_symbol's job, via a whole-group replacement that
-// states explicitly what the agent wants, not a guess this verb would
-// have to make.
-func (tx *Tx) DeleteSymbol(pkg address.PkgPath, key string) error {
-	sym, owner, ok := tx.resolveSymbol(pkg, key)
-	if !ok {
-		return fmt.Errorf("no symbol %q in %q", key, pkg)
-	}
-	if spec, ok := sym.Spec().(*ast.ValueSpec); ok && len(spec.Names) > 1 {
-		return fmt.Errorf("%q is declared together with other names: replace the spec instead", key)
-	}
-	gen, grouped := groupOf(sym)
-	sp, ok := tx.declSpan(sym)
-	if !soloGroup(gen, grouped) && !constPositionDependent(gen, grouped, sym) {
-		sp, ok = tx.specSpan(sym)
-	}
-	if !ok {
-		return fmt.Errorf("cannot locate %q in source", key)
-	}
-	file, _ := owner.File(sym.File)
-	return tx.reloadFile(owner, sym.File, applySplices(file.Src(), []splice{{span: sp}}))
-}
-
-// DeleteFile removes one file and every declaration in it, tombstoning the
-// path for Flush.
-func (tx *Tx) DeleteFile(pkg address.PkgPath, name string) error {
-	unit, ok := tx.eng.ws.Unit(pkg)
-	if !ok {
-		return fmt.Errorf("no package at %q", pkg)
-	}
-	for _, owner := range []*workspace.Package{unit.Prod, unit.XTest} {
-		if owner == nil {
-			continue
-		}
-		path, err := fileAddress(owner, name)
-		if err != nil {
-			return err
-		}
-		if _, ok := owner.File(path); !ok {
-			continue
-		}
-		tx.eng.ws.DropFile(pkg, owner, path)
-		tx.touch(path)
-		return nil
-	}
-	return fmt.Errorf("no file %q in %q", name, pkg)
-}
-
-// DeletePackage removes a whole package address, tombstoning every file.
-func (tx *Tx) DeletePackage(pkg address.PkgPath) error {
-	unit, ok := tx.eng.ws.Unit(pkg)
-	if !ok {
-		return fmt.Errorf("no package at %q", pkg)
-	}
-	for _, p := range []*workspace.Package{unit.Prod, unit.XTest} {
-		if p == nil {
-			continue
-		}
-		for _, file := range p.Files() {
-			tx.eng.ws.Tombstone(file.Path, p.Name)
-			tx.touch(file.Path)
-		}
-	}
-	tx.eng.ws.RemoveUnit(pkg)
-	return nil
 }
 
 // EditFile replaces or clears a file's package doc comment — the comment
