@@ -278,7 +278,7 @@ address) resolves for free, since a second lookup on an already-gone
 target is a noop instead of an abort; no alias pre-scan needed. Shipped
 2026-07-16 — see "Batch mutations" above.
 
-### Refactoring safety: move_file/move_package can break the workspace
+### Refactoring safety: move_file/move_package can break the workspace — shipped 2026-07-16
 
 Raised 2026-07-16, not explored yet — mapped only. Pedro's framing:
 Refactorings are supposed to be safe by default — that's the whole
@@ -304,10 +304,205 @@ None of this contradicts the "dirty buffer" philosophy (broken
 intermediate states are tolerated by design, surfaced via diagnostics,
 not refused) — but "safe by default" for a Refactoring was supposed to
 mean something closer to what rename-propagation already delivers, and
-relocation doesn't reach that bar yet. Not designed: whether the fix is
-pre-flight visibility scanning (would a moved declaration's unexported
-dependencies still resolve at the destination?), automatic qualifier
-rewriting at known use sites, or something else entirely is still open.
+relocation doesn't reach that bar yet.
+
+**Elaborated 2026-07-16, still not built — two genuinely different
+hazards, confirmed by reading `MovePackage`/`MoveSymbol`/`relocateSymbol`/
+`MoveFile` source, not assumed:**
+- **(A) Call-site qualifier rewriting** — do *other* references to the
+  moved thing still resolve afterward? `MovePackage` already solves this
+  properly: it walks `pkg.TypesInfo().Uses` for every `*types.PkgName`
+  pointing at the old import and rewrites the unaliased ones — a real
+  type-graph scan, not text matching. `MoveSymbol`'s relocation half
+  doesn't do this at all (only its rename half does, via the same
+  workspace-wide reference chasing a standalone rename gets); `MoveFile`
+  doesn't either. This is the *tractable* gap: the same `Uses`-walking
+  technique `MovePackage` already proves out, just scoped to one symbol
+  instead of a whole package. Not new machinery, just not yet composed
+  onto relocation.
+- **(B) Origin-body accessibility** — does the *moved* code's own body
+  still see what it depends on? Read `relocateSymbol` and `MoveFile`'s
+  cross-package branch in full: neither checks this at all — pure text
+  extraction and splice, whatever breaks breaks, `diagnostics()` finds it
+  after. This is the genuinely missing capability: nothing computes
+  "will every identifier this code names still be visible from its new
+  home" before committing to the move.
+
+**Real precedent for the fix, not invented from scratch:** Eclipse's LTK
+formalizes every refactoring as `checkConditions()` (a pure read pass
+returning a status: OK/warning/error) *then* `createChange()` — exactly
+hazard (B)'s shape, computed before the mutation, not after. IntelliJ's
+Move/Rename dialogs run a Find-Usages pass, compute conflicts (a
+package-private reference that would go out of scope is flagged), and
+show a Conflicts dialog before applying; anything found only via its
+optional "search in comments and strings" checkbox is surfaced as
+unconfirmed candidates, never silently rewritten, since that search is
+text, not semantic. Roslyn computes a solution-wide preview the same way.
+Go's own (now-dead, see below) `gorename` was more conservative than any
+of these — it refused outright rather than warn-and-proceed on a
+conflict, no override. gomcp should lean toward `gorename`'s posture
+(hard refusal) over IntelliJ's (warn, let a human click through) — an
+agent is more likely than a careful human to click through a warning, so
+the same "no single correct resolution ⇒ refuse" test already used
+elsewhere in this codebase applies here too, not a softer one.
+
+**Per-tool verdict:**
+- `move_package`'s core *is* safe by construction — confirmed, it walks
+  `go/types`, not text. The only residual gap is genuinely irreducible:
+  string literals, comments, `//go:generate` directives, build tags —
+  anything naming a package as data instead of as an identifier. Every
+  serious tool hits this same wall (gopls and gorename included); it's
+  the honest boundary of static analysis, not a gomcp shortfall. If ever
+  pursued further: an *opt-in*, clearly-labeled heuristic text scan
+  surfaced as informational candidates only (mirroring IntelliJ's
+  checkbox) — never silent, never auto-applied. Likely not worth
+  building; the false-positive rate on scanning arbitrary strings for a
+  package name is real.
+- `move_file`: the safe floor is restricting to same-package moves and
+  reframing as a plain `rename_file` — matches `gorename`'s conservative
+  posture better than pretending cross-package safety exists today. The
+  richer option, if cross-package `move_file` is wanted later: a
+  two-directional conflict scan before the move — does the moved file's
+  code reference anything unexported staying behind, and does anything
+  staying behind reference something unexported the file is taking with
+  it — refuse if either fires, proceed only when clean. Buildable with
+  identifier-resolution machinery already in the codebase, not
+  hand-waved.
+- `move_symbol`: don't retreat all the way to same-package-only — split
+  the fix instead. Finish hazard (A) now (tractable, reuses
+  `MovePackage`'s own technique, scoped to one symbol). Add hazard (B)'s
+  conflict scan, scoped to one declaration instead of a whole file,
+  refusing cross-package relocation when it fires. That yields a
+  `move_symbol` that's actually safe cross-package, not just restricted
+  to where the question can't come up — stronger than the conservative
+  fallback, for bounded extra work.
+
+**Considered and rejected: adopting `gorename` (or `x/tools/refactor/
+rename`) instead of building this.** Checked, not assumed: `cmd/gorename`
+was deleted from `x/tools` outright (golang/go#69360). Its underlying
+`refactor/rename` package is still technically importable but its own
+doc says it's "the obsolete implementation of the deleted `gorename`"
+and "has not worked properly since the advent of Go modules" —
+disqualifying on its own, since gomcp's whole addressing scheme is
+module-based. Its `Move` function did relocate whole packages (a near
+parallel to `move_package`) but never individual symbols or files, so it
+never covered `move_file`'s or `move_symbol`'s actual job even when
+working. The maintained replacement, gopls, lives at `x/tools/gopls/
+internal/golang/rename.go` — under `internal/`, which the Go compiler
+itself forbids importing from outside that module tree; the only
+supported access is the LSP protocol or its CLI wrapper, not a library
+call. And even if either were importable: both assume a cleanly loaded,
+already-type-checked snapshot and emit one batch edit, which doesn't fit
+a workspace that's deliberately mid-broken by design (the dirty-buffer
+model) — a second, independent load pipeline next to gomcp's own `View`
+would be duplicative and risk desyncing from what gomcp itself sees.
+What's worth reusing is the *technique* (walk `Uses`/`Defs`, find every
+matching `Object`, rewrite) — which `MovePackage` already does, and which
+hazard (A)'s and (B)'s fixes above would extend, not the dead package.
+
+**Broader principle that fell out of this, applied generally now:**
+prefer `x/tools` primitives over reinventing, but verify fit against
+gomcp's own invariants per case rather than assume the whole module
+applies. Audited 2026-07-16: `go/packages` (`Engine.load`,
+`LoadExternal`) and `imports.Process` (`Tx.reloadFile`) are already used
+correctly. `astutil.PathEnclosingInterval` and `refactor/eg` are genuine
+candidates for "Fine-grained modification"/SSR above (see those entries).
+`astutil.Apply`'s mutate-then-reprint pattern and `gcexportdata`'s
+no-source-text tradeoff were checked and explicitly do *not* fit —
+the first conflicts with the never-re-print Core Invariant, the second
+can't serve `describe_symbol`'s need to show real source text for
+dependencies too.
+
+**Shipped 2026-07-16: `moveConflicts` (shared refusal scan) and
+`qualifierFixups` (call-site rewrite), both in
+`internal/engine/refactorings.go`, both shared by `move_symbol` and
+`move_file`.** Built per the per-tool verdict above, plus three real bugs
+caught only by writing sandbox fixtures and running the tests — not by
+reasoning through the design again. `qualifierFixups` started scoped to
+`move_symbol` only, per the original verdict, but the extension to
+`move_file` surfaced a gap in what had already shipped for `move_symbol`
+too (bug 3 below) — closed in both places in the same pass, not left
+half-fixed.
+- **`moveConflicts`** covers, in order: method-receiver locality (both
+  directions — see below), destination collision, dependency on an
+  unexported sibling left behind, and an unexported symbol still needed
+  by code left behind. Wired into both `MoveFile` and `relocateSymbol`
+  (`MoveSymbol`'s relocation half); a no-op for same-package moves.
+  `SymbolsReferencing` was split into a private `symbolsReferencing`
+  (raw `[]match`) plus a thin public DTO-converting wrapper, so the
+  conflict-scan's blocking-referrer check could reuse the exact same
+  reference-finding logic search_references already exposes, rather than
+  re-deriving it — Composition, not a parallel implementation.
+- **`qualifierFixups`**, generalized to take the whole moving set
+  (`[]*workspace.Symbol` — one symbol for `move_symbol`, every symbol in
+  the file for `move_file`) and fix both directions:
+  - *Inbound* — an external reference to an exported moving symbol:
+    same-package siblings gain the destination's qualifier, a reference
+    already sitting in the destination package loses its qualifier,
+    anything else gets its qualifier repointed.
+  - *Outbound* — a moving declaration's own reference to an exported
+    symbol staying behind: gains the origin package's qualifier. (An
+    unexported one staying behind is already a hard refusal via
+    `moveConflicts`; only the exported case needed a fixup here.)
+  - A reference between two symbols that are *both* moving is left alone
+    either way — both land in the destination together, unqualified is
+    still correct there. Applied via the existing `applyFileSplices`
+    before the extraction/move itself runs — `*workspace.Package`
+    pointers stay valid across a `RebuildIndex` (confirmed by reading
+    `SwapFile`/`RebuildIndex` before relying on it, not assumed), only
+    `*Symbol`/`*File` pointers go stale, so only those need re-fetching
+    afterward. Reuses `imports.Process` for free through the files it
+    touches either way.
+- **Real bug 1**: the dependency check's first draft flagged a plain
+  function *parameter* (`r` in `func Perimeter(r float64) float64`) as
+  "an unexported sibling staying behind" — `obj.Pkg()` is still the
+  enclosing package for a local, so an unqualified `!obj.Exported()`
+  check can't tell a package-level declaration from a local one. Fixed
+  by requiring `obj.Parent() == pkgScope` (the object's immediate scope
+  is the package scope itself, not some inner function/block scope) —
+  caught by the very first test run, not by re-reading the code.
+- **Real bug 2, found writing the *next* test after fixing bug 1**: the
+  original method-locality check was one-directional — a moving method
+  needs its receiver type moving too, but nothing checked the reverse: a
+  method *staying behind* whose receiver type is the one *leaving*. Same
+  Go rule (a method must live in its receiver type's package), just
+  triggered from the other side, and just as unconditional — no
+  visibility judgment call either way. Fixed by scanning every symbol
+  still in `srcPkg` (not just the moving set) for a method whose `Recv`
+  is in the moving set. Caught via `MoveFile`; confirmed the same fix
+  covers `move_symbol` too (moving a bare type away from its own methods,
+  via `moveConflicts` being shared code) with a dedicated test —
+  `TestMoveSymbolRefusesLeavingMethodsBehind` — added while double-checking
+  the tool descriptions against the actual behavior, not assumed correct
+  just because the two verbs share the same underlying check.
+- **Real bug 3, found extending `qualifierFixups` to `move_file`**: while
+  working out the multi-symbol case, realized the *outbound* direction
+  had never been built at all — a moved declaration's own reference to an
+  exported sibling staying behind wasn't refused (correctly — it's not a
+  conflict) but also wasn't fixed up, so it broke silently, contradicting
+  the tool description's own claim that "every surviving reference is
+  repointed automatically." Verified the gap existed in the
+  *already-shipped* `move_symbol` first, with a dedicated probe test,
+  before designing the fix — the bug predated this session's `move_file`
+  work, it just took building the symmetric multi-symbol case to notice
+  the asymmetry. Fixed by generalizing `qualifierFixups` to handle both
+  directions in one pass (see above), not bolted on as a special case.
+- Five new sandbox fixture files (`mvsrc`'s `outbound.go`,
+  `fileoutbound.go`, plus the earlier `methodfile.go`/`standalone.go`,
+  and `mvdest`/`mvalpha`/`mvbeta`) — deliberately split so the
+  qualifier-rewrite cases (sibling gains qualifier, destination's
+  pre-existing reference loses it, third party gets repointed, outbound
+  reference gains the origin's qualifier) don't entangle into an import
+  cycle with each other; `mvalpha`/`mvbeta` are fully isolated from
+  `mvsrc`/`mvdest` for exactly that reason.
+- **Known, accepted incompleteness, not silently dropped:** the
+  dependency check (moving code depending on something left behind) only
+  walks `Info.Uses`, so a moving declaration accessing an unexported
+  *struct field* or *method* of a sibling type via a selector
+  (`Info.Selections`, not `Info.Uses`) isn't caught pre-flight — it still
+  degrades to the old behavior (a diagnostic after the fact), not a
+  silent break. Worth closing if it turns out to matter in practice, not
+  blocking this pass.
 
 ### Engine package audit
 
@@ -565,7 +760,18 @@ exact case as "would cause too much friction" if forced.
   190-line declaration costs the whole declaration in the request.
   Sub-declaration addressing doesn't fit the current model, but if the
   weight keeps bearing, find a way: anchored splices within a declaration,
-  or statement-range addressing bridged from SymbolAt.
+  or statement-range addressing bridged from SymbolAt. Found 2026-07-16,
+  not yet evaluated in depth: `golang.org/x/tools/go/ast/astutil`'s
+  `PathEnclosingInterval(file, start, end)` returns the exact chain of
+  enclosing AST nodes for a byte range — the missing primitive for
+  statement-boundary detection, composed with the existing `offsetSpan`
+  rather than hand-rolling it. Note `astutil.Apply`'s own usual
+  pattern — mutate the AST, then reprint via `go/format`/`go/printer` —
+  does *not* fit here: it conflicts with the Core Invariant that ASTs
+  locate byte spans for splicing and are never re-printed, since
+  reprinting reflows formatting outside the touched region. Only the
+  read-side query helpers (`PathEnclosingInterval` and similar) are
+  candidates; the mutate-and-reprint helpers are not.
 
   #### Implementation Alternative: Unified/Line-Based Diff Splicing
   To circumvent the token-heavy cost of whole-declaration replacement without exposing raw statement ranges to the agent:
@@ -576,6 +782,14 @@ exact case as "would cause too much friction" if forced.
   Added 2026-07-15, not explored yet — mapped only, so the idea isn't
   lost. Prior art: JetBrains' SSR, Comby, ast-grep/semgrep autofix — all
   match and rewrite by *structure*, not by line position or raw text.
+  Found 2026-07-16: `golang.org/x/tools/refactor/eg` already implements
+  essentially this — before/after function-template pairs with
+  wildcards, matched using full type information, driving structural
+  rewrites. Real prior art, not just a design inspiration, but pkg.go.dev
+  flags it "not in the latest version of its module" — the same early
+  warning sign `refactor/rename` showed before it was deleted outright
+  (see "Refactoring safety" above) — so confirm it's still intact before
+  leaning on it, not assumed.
   - **Mechanics:** Agent submits a structural pattern with placeholders
     (e.g. `if $COND { return $ERR }`) matching statement- or
     expression-shaped fragments *inside* a declaration's own AST, plus a

@@ -65,7 +65,7 @@ Small set of 25 tools:
 * Creators (fail if the address already exists; cannot destroy code): `create_package`, `create_file`, `create_symbol`
 * Editors (fail if the address doesn't exist): `edit_symbol`, `edit_file`
 * Deleters (noop if the address doesn't exist — deletion is idempotent, so a duplicate target across entries is harmless): `delete_symbol`, `delete_file`, `delete_package`
-* Refactorings (structure-preserving transformations; renames propagate to every reference across the workspace): `move_symbol` (rename, relocate, or both), `move_file`, `move_package`
+* Refactorings (structure-preserving transformations; safe by construction — refuse rather than risk breaking the workspace): `move_symbol` (rename, relocate, or both), `move_file`, `move_package`
 * Session (syncs the in-memory state with disk): `flush`, `reload`
 
 More on `internal/tools/tools.go`

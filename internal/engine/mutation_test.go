@@ -1209,3 +1209,196 @@ func TestDeletePackageNoopIfAbsent(t *testing.T) {
 		t.Errorf("deleting a nonexistent package must be a noop, got %+v", report)
 	}
 }
+
+func TestMoveSymbolCrossPackageQualifierRewrite(t *testing.T) {
+	e := sandboxEngine(t)
+	report := mustEdit(t, e, func(tx *Tx) error {
+		return tx.MoveSymbol(spkg("mvsrc"), "Perimeter", spkg("mvdest"), "mvdest.go", "")
+	})
+	if len(report.Delta) != 0 {
+		t.Errorf("cross-package move introduced diagnostics: %v", deltaStrings(report))
+	}
+	e.Read(func(v *View) error {
+		if _, _, ok := v.resolveSymbol(spkg("mvdest"), "Perimeter"); !ok {
+			t.Error("Perimeter not resolvable in mvdest after the move")
+		}
+		if _, _, ok := v.resolveSymbol(spkg("mvsrc"), "Perimeter"); ok {
+			t.Error("Perimeter still resolvable in mvsrc after the move")
+		}
+		srcFile, _, _ := v.resolveFile("mvsrc/mvsrc.go")
+		if !bytes.Contains(srcFile.Src(), []byte("mvdest.Perimeter(r)")) {
+			t.Errorf("sibling reference didn't gain the destination qualifier:\n%s", srcFile.Src())
+		}
+		useFile, _, _ := v.resolveFile("use/use.go")
+		if !bytes.Contains(useFile.Src(), []byte("mvdest.Perimeter(r)")) {
+			t.Errorf("third-party reference wasn't repointed to the new package:\n%s", useFile.Src())
+		}
+		if bytes.Contains(useFile.Src(), []byte("mvsrc.Perimeter")) {
+			t.Errorf("third-party reference still qualifies the old package:\n%s", useFile.Src())
+		}
+		return nil
+	})
+}
+
+func TestMoveSymbolQualifierDropsAtDestination(t *testing.T) {
+	e := sandboxEngine(t)
+	report := mustEdit(t, e, func(tx *Tx) error {
+		return tx.MoveSymbol(spkg("mvalpha"), "Solo", spkg("mvbeta"), "mvbeta.go", "")
+	})
+	if len(report.Delta) != 0 {
+		t.Errorf("cross-package move introduced diagnostics: %v", deltaStrings(report))
+	}
+	e.Read(func(v *View) error {
+		if _, _, ok := v.resolveSymbol(spkg("mvbeta"), "Solo"); !ok {
+			t.Error("Solo not resolvable in mvbeta after the move")
+		}
+		file, _, _ := v.resolveFile("mvbeta/mvbeta.go")
+		if !bytes.Contains(file.Src(), []byte("return Solo()")) {
+			t.Errorf("destination's pre-existing reference didn't lose its qualifier:\n%s", file.Src())
+		}
+		if bytes.Contains(file.Src(), []byte("mvalpha")) {
+			t.Errorf("stale mvalpha qualifier or import left behind:\n%s", file.Src())
+		}
+		return nil
+	})
+}
+
+func TestMoveSymbolRefusesDependencyConflict(t *testing.T) {
+	e := sandboxEngine(t)
+	_, err := e.Edit(context.Background(), func(tx *Tx) error {
+		return tx.MoveSymbol(spkg("mvsrc"), "dependsOnUnexported", spkg("mvdest"), "mvdest.go", "")
+	})
+	if err == nil || !strings.Contains(err.Error(), "qhelper") {
+		t.Errorf("expected a refusal naming qhelper, got %v", err)
+	}
+}
+
+func TestMoveSymbolRefusesBlockingReferrer(t *testing.T) {
+	e := sandboxEngine(t)
+	_, err := e.Edit(context.Background(), func(tx *Tx) error {
+		return tx.MoveSymbol(spkg("mvsrc"), "unexportedThing", spkg("mvdest"), "mvdest.go", "")
+	})
+	if err == nil || !strings.Contains(err.Error(), "usesUnexportedThing") {
+		t.Errorf("expected a refusal naming usesUnexportedThing, got %v", err)
+	}
+}
+
+func TestMoveSymbolRefusesMethodWithoutReceiver(t *testing.T) {
+	e := sandboxEngine(t)
+	_, err := e.Edit(context.Background(), func(tx *Tx) error {
+		return tx.MoveSymbol(spkg("mvsrc"), "Box.M", spkg("mvdest"), "mvdest.go", "")
+	})
+	if err == nil || !strings.Contains(err.Error(), "receiver type") {
+		t.Errorf("expected a refusal about receiver locality, got %v", err)
+	}
+}
+
+func TestMoveSymbolRefusesCollision(t *testing.T) {
+	e := sandboxEngine(t)
+	_, err := e.Edit(context.Background(), func(tx *Tx) error {
+		return tx.MoveSymbol(spkg("mvsrc"), "Perimeter", spkg("mvdest"), "mvdest.go", "Existing")
+	})
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("expected a collision refusal, got %v", err)
+	}
+}
+
+func TestMoveFileRefusesCrossPackageConflict(t *testing.T) {
+	e := sandboxEngine(t)
+	_, err := e.Edit(context.Background(), func(tx *Tx) error {
+		return tx.MoveFile(spkg("mvsrc"), "methodfile.go", spkg("mvdest"), "")
+	})
+	if err == nil || !strings.Contains(err.Error(), "receiver type") {
+		t.Errorf("expected a method-locality refusal (Box stays behind in mvsrc.go), got %v", err)
+	}
+}
+
+func TestMoveFileCrossPackageSucceedsWhenSafe(t *testing.T) {
+	e := sandboxEngine(t)
+	report := mustEdit(t, e, func(tx *Tx) error {
+		return tx.MoveFile(spkg("mvsrc"), "standalone.go", spkg("mvdest"), "")
+	})
+	if len(report.Delta) != 0 {
+		t.Errorf("cross-package file move introduced diagnostics: %v", deltaStrings(report))
+	}
+	e.Read(func(v *View) error {
+		if _, _, ok := v.resolveSymbol(spkg("mvdest"), "StandaloneFunc"); !ok {
+			t.Error("StandaloneFunc not resolvable in mvdest after the file move")
+		}
+		// MoveFile now rewrites external qualifiers too: use.go's pre-existing
+		// mvsrc.StandaloneFunc reference must be repointed to mvdest, not left
+		// dangling.
+		useFile, _, _ := v.resolveFile("use/use.go")
+		if !bytes.Contains(useFile.Src(), []byte("mvdest.StandaloneFunc()")) {
+			t.Errorf("external reference wasn't repointed to the new package:\n%s", useFile.Src())
+		}
+		return nil
+	})
+}
+
+func TestMoveFileRefusesLeavingReceiverBehind(t *testing.T) {
+	// mvsrc.go declares Box; methodfile.go declares Box.AreaOfBox. Moving
+	// just mvsrc.go would leave AreaOfBox behind without its receiver type
+	// — the reverse of TestMoveFileRefusesCrossPackageConflict's case.
+	e := sandboxEngine(t)
+	_, err := e.Edit(context.Background(), func(tx *Tx) error {
+		return tx.MoveFile(spkg("mvsrc"), "mvsrc.go", spkg("mvdest"), "")
+	})
+	if err == nil || !strings.Contains(err.Error(), "AreaOfBox") || !strings.Contains(err.Error(), "left behind") {
+		t.Errorf("expected a refusal naming AreaOfBox left behind without Box, got %v", err)
+	}
+}
+
+func TestMoveSymbolRefusesLeavingMethodsBehind(t *testing.T) {
+	// Box (in mvsrc.go) has methods M (mvsrc.go) and AreaOfBox
+	// (methodfile.go). Moving just the Box type via MoveSymbol must refuse
+	// — both methods would be left behind without their receiver type.
+	e := sandboxEngine(t)
+	_, err := e.Edit(context.Background(), func(tx *Tx) error {
+		return tx.MoveSymbol(spkg("mvsrc"), "Box", spkg("mvdest"), "mvdest.go", "")
+	})
+	if err == nil || !strings.Contains(err.Error(), "left behind") {
+		t.Errorf("expected a refusal about methods left behind without Box, got %v", err)
+	}
+}
+
+func TestMoveSymbolRequalifiesOutboundExportedDependency(t *testing.T) {
+	// OutboundExported calls PublicHelper, an exported sibling staying
+	// behind. moveConflicts doesn't refuse this (only unexported blocking
+	// referrers refuse) — the moved code's own outbound reference must
+	// gain srcPkg's qualifier instead, not break silently.
+	e := sandboxEngine(t)
+	report := mustEdit(t, e, func(tx *Tx) error {
+		return tx.MoveSymbol(spkg("mvsrc"), "OutboundExported", spkg("mvdest"), "mvdest.go", "")
+	})
+	if len(report.Delta) != 0 {
+		t.Errorf("cross-package move introduced diagnostics: %v", deltaStrings(report))
+	}
+	e.Read(func(v *View) error {
+		file, _, _ := v.resolveFile("mvdest/mvdest.go")
+		if !bytes.Contains(file.Src(), []byte("mvsrc.PublicHelper()")) {
+			t.Errorf("outbound reference to the remaining exported sibling wasn't requalified:\n%s", file.Src())
+		}
+		return nil
+	})
+}
+
+func TestMoveFileRequalifiesOutboundExportedDependency(t *testing.T) {
+	// fileoutbound.go's FileOutbound calls PublicHelper, declared in a
+	// different file (outbound.go) that isn't moving — tests MoveFile's
+	// outbound qualifier fixup specifically, not just MoveSymbol's.
+	e := sandboxEngine(t)
+	report := mustEdit(t, e, func(tx *Tx) error {
+		return tx.MoveFile(spkg("mvsrc"), "fileoutbound.go", spkg("mvdest"), "")
+	})
+	if len(report.Delta) != 0 {
+		t.Errorf("cross-package file move introduced diagnostics: %v", deltaStrings(report))
+	}
+	e.Read(func(v *View) error {
+		file, _, _ := v.resolveFile("mvdest/fileoutbound.go")
+		if !bytes.Contains(file.Src(), []byte("mvsrc.PublicHelper()")) {
+			t.Errorf("outbound reference to the remaining exported sibling wasn't requalified:\n%s", file.Src())
+		}
+		return nil
+	})
+}

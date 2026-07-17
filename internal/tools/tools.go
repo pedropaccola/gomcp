@@ -287,13 +287,21 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 			"(renaming an interface method does not chase implementors — broken " +
 			"satisfactions appear in the returned diagnostics instead), then the — possibly " +
 			"renamed — declaration is relocated; the destination file is created when " +
-			"missing. Cross-package relocation does not rewrite qualifiers at use sites " +
-			"still referring to the old package — that surfaces as ordinary diagnostics " +
-			"afterward. A member of a grouped const/var/type block is extracted as a " +
-			"standalone declaration; a member whose value depends on its position in the " +
-			"group (iota, or inheriting the previous spec's expression) can be renamed " +
-			"freely — renaming never touches position — but relocating it relocates its " +
-			"*whole* group together, in order, even if only one member's key was given, " +
+			"missing. Cross-package relocation is refused when it's provably unsafe: a method " +
+			"whose receiver type isn't moving with it, a type being moved while a method on it " +
+			"is left behind (either way, a method and its receiver type must share a package " +
+			"— illegal Go, not just risky), a name collision at the destination, the symbol " +
+			"depending on an unexported sibling left behind, or an unexported symbol being " +
+			"moved while code left behind still needs it. Otherwise every reference across the " +
+			"move is repointed automatically, both directions: a same-package caller gains the " +
+			"destination's qualifier, a caller already in the destination loses its qualifier, " +
+			"any other caller's qualifier is repointed to the new package, and the moved " +
+			"declaration's own references to exported siblings staying behind gain the " +
+			"original package's qualifier. A member of a grouped const/var/type block is " +
+			"extracted as a standalone declaration; a member whose value depends on its " +
+			"position in the group (iota, or inheriting the previous spec's expression) can be " +
+			"renamed freely — renaming never touches position — but relocating it relocates " +
+			"its *whole* group together, in order, even if only one member's key was given, " +
 			"since extracting just one member alone would break the positions of the rest. " +
 			"Never crosses the test build boundary." + keyNote + echoNote,
 	}, moveSymbol(eng))
@@ -303,9 +311,17 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 		Annotations: mutates("Move File", true),
 		Description: "[Refactoring] Rename a file within its package, relocate it to another package, " +
 			"or both — at least one of new_pkg_path or new_file_name is required. Declarations " +
-			"travel with the file unchanged; relocating into a different package can leave " +
-			"declarations that referenced now-out-of-scope unexported siblings broken — that " +
-			"surfaces as ordinary diagnostics afterward, not a refusal." + echoNote,
+			"travel with the file unchanged. Relocating into a different package is refused " +
+			"when it's provably unsafe: a method and its receiver type ending up split across " +
+			"the move (either direction — a method moving without its receiver, or a receiver " +
+			"moving while a method on it stays behind — a method must share a package with its " +
+			"receiver type, illegal Go otherwise), a name collision at the destination, a " +
+			"moving declaration depending on an unexported sibling left behind, or an " +
+			"unexported declaration leaving while code left behind still needs it. Otherwise " +
+			"every reference across the move is repointed automatically, both directions: " +
+			"external callers of the file's exported declarations are requalified exactly as " +
+			"move_symbol does, and the file's own references to exported siblings staying " +
+			"behind gain the original package's qualifier." + echoNote,
 	}, moveFile(eng))
 
 	mcp.AddTool(server, &mcp.Tool{

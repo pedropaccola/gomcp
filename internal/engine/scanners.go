@@ -118,38 +118,12 @@ func (v *View) SymbolsImplementing(pkg address.PkgPath, key string) ([]Match, er
 // (import path, receiver, name) — which is exact for Go and immune to the
 // duplicate type-checked instances that test variants create.
 func (v *View) SymbolsReferencing(pkg address.PkgPath, key string) ([]Match, error) {
-	sym, _, ok := v.resolveSymbol(pkg, key)
-	if !ok {
-		return nil, fmt.Errorf("no symbol %q in %q", key, pkg)
+	matches, err := v.symbolsReferencing(pkg, key)
+	if err != nil {
+		return nil, err
 	}
-	target := objKey(v.objectOf(sym))
-	if target == "" {
-		return nil, fmt.Errorf("type information unavailable for %q", sym.Key())
-	}
-	seen := make(map[*workspace.Symbol]bool)
-	var out []match
-	for _, p := range v.allPackages() {
-		if p.TypesInfo() == nil {
-			continue
-		}
-		for ident, obj := range p.TypesInfo().Uses {
-			if objKey(obj) != target {
-				continue
-			}
-			relFile, err := v.eng.relativePath(v.eng.ws.FileSet().Position(ident.Pos()).Filename)
-			if err != nil || relFile.EscapesRoot() {
-				continue
-			}
-			encl, owner, ok := v.symbolFromPos(relFile, ident.Pos())
-			if !ok || encl == sym || seen[encl] {
-				continue
-			}
-			seen[encl] = true
-			out = append(out, match{Pkg: owner, Sym: encl})
-		}
-	}
-	sortMatches(out) // Uses is a map; iteration order must not leak out
-	return newMatches(out), nil
+	sortMatches(matches)
+	return newMatches(matches), nil
 }
 
 // symbolFromPos resolves a file position to the symbol of the enclosing
@@ -229,6 +203,43 @@ func (v *View) symbolFromLine(path address.RelativePath, line int) (*workspace.S
 		return groupHit, owner, true
 	}
 	return nil, nil, false
+}
+
+// symbolsReferencing is SymbolsReferencing's internal shape, in the
+// workspace's own model types — composed here, translated to the public
+// Match only at SymbolsReferencing's boundary.
+func (v *View) symbolsReferencing(pkg address.PkgPath, key string) ([]match, error) {
+	sym, _, ok := v.resolveSymbol(pkg, key)
+	if !ok {
+		return nil, fmt.Errorf("no symbol %q in %q", key, pkg)
+	}
+	target := objKey(v.objectOf(sym))
+	if target == "" {
+		return nil, fmt.Errorf("type information unavailable for %q", sym.Key())
+	}
+	seen := make(map[*workspace.Symbol]bool)
+	var out []match
+	for _, p := range v.allPackages() {
+		if p.TypesInfo() == nil {
+			continue
+		}
+		for ident, obj := range p.TypesInfo().Uses {
+			if objKey(obj) != target {
+				continue
+			}
+			relFile, err := v.eng.relativePath(v.eng.ws.FileSet().Position(ident.Pos()).Filename)
+			if err != nil || relFile.EscapesRoot() {
+				continue
+			}
+			encl, owner, ok := v.symbolFromPos(relFile, ident.Pos())
+			if !ok || encl == sym || seen[encl] {
+				continue
+			}
+			seen[encl] = true
+			out = append(out, match{Pkg: owner, Sym: encl})
+		}
+	}
+	return out, nil
 }
 
 // sortMatches orders scan hits by package, then key — determinism

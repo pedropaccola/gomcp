@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"go/ast"
 	"go/token"
 	"go/types"
 	"path/filepath"
@@ -110,10 +111,15 @@ func (tx *Tx) renameSymbol(pkg address.PkgPath, key, newName string) error {
 
 // MoveFile relocates a file to another package (newPkgPath) and/or gives
 // it a new bare name (newName), any combination — at least one must be
-// given. Moving into a different package can leave declarations that
-// referenced now-out-of-scope unexported siblings broken; that surfaces
-// as ordinary diagnostics afterward, not a refusal — the same way any
-// other edit's collateral damage does.
+// given. Moving into a different package is refused when it would break
+// something moveConflicts can prove in advance — a method left without
+// its receiver type, a name collision at the destination, the moved code
+// depending on an unexported sibling staying behind, or code staying
+// behind depending on an unexported declaration that's leaving. Otherwise
+// every surviving reference across the move boundary has its qualifier
+// fixed up first (qualifierFixups) — external callers of the file's
+// exported declarations, and the file's own outbound references to
+// exported siblings staying behind, alike.
 func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.PkgPath, newName string) error {
 	if newPkgPath == "" && newName == "" {
 		return fmt.Errorf("nothing to do for %q: give newPkgPath and/or newName", fileName)
@@ -155,6 +161,24 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 			tx.eng.ws.MoveFile(owner, path, newPath)
 			tx.touch(path, newPath)
 			return nil
+		}
+		var moving []*workspace.Symbol
+		for _, sym := range owner.Symbols() {
+			if sym.File == path {
+				moving = append(moving, sym)
+			}
+		}
+		if conflicts := tx.moveConflicts(pkg, newPkgPath, moving); len(conflicts) > 0 {
+			return fmt.Errorf("moving %q to %q would break the workspace: %s", fileName, newPkgPath, strings.Join(conflicts, "; "))
+		}
+		fixups, ferr := tx.qualifierFixups(moving, pkg, newPkgPath)
+		if ferr != nil {
+			return ferr
+		}
+		if len(fixups) > 0 {
+			if err := tx.applyFileSplices(fixups); err != nil {
+				return err
+			}
 		}
 		file, _ := owner.File(path)
 		candidate := file.Src()
@@ -287,7 +311,12 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 // relocateSymbol is MoveSymbol's file-relocation half: extract key's
 // declaration from srcPkg and splice it into a file of destPkg (destPkg
 // equals srcPkg for a same-package move). destPkg must already exist.
-// Private: composed by MoveSymbol, never called standalone.
+// Cross-package relocation is refused when moveConflicts can prove in
+// advance it would break the workspace; otherwise every surviving
+// reference across the move boundary has its qualifier fixed up first
+// (qualifierFixups), so both the declaration's callers and the
+// declaration's own outbound references keep resolving from their new
+// vantage point. Private: composed by MoveSymbol, never called standalone.
 func (tx *Tx) relocateSymbol(srcPkg, destPkg address.PkgPath, key, fileName string) error {
 	sym, owner, ok := tx.resolveSymbol(srcPkg, key)
 	if !ok {
@@ -306,6 +335,28 @@ func (tx *Tx) relocateSymbol(srcPkg, destPkg address.PkgPath, key, fileName stri
 	}
 	if strings.HasSuffix(fileName, "_test.go") != strings.HasSuffix(sym.File.String(), "_test.go") {
 		return fmt.Errorf("moving %q from %q to %q would cross the test build boundary", key, sym.File, destPath)
+	}
+	if conflicts := tx.moveConflicts(srcPkg, destPkg, []*workspace.Symbol{sym}); len(conflicts) > 0 {
+		return fmt.Errorf("moving %q to %q would break the workspace: %s", key, destPkg, strings.Join(conflicts, "; "))
+	}
+	if srcPkg != destPkg {
+		fixups, ferr := tx.qualifierFixups([]*workspace.Symbol{sym}, srcPkg, destPkg)
+		if ferr != nil {
+			return ferr
+		}
+		if len(fixups) > 0 {
+			if err := tx.applyFileSplices(fixups); err != nil {
+				return err
+			}
+			sym, owner, ok = tx.resolveSymbol(srcPkg, key)
+			if !ok {
+				return fmt.Errorf("internal error: %q vanished after qualifier fixups", key)
+			}
+			destOwner, ok = tx.resolvePackage(destPkg)
+			if !ok {
+				return fmt.Errorf("internal error: %q vanished after qualifier fixups", destPkg)
+			}
+		}
 	}
 	file, _ := owner.File(sym.File)
 	src, sp, err := tx.extractDecl(sym, file)
@@ -328,6 +379,215 @@ func (tx *Tx) relocateSymbol(srcPkg, destPkg address.PkgPath, key, fileName stri
 	}
 	at := tx.insertOffset(dest, frag)
 	return tx.reloadFile(destOwner, destPath, applySplices(dest.Src(), []splice{{span: span{start: at, end: at}, repl: []byte("\n\n" + src + "\n")}}))
+}
+
+// moveConflicts reports every reason relocating moving (all currently
+// declared in srcPkg) to destPkg would break something — nil means the
+// move is safe. Same-package moves are always safe: nothing about
+// visibility or receiver locality changes when the package doesn't.
+//
+// Checked in order, cheapest and most unconditional first:
+//  1. Method receiver locality, both directions: a method's receiver type
+//     must be declared in the same package as the method — not a
+//     visibility question, just illegal Go otherwise. A moving method
+//     needs its receiver type moving too; symmetrically, a method staying
+//     behind needs its receiver type staying too.
+//  2. Collision: does destPkg already declare something by this name?
+//  3. Dependency: does a moving declaration reference an unexported
+//     package-level sibling staying behind in srcPkg? (Local variables
+//     and parameters are unexported too by convention, but aren't
+//     workspace symbols and travel with the declaration regardless —
+//     excluded by requiring the object's parent scope to be the package
+//     scope itself, not some inner function/block scope.)
+//  4. Blocking referrer: does code staying behind in srcPkg reference an
+//     unexported symbol that's leaving? (An exported one leaving is a
+//     fixup, not a conflict — see qualifierFixups.)
+func (tx *Tx) moveConflicts(srcPkg, destPkg address.PkgPath, moving []*workspace.Symbol) []string {
+	if srcPkg == destPkg {
+		return nil
+	}
+	movingKeys := make(map[string]bool, len(moving))
+	movingNames := make(map[string]bool, len(moving))
+	for _, sym := range moving {
+		movingKeys[objKey(tx.objectOf(sym))] = true
+		movingNames[sym.Name] = true
+	}
+
+	var conflicts []string
+	destOwner, destExists := tx.resolvePackage(destPkg)
+	for _, sym := range moving {
+		if sym.Kind == workspace.KindMethod && !movingNames[sym.Recv] {
+			conflicts = append(conflicts, fmt.Sprintf(
+				"%q is a method: its receiver type %q must move with it, but %q isn't part of this move",
+				sym.Key(), sym.Recv, sym.Recv))
+			continue
+		}
+		if destExists {
+			if _, exists := destOwner.Symbol(sym.Key()); exists {
+				conflicts = append(conflicts, fmt.Sprintf("%q already exists in %q", sym.Key(), destPkg))
+			}
+		}
+	}
+
+	srcOwner, ok := tx.resolvePackage(srcPkg)
+	if ok {
+		for _, s := range srcOwner.Symbols() {
+			if s.Kind != workspace.KindMethod || movingKeys[objKey(tx.objectOf(s))] {
+				continue // not a method, or already moving with its receiver
+			}
+			if movingNames[s.Recv] {
+				conflicts = append(conflicts, fmt.Sprintf(
+					"%q would be left behind without its receiver type %q, which is moving to %q",
+					s.Key(), s.Recv, destPkg))
+			}
+		}
+	}
+
+	if ok && srcOwner.TypesInfo() != nil {
+		pkgScope := srcOwner.Types().Scope()
+		for _, sym := range moving {
+			ast.Inspect(sym.Decl(), func(n ast.Node) bool {
+				ident, ok := n.(*ast.Ident)
+				if !ok {
+					return true
+				}
+				obj := srcOwner.TypesInfo().Uses[ident]
+				if obj == nil || obj.Pkg() == nil || obj.Parent() != pkgScope {
+					return true
+				}
+				if obj.Pkg().Path() == string(srcPkg) && !obj.Exported() && !movingKeys[objKey(obj)] {
+					conflicts = append(conflicts, fmt.Sprintf(
+						"%q depends on unexported %q, which stays in %q",
+						sym.Key(), obj.Name(), srcPkg))
+				}
+				return true
+			})
+		}
+	}
+
+	for _, sym := range moving {
+		obj := tx.objectOf(sym)
+		if obj == nil || obj.Exported() {
+			continue
+		}
+		referrers, err := tx.symbolsReferencing(srcPkg, sym.Key())
+		if err != nil {
+			continue
+		}
+		for _, ref := range referrers {
+			if movingKeys[objKey(tx.objectOf(ref.Sym))] {
+				continue // also moving, not left behind
+			}
+			conflicts = append(conflicts, fmt.Sprintf(
+				"%q still references unexported %q after it moves to %q",
+				ref.Sym.Key(), sym.Key(), destPkg))
+		}
+	}
+
+	return conflicts
+}
+
+// qualifierFixups computes the splices needed so every surviving reference
+// across the moving/srcPkg boundary still resolves once moving relocates
+// from srcPkg to destPkg, in both directions:
+//   - Inbound: an external reference to an exported moving symbol. A
+//     same-package (srcPkg) reference gains destPkg's qualifier, a
+//     reference already qualified toward destPkg (the new home) loses its
+//     qualifier, and one qualified toward any other package gets it
+//     repointed.
+//   - Outbound: a moving declaration's own reference to an exported
+//     symbol staying behind in srcPkg (moveConflicts only refuses an
+//     *unexported* one; an exported one isn't a conflict, but the
+//     reference still needs to gain srcPkg's qualifier once the
+//     referencing code itself relocates).
+//
+// A reference between two symbols that are both moving is left untouched
+// either way — both land in destPkg together, unqualified is still
+// correct on the other side. Only ever reached for a cross-package move —
+// moveConflicts already refused every case this can't repair.
+func (tx *Tx) qualifierFixups(moving []*workspace.Symbol, srcPkg, destPkg address.PkgPath) (map[address.RelativePath][]splice, error) {
+	destOwner, ok := tx.resolvePackage(destPkg)
+	if !ok {
+		return nil, fmt.Errorf("no package at %q", destPkg)
+	}
+	srcOwner, ok := tx.resolvePackage(srcPkg)
+	if !ok {
+		return nil, fmt.Errorf("no package at %q", srcPkg)
+	}
+
+	type declSpan struct{ start, end token.Pos }
+	movingSpans := make(map[address.RelativePath][]declSpan, len(moving))
+	movingKeys := make(map[string]bool, len(moving))
+	inboundTargets := make(map[string]bool, len(moving))
+	for _, sym := range moving {
+		movingSpans[sym.File] = append(movingSpans[sym.File], declSpan{sym.Decl().Pos(), sym.Decl().End()})
+		obj := tx.objectOf(sym)
+		if obj == nil {
+			return nil, fmt.Errorf("type information unavailable for %q", sym.Key())
+		}
+		movingKeys[objKey(obj)] = true
+		if obj.Exported() {
+			inboundTargets[objKey(obj)] = true
+		}
+	}
+	fromMoving := func(file address.RelativePath, pos token.Pos) bool {
+		for _, sp := range movingSpans[file] {
+			if pos >= sp.start && pos < sp.end {
+				return true
+			}
+		}
+		return false
+	}
+
+	edits := make(map[address.RelativePath][]splice)
+	handle := func(pkg *workspace.Package, file *workspace.File, name *ast.Ident, qualifier ast.Expr) {
+		obj := pkg.TypesInfo().Uses[name]
+		if obj == nil {
+			return
+		}
+		key := objKey(obj)
+		moving := fromMoving(file.Path, name.Pos())
+		switch {
+		case inboundTargets[key] && !moving:
+			if pkg.PkgPath == destPkg {
+				if qualifier != nil {
+					if sp, ok := tx.offsetSpan(file.Path, qualifier.Pos(), name.End()); ok {
+						edits[file.Path] = append(edits[file.Path], splice{span: sp, repl: []byte(name.Name)})
+					}
+				}
+			} else if qualifier != nil {
+				if sp, ok := tx.offsetSpan(file.Path, qualifier.Pos(), qualifier.End()); ok {
+					edits[file.Path] = append(edits[file.Path], splice{span: sp, repl: []byte(destOwner.Name)})
+				}
+			} else if sp, ok := tx.offsetSpan(file.Path, name.Pos(), name.End()); ok {
+				edits[file.Path] = append(edits[file.Path], splice{span: sp, repl: []byte(destOwner.Name + "." + name.Name)})
+			}
+		case moving && qualifier == nil && obj.Pkg() != nil && obj.Pkg().Path() == string(srcPkg) &&
+			obj.Exported() && !movingKeys[key]:
+			if sp, ok := tx.offsetSpan(file.Path, name.Pos(), name.End()); ok {
+				edits[file.Path] = append(edits[file.Path], splice{span: sp, repl: []byte(srcOwner.Name + "." + name.Name)})
+			}
+		}
+	}
+
+	for _, pkg := range tx.allPackages() {
+		if pkg.TypesInfo() == nil {
+			continue
+		}
+		for _, file := range pkg.Files() {
+			ast.Inspect(file.Ast(), func(n ast.Node) bool {
+				if sel, isSel := n.(*ast.SelectorExpr); isSel {
+					handle(pkg, file, sel.Sel, sel.X)
+					return false
+				}
+				if ident, isIdent := n.(*ast.Ident); isIdent {
+					handle(pkg, file, ident, nil)
+				}
+				return true
+			})
+		}
+	}
+	return edits, nil
 }
 
 // splitNewSymbolKey validates a MoveSymbol destination key against the
