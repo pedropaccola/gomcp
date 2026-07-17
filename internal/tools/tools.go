@@ -158,86 +158,86 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_package",
 		Annotations: mutates("Create Package", false),
-		Description: "[Creator] Create a new package directory with one starter file. The package name " +
-			"defaults to the directory base. Fails if a package already exists there." + echoNote,
+		Description: "[Creator] Create one or more new package directories, each with one starter " +
+			"file, in one transaction, one recheck, one echo — resolved in order. The package " +
+			"name defaults to the directory base. If any entry fails (including one entry " +
+			"naming a package an earlier entry in the same batch just created), the whole " +
+			"batch is discarded and the error names which entry failed — batch entries that " +
+			"are independent and already known-good; call once per entry instead if you want " +
+			"diagnostics feedback between steps." + echoNote,
 	}, createPackage(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_file",
 		Annotations: mutates("Create File", false),
-		Description: "[Creator] Add an empty file to an existing package, optionally seeded with a " +
-			"package doc comment. Fails if the file exists." + echoNote,
+		Description: "[Creator] Add one or more empty files to existing packages, each optionally " +
+			"seeded with a package doc comment, in one transaction, one recheck, one echo — " +
+			"resolved in order. Fails if a file already exists. If any entry fails, the whole " +
+			"batch is discarded and the error names which entry failed — batch entries that " +
+			"are independent and already known-good; call once per entry instead if you want " +
+			"diagnostics feedback between steps." + echoNote,
 	}, createFile(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_symbol",
 		Annotations: mutates("Create Symbol", false),
-		Description: "[Creator] Add one new top-level symbol (func, method, type, var, or const) to a " +
-			"file of an existing package. The file is created if missing; the symbol's name " +
-			"must not exist. Imports and placement are managed by the server — just write " +
-			"the declaration. A new plain const or var merges into that file's existing " +
-			"grouped block of the same kind, if one already exists, instead of starting a " +
-			"new one; a position-dependent (iota) group never merges and always starts its " +
-			"own, placed next to its shared type's own declaration when typed and that type " +
-			"is in the same file, otherwise in the standard const/var region." + echoNote,
+		Description: "[Creator] Add one or more new top-level symbols (func, method, type, var, or " +
+			"const), each to a file of an existing package, in one transaction, one recheck, " +
+			"one echo — resolved in order. A file is created if missing; a symbol's name must " +
+			"not exist (including one entry naming a symbol an earlier entry in the same " +
+			"batch just created). Imports and placement are managed by the server — just " +
+			"write the declaration. A new plain const or var merges into that file's existing " +
+			"grouped block of the same kind, if one already exists, instead of starting a new " +
+			"one; a position-dependent (iota) group never merges and always starts its own, " +
+			"placed next to its shared type's own declaration when typed and that type is in " +
+			"the same file, otherwise in the standard const/var region. If any entry fails, " +
+			"the whole batch is discarded and the error names which entry failed — batch " +
+			"entries that are independent and already known-good; call once per entry instead " +
+			"if you want diagnostics feedback between steps." + echoNote,
 	}, createSymbol(eng))
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "create_symbol_batch",
-		Annotations: mutates("Create Symbol Batch", false),
-		Description: "[Creator] Like create_symbol, for several symbols in one round-trip: one " +
-			"transaction, one recheck, one echo. Entries are created in order; if any entry " +
-			"fails (including one entry naming a symbol an earlier entry in the same batch " +
-			"just created), the whole batch is discarded — none of it applies — and the error " +
-			"names which entry failed. The diagnostics returned are the batch's final delta " +
-			"only: a diagnostic one entry introduces and a later entry resolves never appears, " +
-			"the same as within any single edit's own blast radius." + echoNote,
-	}, createSymbolBatch(eng))
 
 	// Editors
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "edit_symbol",
 		Annotations: mutates("Edit Symbol", true),
-		Description: "[Editor] Replace a symbol's entire declaration (doc comment included). For a " +
-			"member of a grouped const/var/type block, pass the member's spec as written " +
-			"inside the group. Renaming via replacement is allowed if the new name doesn't " +
-			"collide. For a member of a position-dependent const group (iota, or inheriting " +
-			"the previous spec's expression), pass the group's whole intended state — every " +
-			"member, not just the one you're addressing — since anything less silently drops " +
-			"whatever member names aren't mentioned; the symbol you addressed must still be " +
-			"present, or the edit is refused (use move_symbol to rename a group member " +
-			"instead). Introducing iota into a member of a group that doesn't already use it " +
-			"is refused. Imports are managed by the server — just use the identifiers." + keyNote + echoNote,
+		Description: "[Editor] Replace one or more symbols' entire declarations (doc comment " +
+			"included), in one transaction, one recheck, one echo — resolved in order. Every " +
+			"entry must address a different symbol — two entries targeting the same one, " +
+			"identical source or not, are refused before anything is touched. For a member of " +
+			"a grouped const/var/type block, pass the member's spec as written inside the " +
+			"group. Renaming via replacement is allowed if the new name doesn't collide. For " +
+			"a member of a position-dependent const group (iota, or inheriting the previous " +
+			"spec's expression), pass the group's whole intended state — every member, not " +
+			"just the one you're addressing — since anything less silently drops whatever " +
+			"member names aren't mentioned; the symbol you addressed must still be present, " +
+			"or the edit is refused (use move_symbol to rename a group member instead). " +
+			"Introducing iota into a member of a group that doesn't already use it is refused. " +
+			"Imports are managed by the server — just use the identifiers. If any entry fails, " +
+			"the whole batch is discarded and the error names which entry failed — batch " +
+			"entries that are independent and already known-good; call once per entry instead " +
+			"if you want diagnostics feedback between steps." + keyNote + echoNote,
 	}, editSymbol(eng))
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "edit_symbol_batch",
-		Annotations: mutates("Edit Symbol Batch", true),
-		Description: "[Editor] Like edit_symbol, for several symbols in one round-trip: one " +
-			"transaction, one recheck, one echo. Every entry must address a different symbol — " +
-			"two entries targeting the same one, identical source or not, are refused before " +
-			"anything is touched, since a batch should express one decision per symbol, not an " +
-			"ambiguous pair of them. Entries are applied in order; if any entry fails, the whole " +
-			"batch is discarded and the error names which entry failed. The diagnostics returned " +
-			"are the batch's final delta only: a diagnostic one entry introduces and a later " +
-			"entry resolves never appears, the same as within any single edit's own blast " +
-			"radius." + keyNote + echoNote,
-	}, editSymbolBatch(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "edit_file",
 		Annotations: mutates("Edit File", true),
-		Description: "[Editor] Replace or clear a file's package doc comment — the comment block " +
-			"directly above \"package X\" — leaving the rest of the file untouched. Empty doc " +
-			"clears it." + echoNote,
+		Description: "[Editor] Replace or clear one or more files' package doc comments — the " +
+			"comment block directly above \"package X\" — leaving the rest of each file " +
+			"untouched, in one transaction, one recheck, one echo — resolved in order. Empty " +
+			"doc clears it. Every entry must address a different file — two entries targeting " +
+			"the same one, identical doc or not, are refused before anything is touched. If " +
+			"any entry fails, the whole batch is discarded and the error names which entry " +
+			"failed — batch entries that are independent and already known-good; call once " +
+			"per entry instead if you want diagnostics feedback between steps." + echoNote,
 	}, editFile(eng))
 
 	// Deleters
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_symbol",
 		Annotations: mutates("Delete Symbol", true),
-		Description: "[Deleter] Delete a symbol — its spec alone when it lives in a grouped block " +
-			"with siblings, unless its value is derived from its position in the group " +
+		Description: "[Deleter] Delete one or more symbols in one transaction, one recheck, one echo — " +
+			"resolved in order. A symbol's spec is deleted alone when it lives in a grouped " +
+			"block with siblings, unless its value is derived from its position in the group " +
 			"(iota, or inheriting the previous spec's expression), in which case the whole " +
 			"group is deleted together, since deleting one such member and keeping the rest " +
 			"has no single correct resolution (use edit_symbol with the group's whole " +
@@ -246,21 +246,31 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 			"multi-valued expression (`var a, b = f()`) blank the targeted one to `_` instead, " +
 			"since the call's arity can't shrink — deleting every real name this way collapses " +
 			"to removing the whole statement. Idempotent: a symbol that's already gone is a " +
-			"noop, not an error." + keyNote + echoNote,
+			"noop, not an error, so a duplicate target across entries is harmless. If any " +
+			"entry fails for a reason other than absence, the whole batch is discarded and the " +
+			"error names which entry failed — batch entries that are independent and already " +
+			"known-good; call once per entry instead if you want diagnostics feedback between " +
+			"steps." + keyNote + echoNote,
 	}, deleteSymbol(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_file",
 		Annotations: mutates("Delete File", true),
-		Description: "[Deleter] Delete a file and every declaration in it. Idempotent: a file that's " +
-			"already gone is a noop, not an error." + echoNote,
+		Description: "[Deleter] Delete one or more files, each with every declaration in it, in one " +
+			"transaction, one recheck, one echo — resolved in order. Idempotent: a file " +
+			"that's already gone is a noop, not an error, so a duplicate target across " +
+			"entries is harmless. If any entry fails for a reason other than absence, the " +
+			"whole batch is discarded and the error names which entry failed." + echoNote,
 	}, deleteFile(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_package",
 		Annotations: mutates("Delete Package", true),
-		Description: "[Deleter] Delete a whole package directory. Idempotent: a package that's " +
-			"already gone is a noop, not an error." + echoNote,
+		Description: "[Deleter] Delete one or more whole package directories in one transaction, one " +
+			"recheck, one echo — resolved in order. Idempotent: a package that's already gone " +
+			"is a noop, not an error, so a duplicate target across entries is harmless. If any " +
+			"entry fails for a reason other than absence, the whole batch is discarded and the " +
+			"error names which entry failed." + echoNote,
 	}, deletePackage(eng))
 
 	// Refactorings
@@ -434,40 +444,40 @@ type WriteOutput struct {
 	DiagnosticsUnavailable    *bool               `json:"diagnostics_unavailable,omitempty"`
 }
 
-type CreatePackageInput struct {
+type CreatePackageEntry struct {
 	PkgPath string  `json:"pkg_path"`
 	Name    *string `json:"name,omitempty"`
 }
 
-type CreateFileInput struct {
+type CreateFileEntry struct {
 	PkgPath  string  `json:"pkg_path"`
 	FileName string  `json:"file_name"`
 	Doc      *string `json:"doc,omitempty"`
 }
 
-type CreateSymbolInput struct {
+type CreateSymbolEntry struct {
 	PkgPath  string `json:"pkg_path"`
 	FileName string `json:"file_name"`
 	Source   string `json:"source"`
 }
 
-type EditSymbolInput struct {
+type EditSymbolEntry struct {
 	PkgPath   string `json:"pkg_path"`
 	SymbolKey string `json:"symbol_key"`
 	Source    string `json:"source"`
 }
 
-type DeleteSymbolInput struct {
+type DeleteSymbolEntry struct {
 	PkgPath   string `json:"pkg_path"`
 	SymbolKey string `json:"symbol_key"`
 }
 
-type DeleteFileInput struct {
+type DeleteFileEntry struct {
 	PkgPath  string `json:"pkg_path"`
 	FileName string `json:"file_name"`
 }
 
-type DeletePackageInput struct {
+type DeletePackageEntry struct {
 	PkgPath string `json:"pkg_path"`
 }
 
@@ -521,7 +531,7 @@ type DiagnosticEntry struct {
 	Message   string  `json:"message"`
 }
 
-type EditFileInput struct {
+type EditFileEntry struct {
 	PkgPath  string  `json:"pkg_path"`
 	FileName string  `json:"file_name"`
 	Doc      *string `json:"doc,omitempty"`
@@ -564,18 +574,65 @@ type DescribeSymbolOutput struct {
 	DiagBlock
 }
 
-// CreateSymbolBatchInput creates several symbols in one transaction, one
+// CreateSymbolInput creates several symbols in one transaction, one
 // recheck, one echo — resolved in order, the whole batch discarded on the
 // first entry that fails.
-type CreateSymbolBatchInput struct {
-	Creates []CreateSymbolInput `json:"creates"`
+type CreateSymbolInput struct {
+	Creates []CreateSymbolEntry `json:"creates"`
 }
 
-// EditSymbolBatchInput edits several symbols in one transaction, one
+// EditSymbolInput edits several symbols in one transaction, one
 // recheck, one echo — resolved in order, the whole batch discarded on the
 // first entry that fails. Every entry must address a different symbol;
 // two entries targeting the same one, identical source or not, are
 // refused before the transaction opens.
-type EditSymbolBatchInput struct {
-	Edits []EditSymbolInput `json:"edits"`
+type EditSymbolInput struct {
+	Edits []EditSymbolEntry `json:"edits"`
+}
+
+// DeleteSymbolInput deletes one or more symbols in one transaction, one
+// recheck, one echo — resolved in order, the whole batch discarded on the
+// first entry that fails. Deletion is idempotent, so a duplicate target
+// across entries is harmless, not refused.
+type DeleteSymbolInput struct {
+	Deletes []DeleteSymbolEntry `json:"deletes"`
+}
+
+// DeleteFileInput deletes one or more files in one transaction, one
+// recheck, one echo — resolved in order, the whole batch discarded on the
+// first entry that fails. Deletion is idempotent, so a duplicate target
+// across entries is harmless, not refused.
+type DeleteFileInput struct {
+	Deletes []DeleteFileEntry `json:"deletes"`
+}
+
+// DeletePackageInput deletes one or more packages in one transaction, one
+// recheck, one echo — resolved in order, the whole batch discarded on the
+// first entry that fails. Deletion is idempotent, so a duplicate target
+// across entries is harmless, not refused.
+type DeletePackageInput struct {
+	Deletes []DeletePackageEntry `json:"deletes"`
+}
+
+// CreateFileInput creates one or more files in one transaction, one
+// recheck, one echo — resolved in order, the whole batch discarded on the
+// first entry that fails.
+type CreateFileInput struct {
+	Creates []CreateFileEntry `json:"creates"`
+}
+
+// CreatePackageInput creates one or more packages in one transaction, one
+// recheck, one echo — resolved in order, the whole batch discarded on the
+// first entry that fails.
+type CreatePackageInput struct {
+	Creates []CreatePackageEntry `json:"creates"`
+}
+
+// EditFileInput edits one or more files' package doc comments in one
+// transaction, one recheck, one echo — resolved in order, the whole batch
+// discarded on the first entry that fails. Every entry must address a
+// different file; two entries targeting the same one are refused before
+// the transaction opens.
+type EditFileInput struct {
+	Edits []EditFileEntry `json:"edits"`
 }

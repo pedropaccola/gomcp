@@ -53,7 +53,7 @@ The agent writes identifiers, never import blocks. **gomcp** runs `goimports` on
 ---
 
 ## Tools
-Small set of 27 tools:
+Small set of 25 tools:
 
 ### Read
 * Enumerators (consistent sorted output): `list_packages`, `list_files`, `list_methods`, `list_symbols`
@@ -62,9 +62,9 @@ Small set of 27 tools:
 * Diagnostics (full workspace diagnostics): `diagnostics`
 
 ### Write
-* Creators (fail if the address already exists; cannot destroy code): `create_package`, `create_file`, `create_symbol`, `create_symbol_batch`
-* Editors (fail if the address doesn't exist): `edit_symbol`, `edit_symbol_batch`, `edit_file`
-* Deleters (noop if the address doesn't exist — deletion is idempotent): `delete_symbol`, `delete_file`, `delete_package`
+* Creators (fail if the address already exists; cannot destroy code): `create_package`, `create_file`, `create_symbol`
+* Editors (fail if the address doesn't exist): `edit_symbol`, `edit_file`
+* Deleters (noop if the address doesn't exist — deletion is idempotent, so a duplicate target across entries is harmless): `delete_symbol`, `delete_file`, `delete_package`
 * Refactorings (structure-preserving transformations; renames propagate to every reference across the workspace): `move_symbol` (rename, relocate, or both), `move_file`, `move_package`
 * Session (syncs the in-memory state with disk): `flush`, `reload`
 

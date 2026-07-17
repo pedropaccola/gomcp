@@ -90,7 +90,7 @@ snapshotting diagnostics before and after one `Tx`. The open question
 once N statements turned out to still be one `Tx`, one recheck, same as
 one statement always was.
 
-### Batch mutations — per-verb, in progress
+### Batch mutations — per-verb, then collapsed to the norm — complete
 
 Promoted by evidence: the state-extraction sessions burned quota on
 sequential edits whose echoes shrank one diagnostic at a time (1st edit:
@@ -137,14 +137,43 @@ than re-derived from the original agreed design below:**
   interface" above, both resolved by this decision rather than ahead of
   it.
 
-**Not yet done, same pattern, lower priority:** `delete_symbol_batch`,
-and batch variants for the other Creators/Editors
-(`create_file`/`create_package`/`delete_file`/`delete_package`/
-`edit_file`). `move_symbol_batch` (and any other Refactoring batch)
-stays explicitly out of scope — Refactorings' processing scope (multi-site,
-semantic scans) still can't be known upfront the way a single verb's own
-preconditions can, the same reasoning the original design already had for
-excluding them.
+**Completed 2026-07-16: every remaining Creator/Editor/Deleter, then
+collapsed into the norm rather than left as a parallel `_batch` sibling.**
+Built directly in final form, not `_batch`-named first and renamed after —
+by this point the collapse itself was already confirmed, so building each
+new verb twice would've been pure churn:
+- `delete_symbol`/`delete_file`/`delete_package` went first — the
+  simplest of the six, once idempotent deletion (see "Deletion semantics"
+  above) meant duplicate targets across entries just noop instead of
+  needing any dedup logic at all, not even the natural-collision-as-error
+  trick `create_symbol_batch` used.
+- `create_package`/`create_file` next — free duplicate detection via
+  their existing `Tx.CreatePackage`/`Tx.CreateFile` collision checks,
+  same mechanism `create_symbol_batch` already relied on.
+- `edit_file` last of the new six — needed the one real addition, an
+  upfront `pkg`+`file_name` dedup pre-scan mirroring `edit_symbol_batch`'s
+  `pkg`+`symbol_key` one, since `Tx.EditFile` has no natural collision
+  check of its own.
+- Then the collapse itself: `create_symbol_batch`/`edit_symbol_batch`
+  were renamed to `create_symbol`/`edit_symbol`, retiring the old
+  single-item tools of the same name entirely — every Creator, Editor,
+  and Deleter now takes an array natively, one or many, no parallel
+  `_batch` tool anywhere. Per-entry Go types renamed `XxxInput` →
+  `XxxEntry` throughout so the tool-facing `XxxInput` name could mean
+  "the whole call" consistently across all eight verbs, matching the
+  convention every other tool's Input type already followed.
+- New `batchErr(field, i, n, err)` helper (`internal/tools/edit.go`):
+  suppresses the `field[i]:` index prefix when `n == 1`, so a single-entry
+  call's error text reads identically to what the old non-batch tools
+  produced — the array shape costs nothing in the overwhelmingly common
+  one-entry case, not even error-message clarity.
+- Tool count: 27 → 25 (two `_batch`-named tools retired; six verbs gained
+  array support without adding new tool names).
+- `move_symbol_batch` (and any other Refactoring batch) stays explicitly
+  out of scope — Refactorings' processing scope (multi-site, semantic
+  scans) still can't be known upfront the way a single verb's own
+  preconditions can, the same reasoning the original design already had
+  for excluding them.
 
 **Architecture-design evaluation (2026-07-12), still relevant regardless
 of unified-vs-per-verb:** of the "Implementation Alternative" sketches
@@ -243,11 +272,42 @@ shapes/groups.go` gained `boundsOf()`/`boundX, boundY` as the shared
 multi-value-call fixture (`var minX, maxX = -10.0, 10.0` already covered
 the parallel-trim case).
 
-**Unblocked:** `delete_symbol_batch` — the iota-group aliasing problem
-(deleting one member consumes a sibling's address) now resolves for free,
-since a second lookup on an already-gone target is a noop instead of an
-abort; no alias pre-scan needed. Still not built — see "Batch mutations"
-above.
+**Unblocked, then built:** `delete_symbol`'s array support — the
+iota-group aliasing problem (deleting one member consumes a sibling's
+address) resolves for free, since a second lookup on an already-gone
+target is a noop instead of an abort; no alias pre-scan needed. Shipped
+2026-07-16 — see "Batch mutations" above.
+
+### Refactoring safety: move_file/move_package can break the workspace
+
+Raised 2026-07-16, not explored yet — mapped only. Pedro's framing:
+Refactorings are supposed to be safe by default — that's the whole
+distinction the category draws against Editors' arbitrary,
+diagnostics-checked-after-the-fact edits — but `move_file` and
+`move_package` don't actually earn that guarantee the way `move_symbol`
+does today.
+
+The asymmetry, concretely: `move_symbol` repairs every *resolved*
+reference across the workspace before relocating anything — the residual
+risk is only what the type checker itself can't see. `move_file` and
+`move_package` don't attempt anything like that. `move_file`'s own tool
+doc already admits it: "relocating into a different package can leave
+declarations that referenced now-out-of-scope unexported siblings
+broken — that surfaces as ordinary diagnostics afterward, not a
+refusal." No detection, no repair, just a diagnostics delta after the
+damage is done. (`move_symbol` isn't fully exempt either — its own doc
+admits cross-package relocation "does not rewrite qualifiers at use
+sites still referring to the old package" — so even the safer verb has
+an edge here.)
+
+None of this contradicts the "dirty buffer" philosophy (broken
+intermediate states are tolerated by design, surfaced via diagnostics,
+not refused) — but "safe by default" for a Refactoring was supposed to
+mean something closer to what rename-propagation already delivers, and
+relocation doesn't reach that bar yet. Not designed: whether the fix is
+pre-flight visibility scanning (would a moved declaration's unexported
+dependencies still resolve at the destination?), automatic qualifier
+rewriting at known use sites, or something else entirely is still open.
 
 ### Engine package audit
 
@@ -547,18 +607,41 @@ None open.
 
 ## DONE
 
+- **Batch mutations collapsed into the norm: every Creator/Editor/Deleter
+  takes an array natively — 2026-07-16.** See "Batch mutations" above for
+  the full record. `delete_symbol`/`delete_file`/`delete_package` and
+  `create_package`/`create_file`/`edit_file` gained array support built
+  directly in final form; `create_symbol_batch`/`edit_symbol_batch` were
+  then renamed onto `create_symbol`/`edit_symbol`, retiring the old
+  single-item tools of the same name. No tool is single-item-only anymore,
+  and none is `_batch`-suffixed — one tool per verb, always a list.
+  - Per-entry Go types renamed `XxxInput` → `XxxEntry` across all eight
+    verbs so `XxxInput` could mean "the whole call" (an array) uniformly,
+    matching the naming convention already used everywhere else in
+    `internal/tools`.
+  - New `batchErr` helper suppresses the `field[i]:` index prefix when a
+    call has exactly one entry — the array shape costs nothing in the
+    common single-entry case, not even error-message clarity.
+  - Duplicate-target handling ended up three-way, not one rule reused
+    blindly: Deleters need no dedup code at all (idempotent noop absorbs
+    duplicates); `create_package`/`create_file`/`create_symbol` get free
+    detection from their own existing collision checks; `edit_symbol`/
+    `edit_file` need an upfront pre-scan since neither `Tx.EditSymbol` nor
+    `Tx.EditFile` has a natural collision check of its own.
+  - Tool count: 27 → 25.
+
 - **Deletion semantics: new Deleters category, noop-if-absent — 2026-07-16.**
   See "Deletion semantics" above for the full design record. `delete_symbol`/
   `delete_file`/`delete_package` split out of Editors into their own Tx
   category and Go file (`deleters.go`, both `internal/engine` and
   `internal/tools`), and stopped erroring when the target's already gone —
   idempotent deletion, the mirror of Creators' "fail if exists."
-  - Raised while scoping `delete_symbol_batch`: deleting an already-gone
-    iota-group sibling (the first member's delete already collapsed the
-    whole group) shouldn't abort a batch over a technicality the agent
-    already achieved. Generalized past batch once posed — resolves that
-    aliasing problem for free, no pre-scan needed, whenever
-    `delete_symbol_batch` gets built.
+  - Raised while scoping `delete_symbol`'s array support: deleting an
+    already-gone iota-group sibling (the first entry's delete already
+    collapsed the whole group) shouldn't abort a call over a technicality
+    the agent already achieved. Generalized past batch once posed —
+    resolved that aliasing problem for free, no pre-scan needed, once
+    `delete_symbol` gained array support (see "Batch mutations" above).
   - **A refusal turned out to be a missing capability, not a real
     ambiguity.** `DeleteSymbol` used to refuse a multi-name `*ast.ValueSpec`
     (`var a, b int`) outright, described as "no single correct resolution."

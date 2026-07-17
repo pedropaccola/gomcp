@@ -56,3 +56,14 @@ func filesByPackage(module address.PkgPath, paths []address.RelativePath) map[st
 	}
 	return out
 }
+
+// batchErr labels a batch entry's error with its index — unless the batch
+// has exactly one entry, in which case the error reads exactly as it would
+// from a lone, non-batch call: the array shape shouldn't tax the
+// overwhelmingly common single-entry case with index noise.
+func batchErr(field string, i, n int, err error) error {
+	if n == 1 {
+		return err
+	}
+	return fmt.Errorf("%s[%d]: %w", field, i, err)
+}
