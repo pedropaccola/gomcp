@@ -53,7 +53,7 @@ func BenchmarkScans(b *testing.B) {
 	re := regexp.MustCompile(`append\(`)
 	b.Run("SymbolsLike", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			e.Read(func(v *View) error {
+			e.Read(context.Background(), func(v *View) error {
 				if len(v.SymbolsLike("area")) == 0 {
 					b.Fatal("no matches")
 				}
@@ -63,7 +63,7 @@ func BenchmarkScans(b *testing.B) {
 	})
 	b.Run("SymbolsRegexp", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			e.Read(func(v *View) error {
+			e.Read(context.Background(), func(v *View) error {
 				if len(v.SymbolsRegexp(re)) == 0 {
 					b.Fatal("no matches")
 				}
@@ -73,7 +73,7 @@ func BenchmarkScans(b *testing.B) {
 	})
 	b.Run("SymbolsReferencing", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			e.Read(func(v *View) error {
+			e.Read(context.Background(), func(v *View) error {
 				matches, err := v.SymbolsReferencing(spkg("shapes"), "Circle")
 				if err != nil || len(matches) == 0 {
 					b.Fatalf("references: %v %v", matches, err)

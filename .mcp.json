@@ -5,9 +5,7 @@
       "command": "go",
       "args": [
         "run",
-        "./cmd/gomcp/main.go",
-        "-diagnostics-limit",
-        "2"
+        "./cmd/gomcp/main.go"
       ],
       "env": {}
     }

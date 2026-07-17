@@ -9,39 +9,85 @@ import (
 	"github.com/pedropaccola/gomcp/internal/engine"
 )
 
-func listPackages(eng *engine.Engine) mcp.ToolHandlerFor[ListPackagesInput, ListPackagesOutput] {
+type ListFilesInput struct {
+	PkgPath string `json:"pkg_path"`
+}
+
+type ListFilesOutput struct {
+	Files []string `json:"files"`
+	DiagBlock
+}
+
+type ListMethodsInput struct {
+	PkgPath   string `json:"pkg_path"`
+	SymbolKey string `json:"symbol_key"`
+}
+
+type ListMethodsOutput struct {
+	Methods []string `json:"methods"`
+	DiagBlock
+}
+
+type ListPackagesInput struct{}
+
+type ListPackagesOutput struct {
+	Packages []string `json:"packages"`
+	DiagBlock
+}
+
+type ListSymbolsInput struct {
+	PkgPath  string  `json:"pkg_path"`
+	FileName *string `json:"file_name,omitempty"`
+}
+
+type ListSymbolsOutput struct {
+	Symbols []SymbolEntry `json:"symbols"`
+	DiagBlock
+}
+
+type SymbolEntry struct {
+	SymbolKey string `json:"symbol_key"`
+	Kind      string `json:"kind"`
+	Summary   string `json:"summary"`
+}
+
+func listPackages(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListPackagesInput, ListPackagesOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, _ ListPackagesInput) (*mcp.CallToolResult, ListPackagesOutput, error) {
 		var out ListPackagesOutput
-		err := eng.Read(func(v *engine.View) error {
+		err := eng.Read(ctx, func(v *engine.View) error {
+			pkgs := v.Packages()
+			out.Packages = make([]string, 0, len(pkgs))
 			last := ""
-			for _, pkg := range v.Packages() {
+			for _, pkg := range pkgs {
 				if addr := pkgAddr(v.Module(), pkg.Path()); addr != last {
 					out.Packages = append(out.Packages, addr)
 					last = addr
 				}
 			}
-			out.DiagBlock = diagBlock(v.WorkspaceDiagnostics())
+			out.DiagBlock = cfg.diagBlock(v.WorkspaceDiagnostics())
 			return nil
 		})
 		return nil, out, err
 	}
 }
 
-func listFiles(eng *engine.Engine) mcp.ToolHandlerFor[ListFilesInput, ListFilesOutput] {
+func listFiles(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListFilesInput, ListFilesOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListFilesInput) (*mcp.CallToolResult, ListFilesOutput, error) {
 		var out ListFilesOutput
 		err := readPackage(ctx, eng, in.PkgPath, func(v *engine.View, pkg engine.Package) error {
-			for _, file := range pkg.Files() {
+			files := pkg.Files()
+			out.Files = make([]string, 0, len(files))
+			for _, file := range files {
 				out.Files = append(out.Files, file.Path().Base())
 			}
-			out.DiagBlock = diagBlock(v.Diagnostics(pkg.PkgPath()))
+			out.DiagBlock = cfg.diagBlock(v.Diagnostics(pkg.PkgPath()))
 			return nil
 		})
 		return nil, out, err
 	}
 }
 
-func listSymbols(eng *engine.Engine) mcp.ToolHandlerFor[ListSymbolsInput, ListSymbolsOutput] {
+func listSymbols(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListSymbolsInput, ListSymbolsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListSymbolsInput) (*mcp.CallToolResult, ListSymbolsOutput, error) {
 		var out ListSymbolsOutput
 		err := readPackage(ctx, eng, in.PkgPath, func(v *engine.View, pkg engine.Package) error {
@@ -61,7 +107,9 @@ func listSymbols(eng *engine.Engine) mcp.ToolHandlerFor[ListSymbolsInput, ListSy
 					return fmt.Errorf("no file %q in package %q", name, in.PkgPath)
 				}
 			}
-			for _, sym := range pkg.Symbols() {
+			syms := pkg.Symbols()
+			out.Symbols = make([]SymbolEntry, 0, len(syms))
+			for _, sym := range syms {
 				if target != nil && sym.File() != target.Path() {
 					continue
 				}
@@ -75,14 +123,14 @@ func listSymbols(eng *engine.Engine) mcp.ToolHandlerFor[ListSymbolsInput, ListSy
 			if target != nil {
 				diags = diagsForFile(diags, target.Path())
 			}
-			out.DiagBlock = diagBlock(diags)
+			out.DiagBlock = cfg.diagBlock(diags)
 			return nil
 		})
 		return nil, out, err
 	}
 }
 
-func listMethods(eng *engine.Engine) mcp.ToolHandlerFor[ListMethodsInput, ListMethodsOutput] {
+func listMethods(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListMethodsInput, ListMethodsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListMethodsInput) (*mcp.CallToolResult, ListMethodsOutput, error) {
 		var out ListMethodsOutput
 		err := readPackage(ctx, eng, in.PkgPath, func(v *engine.View, pkg engine.Package) error {
@@ -91,7 +139,7 @@ func listMethods(eng *engine.Engine) mcp.ToolHandlerFor[ListMethodsInput, ListMe
 			for _, m := range v.Methods(pkg, in.SymbolKey) {
 				diags = append(diags, v.SymbolDiagnostics(pkg.PkgPath(), m.Key())...)
 			}
-			out.DiagBlock = diagBlock(diags)
+			out.DiagBlock = cfg.diagBlock(diags)
 			return nil
 		})
 		return nil, out, err

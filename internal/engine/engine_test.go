@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/pedropaccola/gomcp/internal/address"
@@ -176,7 +177,7 @@ func TestExternalLoading(t *testing.T) {
 	if err := e.LoadExternal(context.Background(), "io"); err != nil {
 		t.Fatalf("LoadExternal(io): %v", err)
 	}
-	err := e.Read(func(v *View) error {
+	err := e.Read(context.Background(), func(v *View) error {
 		pkg, ok := v.resolveExternal("io")
 		if !ok {
 			t.Fatal("io missing from the external cache")
@@ -222,10 +223,49 @@ func TestExternalRefusalsAndReset(t *testing.T) {
 	if _, err := e.Reload(context.Background()); err != nil {
 		t.Fatalf("Reload: %v", err)
 	}
-	e.Read(func(v *View) error {
+	e.Read(context.Background(), func(v *View) error {
 		if _, ok := v.resolveExternal("io"); ok {
 			t.Error("external cache survived reload")
 		}
 		return nil
 	})
+}
+
+// TestLoadExternalConcurrent exercises the double-checked-locking path in
+// LoadExternal: many goroutines racing to load the same not-yet-cached
+// dependency must all succeed, with the package installed exactly once.
+// Run with -race; this is the regression test for the lock-narrowing that
+// lets the slow packages.Load/type-check phase run without holding
+// Engine.mu.
+func TestLoadExternalConcurrent(t *testing.T) {
+	e := sandboxEngine(t)
+	const n = 8
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	for i := range n {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = e.LoadExternal(context.Background(), "io")
+		}(i)
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("goroutine %d: LoadExternal(io): %v", i, err)
+		}
+	}
+	err := e.Read(context.Background(), func(v *View) error {
+		pkg, ok := v.resolveExternal("io")
+		if !ok {
+			t.Fatal("io missing from the external cache after concurrent loads")
+		}
+		if _, ok := pkg.Symbol("Reader"); !ok {
+			t.Error("io.Reader not indexed after concurrent loads")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }

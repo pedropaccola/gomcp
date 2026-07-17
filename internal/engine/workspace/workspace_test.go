@@ -28,8 +28,9 @@ func TestSwapFileParseEnforcedAndDirty(t *testing.T) {
 	if _, ok := p.Symbol("Hello"); !ok {
 		t.Error("index not rebuilt by SwapFile")
 	}
-	file.MarkFlushed()
-	if file.Dirty() {
+	p.MarkFlushed("pkg/pkg.go")
+	file, ok = p.File("pkg/pkg.go")
+	if !ok || file.Dirty() {
 		t.Error("MarkFlushed did not clear the dirty mark")
 	}
 }
@@ -85,10 +86,10 @@ func TestUnitDirtyCarryAndPrune(t *testing.T) {
 	if err := w.SwapFile(p, "pkg/pkg.go", "pkg/pkg.go", []byte("package pkg\n\nfunc Hello() {}\n")); err != nil {
 		t.Fatal(err)
 	}
-	file, _ := p.File("pkg/pkg.go")
-	file.MarkFlushed()
+	p.MarkFlushed("pkg/pkg.go")
 	unit := &Unit{Prod: p}
 	unit.MarkDirty("pkg/pkg.go")
+	file, _ := p.File("pkg/pkg.go")
 	if !file.Dirty() {
 		t.Error("MarkDirty did not re-mark the carried-over file")
 	}

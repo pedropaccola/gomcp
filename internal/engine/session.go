@@ -33,7 +33,7 @@ func (e *Engine) Flush() (written, removed []address.RelativePath, err error) {
 				if err := os.WriteFile(abs, file.Src(), 0o644); err != nil {
 					return written, removed, err
 				}
-				file.MarkFlushed()
+				pkg.MarkFlushed(file.Path)
 				written = append(written, file.Path)
 			}
 		}
@@ -53,7 +53,13 @@ func (e *Engine) Flush() (written, removed []address.RelativePath, err error) {
 // in-memory state was lost — dirty files and pending removals. An error
 // means the previous state is untouched.
 func (e *Engine) Reload(ctx context.Context) ([]address.RelativePath, error) {
-	e.mu.RLock()
+	fset, module, units, err := e.load(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	var discarded []address.RelativePath
 	for _, addr := range e.ws.UnitKeys() {
 		unit, _ := e.ws.Unit(addr)
@@ -69,11 +75,9 @@ func (e *Engine) Reload(ctx context.Context) ([]address.RelativePath, error) {
 		}
 	}
 	discarded = append(discarded, e.ws.Tombstones()...)
-	e.mu.RUnlock()
 	slices.Sort(discarded)
 	discarded = slices.Compact(discarded)
-	if err := e.Bootstrap(ctx); err != nil {
-		return nil, err
-	}
+
+	e.ws.Reset(module, fset, units)
 	return discarded, nil
 }

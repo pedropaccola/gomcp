@@ -14,6 +14,8 @@
 // Tool naming convention: list_* enumerate a scope, describe_* render one
 // address, search_* scan the workspace, diagnostics reports problems, every
 // other prefix mirrors its mutation verb, and flush writes to disk.
+// Tool descriptions earn words only for what changes the agent's input or
+// its reading of the output — server internals stay out of them.
 //
 // Output convention: every reader carries an optional diagnostics block
 // (DiagBlock) scoped to exactly what it read. Scoped blocks are views,
@@ -54,8 +56,13 @@ func mutates(title string, destructive bool) *mcp.ToolAnnotations {
 	}
 }
 
-// Register wires every tool into the server.
-func Register(server *mcp.Server, eng *engine.Engine) {
+// Register wires every tool into the server. diagLimit caps the
+// diagnostics rendered in every scoped DiagBlock (list_*/describe_*
+// output, mutation echoes); negative values fall back to the default
+// (20). The diagnostics tool itself is never capped.
+func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
+	cfg := newToolConfig(diagLimit)
+
 	// Enumerators
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_packages",
@@ -64,14 +71,14 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 			"address every other tool expects (workspace-relative directories are accepted " +
 			"too). Workspace-level diagnostics (module or toolchain problems) are included " +
 			"when present.",
-	}, listPackages(eng))
+	}, listPackages(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_files",
 		Annotations: reads("List Files"),
 		Description: "[Enumerator] List the Go files of one package by bare name — combined with the " +
 			"package they form the file address every other tool expects." + depNote,
-	}, listFiles(eng))
+	}, listFiles(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_symbols",
@@ -80,13 +87,13 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 			"summary (the signature for funcs and methods, the declaration line for types, " +
 			"vars, and consts). Methods are keyed \"Type.Name\". Pass file_name to restrict to " +
 			"one file." + depNote,
-	}, listSymbols(eng))
+	}, listSymbols(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_methods",
 		Annotations: reads("List Methods"),
 		Description: "[Enumerator] List the method signatures declared on one type." + keyNote + depNote,
-	}, listMethods(eng))
+	}, listMethods(eng, cfg))
 
 	// Describers
 	mcp.AddTool(server, &mcp.Tool{
@@ -94,14 +101,14 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 		Annotations: reads("Describe Package"),
 		Description: "[Describer] Show a package's godoc — every file's doc comment (the comment block " +
 			"directly above \"package X\"), concatenated in file order — plus its file list." + depNote,
-	}, describePackage(eng))
+	}, describePackage(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "describe_file",
 		Annotations: reads("Describe File"),
 		Description: "[Describer] Show one file's own doc comment alone — the narrower read when only " +
 			"that file's contribution to the package doc is needed." + depNote,
-	}, describeFile(eng))
+	}, describeFile(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "describe_symbol",
@@ -109,7 +116,7 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 		Description: "[Describer] Show a symbol's full declaration source (doc comment included) and " +
 			"kind, whatever it is — func, method, type, var, or const. A type's method " +
 			"signatures are included too." + keyNote + depNote,
-	}, describeSymbol(eng))
+	}, describeSymbol(eng, cfg))
 
 	// Finders
 	mcp.AddTool(server, &mcp.Tool{
@@ -165,7 +172,7 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 			"batch is discarded and the error names which entry failed — batch entries that " +
 			"are independent and already known-good; call once per entry instead if you want " +
 			"diagnostics feedback between steps." + echoNote,
-	}, createPackage(eng))
+	}, createPackage(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_file",
@@ -176,7 +183,7 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 			"batch is discarded and the error names which entry failed — batch entries that " +
 			"are independent and already known-good; call once per entry instead if you want " +
 			"diagnostics feedback between steps." + echoNote,
-	}, createFile(eng))
+	}, createFile(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_symbol",
@@ -194,7 +201,7 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 			"the whole batch is discarded and the error names which entry failed — batch " +
 			"entries that are independent and already known-good; call once per entry instead " +
 			"if you want diagnostics feedback between steps." + echoNote,
-	}, createSymbol(eng))
+	}, createSymbol(eng, cfg))
 
 	// Editors
 	mcp.AddTool(server, &mcp.Tool{
@@ -216,7 +223,7 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 			"the whole batch is discarded and the error names which entry failed — batch " +
 			"entries that are independent and already known-good; call once per entry instead " +
 			"if you want diagnostics feedback between steps." + keyNote + echoNote,
-	}, editSymbol(eng))
+	}, editSymbol(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "edit_file",
@@ -229,7 +236,7 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 			"any entry fails, the whole batch is discarded and the error names which entry " +
 			"failed — batch entries that are independent and already known-good; call once " +
 			"per entry instead if you want diagnostics feedback between steps." + echoNote,
-	}, editFile(eng))
+	}, editFile(eng, cfg))
 
 	// Deleters
 	mcp.AddTool(server, &mcp.Tool{
@@ -251,7 +258,7 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 			"error names which entry failed — batch entries that are independent and already " +
 			"known-good; call once per entry instead if you want diagnostics feedback between " +
 			"steps." + keyNote + echoNote,
-	}, deleteSymbol(eng))
+	}, deleteSymbol(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_file",
@@ -261,7 +268,7 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 			"that's already gone is a noop, not an error, so a duplicate target across " +
 			"entries is harmless. If any entry fails for a reason other than absence, the " +
 			"whole batch is discarded and the error names which entry failed." + echoNote,
-	}, deleteFile(eng))
+	}, deleteFile(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_package",
@@ -271,7 +278,7 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 			"is a noop, not an error, so a duplicate target across entries is harmless. If any " +
 			"entry fails for a reason other than absence, the whole batch is discarded and the " +
 			"error names which entry failed." + echoNote,
-	}, deletePackage(eng))
+	}, deletePackage(eng, cfg))
 
 	// Refactorings
 	mcp.AddTool(server, &mcp.Tool{
@@ -304,7 +311,7 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 			"its *whole* group together, in order, even if only one member's key was given, " +
 			"since extracting just one member alone would break the positions of the rest. " +
 			"Never crosses the test build boundary." + keyNote + echoNote,
-	}, moveSymbol(eng))
+	}, moveSymbol(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "move_file",
@@ -322,7 +329,7 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 			"external callers of the file's exported declarations are requalified exactly as " +
 			"move_symbol does, and the file's own references to exported siblings staying " +
 			"behind gain the original package's qualifier." + echoNote,
-	}, moveFile(eng))
+	}, moveFile(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "move_package",
@@ -331,7 +338,7 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 			"When the package name matches the old directory base, the name and every " +
 			"unaliased qualifier are renamed too — as is each file's own leading " +
 			"\"Package oldname\" doc-comment opening, when it has one." + echoNote,
-	}, movePackage(eng))
+	}, movePackage(eng, cfg))
 
 	// Session
 	mcp.AddTool(server, &mcp.Tool{
@@ -348,7 +355,7 @@ func Register(server *mcp.Server, eng *engine.Engine) {
 			"edit and pending deletion — the inverse of flush. The echo reports what was " +
 			"discarded, grouped by package, plus the fresh workspace diagnostics. Use after " +
 			"the filesystem changed behind the server.",
-	}, reload(eng))
+	}, reload(eng, cfg))
 }
 
 const echoNote = " Returns the files changed, the diagnostics the edit introduced (its blast-" +
@@ -359,296 +366,3 @@ const depNote = " Dependencies resolve by import path too: read-only, exported A
 
 // keyNote marks the tools whose SymbolKey input addresses a symbol.
 const keyNote = " symbol_key is the symbol's address: its bare name, or \"Type.Name\" for methods."
-
-// DiagBlock is the shared optional diagnostics view, scoped to whatever the
-// carrying tool read. See the package doc's output convention. Diagnostics
-// is capped at diagLimit (default 20, tunable via -diagnostics-limit);
-// Truncated is nil when everything fit, otherwise the count left out —
-// the diagnostics tool itself is never capped, so it's always the
-// complete-inventory fallback.
-type DiagBlock struct {
-	Diagnostics []DiagnosticEntry `json:"diagnostics,omitempty"`
-	Truncated   *int              `json:"truncated,omitempty"`
-}
-
-type ListPackagesInput struct{}
-
-type ListPackagesOutput struct {
-	Packages []string `json:"packages"`
-	DiagBlock
-}
-
-type ListFilesInput struct {
-	PkgPath string `json:"pkg_path"`
-}
-
-type ListFilesOutput struct {
-	Files []string `json:"files"`
-	DiagBlock
-}
-
-type ListSymbolsInput struct {
-	PkgPath  string  `json:"pkg_path"`
-	FileName *string `json:"file_name,omitempty"`
-}
-
-type SymbolEntry struct {
-	SymbolKey string `json:"symbol_key"`
-	Kind      string `json:"kind"`
-	Summary   string `json:"summary"`
-}
-
-type ListSymbolsOutput struct {
-	Symbols []SymbolEntry `json:"symbols"`
-	DiagBlock
-}
-
-type ListMethodsInput struct {
-	PkgPath   string `json:"pkg_path"`
-	SymbolKey string `json:"symbol_key"`
-}
-
-type ListMethodsOutput struct {
-	Methods []string `json:"methods"`
-	DiagBlock
-}
-
-type SearchLikeInput struct {
-	Name string `json:"name"`
-}
-
-type SearchSourceInput struct {
-	Regexp string `json:"regexp"`
-}
-
-type SearchImplementorsInput struct {
-	PkgPath   string `json:"pkg_path"`
-	SymbolKey string `json:"symbol_key"`
-}
-
-type SearchReferencesInput struct {
-	PkgPath   string `json:"pkg_path"`
-	SymbolKey string `json:"symbol_key"`
-}
-
-type MatchEntry struct {
-	PkgPath   string `json:"pkg_path"`
-	SymbolKey string `json:"symbol_key"`
-	Kind      string `json:"kind"`
-}
-
-type SearchOutput struct {
-	Matches []MatchEntry `json:"matches"`
-}
-
-type DiagnosticsInput struct{}
-
-type DiagnosticsOutput struct {
-	Diagnostics []DiagnosticEntry `json:"diagnostics"`
-}
-
-// WriteOutput is the shared echo of every write tool (creators, editors,
-// refactorings alike): the files changed grouped by package, the diagnostics
-// this edit introduced and resolved (each nil when there's nothing to report,
-// not an empty block) how many pre-existing diagnostics it left untouched,
-// and whether those two diagnostics blocks can be trusted at all.
-type WriteOutput struct {
-	Files                     map[string][]string `json:"files"`
-	IntroducedDiagnostics     *DiagBlock          `json:"introduced_diagnostics,omitempty"`
-	ResolvedDiagnostics       *DiagBlock          `json:"resolved_diagnostics,omitempty"`
-	UnrelatedDiagnosticsCount *int                `json:"unrelated_diagnostics_count,omitempty"`
-	DiagnosticsUnavailable    *bool               `json:"diagnostics_unavailable,omitempty"`
-}
-
-type CreatePackageEntry struct {
-	PkgPath string  `json:"pkg_path"`
-	Name    *string `json:"name,omitempty"`
-}
-
-type CreateFileEntry struct {
-	PkgPath  string  `json:"pkg_path"`
-	FileName string  `json:"file_name"`
-	Doc      *string `json:"doc,omitempty"`
-}
-
-type CreateSymbolEntry struct {
-	PkgPath  string `json:"pkg_path"`
-	FileName string `json:"file_name"`
-	Source   string `json:"source"`
-}
-
-type EditSymbolEntry struct {
-	PkgPath   string `json:"pkg_path"`
-	SymbolKey string `json:"symbol_key"`
-	Source    string `json:"source"`
-}
-
-type DeleteSymbolEntry struct {
-	PkgPath   string `json:"pkg_path"`
-	SymbolKey string `json:"symbol_key"`
-}
-
-type DeleteFileEntry struct {
-	PkgPath  string `json:"pkg_path"`
-	FileName string `json:"file_name"`
-}
-
-type DeletePackageEntry struct {
-	PkgPath string `json:"pkg_path"`
-}
-
-type MoveSymbolInput struct {
-	PkgPath      string  `json:"pkg_path"`
-	SymbolKey    string  `json:"symbol_key"`
-	NewPkgPath   *string `json:"new_pkg_path,omitempty"`
-	NewFileName  *string `json:"new_file_name,omitempty"`
-	NewSymbolKey *string `json:"new_symbol_key,omitempty"`
-}
-
-type MoveFileInput struct {
-	PkgPath     string  `json:"pkg_path"`
-	FileName    string  `json:"file_name"`
-	NewPkgPath  *string `json:"new_pkg_path,omitempty"`
-	NewFileName *string `json:"new_file_name,omitempty"`
-}
-
-type MovePackageInput struct {
-	PkgPath    string `json:"pkg_path"`
-	NewPkgPath string `json:"new_pkg_path"`
-}
-
-type FlushInput struct{}
-
-type FlushOutput struct {
-	FilesWritten map[string][]string `json:"files_written,omitempty"`
-	FilesRemoved map[string][]string `json:"files_removed,omitempty"`
-}
-
-type ReloadInput struct{}
-
-// ReloadOutput reports what a reload threw away, grouped by package, plus
-// the fresh workspace diagnostics — reload's scope is the whole workspace,
-// so here the view and the inventory coincide.
-type ReloadOutput struct {
-	FilesDiscarded map[string][]string `json:"files_discarded,omitempty"`
-	DiagBlock
-}
-
-// DiagnosticEntry is one problem report, addressed the same way every other
-// tool addresses a symbol: PkgPath/SymbolKey are directly usable as-is with
-// describe_symbol/edit_symbol. FileName is the coarser fallback when a
-// diagnostic is attributable to a file but no single declaration; all three
-// are nil for module/driver-level problems.
-type DiagnosticEntry struct {
-	PkgPath   *string `json:"pkg_path,omitempty"`
-	FileName  *string `json:"file_name,omitempty"`
-	SymbolKey *string `json:"symbol_key,omitempty"`
-	Kind      string  `json:"kind"`
-	Message   string  `json:"message"`
-}
-
-type EditFileEntry struct {
-	PkgPath  string  `json:"pkg_path"`
-	FileName string  `json:"file_name"`
-	Doc      *string `json:"doc,omitempty"`
-}
-
-type DescribePackageInput struct {
-	PkgPath string `json:"pkg_path"`
-}
-
-// DescribePackageOutput is the package's godoc plus the file list already
-// on hand while assembling it.
-type DescribePackageOutput struct {
-	Doc   *string  `json:"doc,omitempty"`
-	Files []string `json:"files,omitempty"`
-	DiagBlock
-}
-
-type DescribeFileInput struct {
-	PkgPath  string `json:"pkg_path"`
-	FileName string `json:"file_name"`
-}
-
-type DescribeFileOutput struct {
-	Doc *string `json:"doc,omitempty"`
-	DiagBlock
-}
-
-type DescribeSymbolInput struct {
-	PkgPath   string `json:"pkg_path"`
-	SymbolKey string `json:"symbol_key"`
-}
-
-// DescribeSymbolOutput covers every symbol kind uniformly; Methods is only
-// populated when Kind == "type".
-type DescribeSymbolOutput struct {
-	File    string   `json:"file"`
-	Source  string   `json:"source"`
-	Kind    string   `json:"kind"`
-	Methods []string `json:"methods,omitempty"`
-	DiagBlock
-}
-
-// CreateSymbolInput creates several symbols in one transaction, one
-// recheck, one echo — resolved in order, the whole batch discarded on the
-// first entry that fails.
-type CreateSymbolInput struct {
-	Creates []CreateSymbolEntry `json:"creates"`
-}
-
-// EditSymbolInput edits several symbols in one transaction, one
-// recheck, one echo — resolved in order, the whole batch discarded on the
-// first entry that fails. Every entry must address a different symbol;
-// two entries targeting the same one, identical source or not, are
-// refused before the transaction opens.
-type EditSymbolInput struct {
-	Edits []EditSymbolEntry `json:"edits"`
-}
-
-// DeleteSymbolInput deletes one or more symbols in one transaction, one
-// recheck, one echo — resolved in order, the whole batch discarded on the
-// first entry that fails. Deletion is idempotent, so a duplicate target
-// across entries is harmless, not refused.
-type DeleteSymbolInput struct {
-	Deletes []DeleteSymbolEntry `json:"deletes"`
-}
-
-// DeleteFileInput deletes one or more files in one transaction, one
-// recheck, one echo — resolved in order, the whole batch discarded on the
-// first entry that fails. Deletion is idempotent, so a duplicate target
-// across entries is harmless, not refused.
-type DeleteFileInput struct {
-	Deletes []DeleteFileEntry `json:"deletes"`
-}
-
-// DeletePackageInput deletes one or more packages in one transaction, one
-// recheck, one echo — resolved in order, the whole batch discarded on the
-// first entry that fails. Deletion is idempotent, so a duplicate target
-// across entries is harmless, not refused.
-type DeletePackageInput struct {
-	Deletes []DeletePackageEntry `json:"deletes"`
-}
-
-// CreateFileInput creates one or more files in one transaction, one
-// recheck, one echo — resolved in order, the whole batch discarded on the
-// first entry that fails.
-type CreateFileInput struct {
-	Creates []CreateFileEntry `json:"creates"`
-}
-
-// CreatePackageInput creates one or more packages in one transaction, one
-// recheck, one echo — resolved in order, the whole batch discarded on the
-// first entry that fails.
-type CreatePackageInput struct {
-	Creates []CreatePackageEntry `json:"creates"`
-}
-
-// EditFileInput edits one or more files' package doc comments in one
-// transaction, one recheck, one echo — resolved in order, the whole batch
-// discarded on the first entry that fails. Every entry must address a
-// different file; two entries targeting the same one are refused before
-// the transaction opens.
-type EditFileInput struct {
-	Edits []EditFileEntry `json:"edits"`
-}

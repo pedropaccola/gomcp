@@ -69,3 +69,34 @@ Small set of 25 tools:
 * Session (syncs the in-memory state with disk): `flush`, `reload`
 
 More on `internal/tools/tools.go`
+
+---
+
+## Installation
+
+Requires Go 1.26.4 or newer (see `go.mod`). See `Makefile` for the target list
+
+Point your MCP client at the built binary (or at `go run ./cmd/gomcp` directly) over stdio. `.mcp.json` in this repo's own root is a working example, used for gomcp's own self-hosted development:
+
+```json
+{
+  "mcpServers": {
+    "gomcp": {
+      "type": "stdio",
+      "command": "go",
+      "args": ["run", "./cmd/gomcp/main.go"],
+      "env": {}
+    }
+  }
+}
+```
+
+### Flags
+
+* `-cwd <path>` — workspace root directory. Falls back to the
+  `CLAUDE_WORKSPACE` environment variable, then the process's own
+  working directory, if unset.
+* `-verbose` — log `go/packages` loader output to stderr.
+* `-diagnostics-limit <n>` — cap the diagnostics rendered per read/write
+  tool call (default 20). The `diagnostics` tool itself always reports
+  the full, uncapped inventory.

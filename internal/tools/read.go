@@ -22,7 +22,7 @@ func readPackage(ctx context.Context, eng *engine.Engine, addr string, fn func(*
 	extOK := cleanOK && ext != canon && ext != "."
 	attempt := func() (bool, error) {
 		found := false
-		err := eng.Read(func(v *engine.View) error {
+		err := eng.Read(ctx, func(v *engine.View) error {
 			if pkg, ok := v.Package(canon); ok {
 				found = true
 				return fn(v, pkg)

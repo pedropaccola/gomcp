@@ -31,10 +31,16 @@ type match struct {
 // symbolsWhere scans every symbol in the workspace (Prod and XTest
 // packages) and collects those for which pred holds, in the workspace's
 // own model types. It is the primitive under every other scanner; new
-// filters should compose on it as predicates.
+// filters should compose on it as predicates. Checks v.ctx once per
+// package and stops early, returning whatever was found so far, if it's
+// been canceled or its deadline has passed — best-effort, since this
+// scanner has no error return to signal cancellation through.
 func (v *View) symbolsWhere(pred func(*workspace.Package, *workspace.Symbol) bool) []match {
 	var out []match
 	for _, pkg := range v.allPackages() {
+		if v.ctx.Err() != nil {
+			return out
+		}
 		for _, sym := range pkg.Symbols() {
 			if pred(pkg, sym) {
 				out = append(out, match{Pkg: pkg, Sym: sym})
@@ -108,6 +114,9 @@ func (v *View) SymbolsImplementing(pkg address.PkgPath, key string) ([]Match, er
 		t := candObj.Type()
 		return types.Implements(t, iface) || types.Implements(types.NewPointer(t), iface)
 	})
+	if err := v.ctx.Err(); err != nil {
+		return nil, err
+	}
 	return newMatches(matches), nil
 }
 
@@ -220,6 +229,9 @@ func (v *View) symbolsReferencing(pkg address.PkgPath, key string) ([]match, err
 	seen := make(map[*workspace.Symbol]bool)
 	var out []match
 	for _, p := range v.allPackages() {
+		if err := v.ctx.Err(); err != nil {
+			return nil, err
+		}
 		if p.TypesInfo() == nil {
 			continue
 		}

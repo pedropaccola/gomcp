@@ -143,11 +143,24 @@ func (p *Package) TypesInfo() *types.Info { return p.typesInfo }
 // concatenated in file order — documentation lives distributed across a
 // package's files, not centralized in one.
 func (p *Package) Doc() string {
-	var parts []string
-	for _, f := range p.Files() {
+	files := p.Files()
+	parts := make([]string, 0, len(files))
+	for _, f := range files {
 		if doc := f.Doc(); doc != "" {
 			parts = append(parts, doc)
 		}
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+// MarkFlushed clears path's dirty mark by installing a fresh copy of its
+// File — Flush's half of the dirty lifecycle; SwapFile and MoveFile set
+// the mark. Replaces rather than mutates in place, since a File may still
+// be shared with another Workspace generation via Clone.
+func (p *Package) MarkFlushed(path address.RelativePath) {
+	if file, ok := p.files[path]; ok {
+		cp := *file
+		cp.dirty = false
+		p.files[path] = &cp
+	}
 }

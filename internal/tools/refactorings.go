@@ -8,7 +8,27 @@ import (
 	"github.com/pedropaccola/gomcp/internal/engine"
 )
 
-func moveSymbol(eng *engine.Engine) mcp.ToolHandlerFor[MoveSymbolInput, WriteOutput] {
+type MoveFileInput struct {
+	PkgPath     string  `json:"pkg_path"`
+	FileName    string  `json:"file_name"`
+	NewPkgPath  *string `json:"new_pkg_path,omitempty"`
+	NewFileName *string `json:"new_file_name,omitempty"`
+}
+
+type MovePackageInput struct {
+	PkgPath    string `json:"pkg_path"`
+	NewPkgPath string `json:"new_pkg_path"`
+}
+
+type MoveSymbolInput struct {
+	PkgPath      string  `json:"pkg_path"`
+	SymbolKey    string  `json:"symbol_key"`
+	NewPkgPath   *string `json:"new_pkg_path,omitempty"`
+	NewFileName  *string `json:"new_file_name,omitempty"`
+	NewSymbolKey *string `json:"new_symbol_key,omitempty"`
+}
+
+func moveSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveSymbolInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in MoveSymbolInput) (*mcp.CallToolResult, WriteOutput, error) {
 		pkg, err := packageArg(eng, in.PkgPath)
 		if err != nil {
@@ -30,13 +50,13 @@ func moveSymbol(eng *engine.Engine) mcp.ToolHandlerFor[MoveSymbolInput, WriteOut
 				return nil, WriteOutput{}, err
 			}
 		}
-		return runEdit(ctx, eng, func(tx *engine.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
 			return tx.MoveSymbol(pkg, in.SymbolKey, newPkg, newFile, optStr(in.NewSymbolKey))
 		})
 	}
 }
 
-func moveFile(eng *engine.Engine) mcp.ToolHandlerFor[MoveFileInput, WriteOutput] {
+func moveFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveFileInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in MoveFileInput) (*mcp.CallToolResult, WriteOutput, error) {
 		pkg, err := packageArg(eng, in.PkgPath)
 		if err != nil {
@@ -53,13 +73,13 @@ func moveFile(eng *engine.Engine) mcp.ToolHandlerFor[MoveFileInput, WriteOutput]
 				return nil, WriteOutput{}, err
 			}
 		}
-		return runEdit(ctx, eng, func(tx *engine.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
 			return tx.MoveFile(pkg, file, newPkg, optStr(in.NewFileName))
 		})
 	}
 }
 
-func movePackage(eng *engine.Engine) mcp.ToolHandlerFor[MovePackageInput, WriteOutput] {
+func movePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MovePackageInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in MovePackageInput) (*mcp.CallToolResult, WriteOutput, error) {
 		pkg, err := packageArg(eng, in.PkgPath)
 		if err != nil {
@@ -69,7 +89,7 @@ func movePackage(eng *engine.Engine) mcp.ToolHandlerFor[MovePackageInput, WriteO
 		if err != nil {
 			return nil, WriteOutput{}, err
 		}
-		return runEdit(ctx, eng, func(tx *engine.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
 			return tx.MovePackage(pkg, newPkg)
 		})
 	}

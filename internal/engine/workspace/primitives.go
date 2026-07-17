@@ -85,18 +85,8 @@ func (w *Workspace) MoveFile(owner *Package, oldPath, newPath address.RelativePa
 // pruneEmptyUnit drops a unit's packages once their last file is deleted,
 // and the unit itself once both are gone.
 func (w *Workspace) pruneEmptyUnit(pkg address.PkgPath) {
-	unit, ok := w.units[pkg]
-	if !ok {
-		return
-	}
-	if unit.Prod != nil && len(unit.Prod.files) == 0 {
-		unit.Prod = nil
-	}
-	if unit.XTest != nil && len(unit.XTest.files) == 0 {
-		unit.XTest = nil
-	}
-	if unit.Prod == nil && unit.XTest == nil {
-		delete(w.units, pkg)
+	if unit, ok := w.units[pkg]; ok {
+		pruneIfEmpty(w.units, pkg, unit)
 	}
 }
 
@@ -118,6 +108,14 @@ func PruneFile(units map[address.PkgPath]*Unit, pkg address.PkgPath, path addres
 			p.RebuildIndex()
 		}
 	}
+	pruneIfEmpty(units, pkg, unit)
+}
+
+// pruneIfEmpty drops unit's Prod/XTest once each is out of files, and
+// removes it from units entirely once both are gone. Shared by
+// pruneEmptyUnit (an installed workspace) and PruneFile (a freshly
+// loaded unit map, before installation).
+func pruneIfEmpty(units map[address.PkgPath]*Unit, pkg address.PkgPath, unit *Unit) {
 	if unit.Prod != nil && len(unit.Prod.files) == 0 {
 		unit.Prod = nil
 	}

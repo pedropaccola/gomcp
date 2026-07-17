@@ -91,8 +91,7 @@ func main() {
 		},
 	)
 
-	tools.SetDiagLimit(*flagDiagLimit)
-	tools.Register(server, eng)
+	tools.Register(server, eng, *flagDiagLimit)
 
 	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {
 		log.Fatalf("[Fatal] Server execution stopped: %v", err)

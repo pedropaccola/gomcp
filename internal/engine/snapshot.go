@@ -14,17 +14,22 @@ import (
 // matches; semantic scanners need type information and return an error
 // rather than approximate), source.go (exact byte slices of Src, never
 // re-printed), and diagnostics.go (problem reports aggregated per scope).
-// Scanners compose on enumerators, and both compose on resolvers.
+// Scanners compose on enumerators, and both compose on resolvers. ctx
+// comes from the Read call that created this View; scanners.go's
+// long-running scans check it for cancellation, nothing else does.
 type View struct {
 	eng *Engine
+	ctx context.Context
 }
 
 // Read runs fn against a consistent snapshot of the workspace. Locking lives
-// here and nowhere else in the lookup layer.
-func (e *Engine) Read(fn func(*View) error) error {
+// here and nowhere else in the lookup layer. ctx reaches fn's own
+// long-running scans (scanners.go) so a caller can cancel or deadline a
+// read; Read itself never blocks on I/O and never consults ctx directly.
+func (e *Engine) Read(ctx context.Context, fn func(*View) error) error {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return fn(&View{eng: e})
+	return fn(&View{eng: e, ctx: ctx})
 }
 
 // Edit runs fn against a cloned workspace and commits it with a full
@@ -41,7 +46,7 @@ func (e *Engine) Edit(ctx context.Context, fn func(*Tx) error) (*EditReport, err
 	orig := e.ws
 	e.ws = orig.Clone()
 
-	view := &View{eng: e}
+	view := &View{eng: e, ctx: ctx}
 	before := view.AllDiagnostics()
 
 	tx := &Tx{View: view, changed: make(map[address.RelativePath]bool)}
@@ -78,9 +83,12 @@ func (e *Engine) Edit(ctx context.Context, fn func(*Tx) error) (*EditReport, err
 // drift. Verbs live in creators.go (fail if the address already exists;
 // can never destroy), editors.go (fail if the address doesn't exist;
 // delete included), and refactorings.go (structure-preserving, refused
-// whenever preservation cannot be guaranteed); placement.go, fragments.go,
-// and extraction.go hold the machinery those verbs compose on. Flush and
-// Reload (session.go) are the disk boundary.
+// whenever preservation cannot be guaranteed — a verb belongs here only
+// if it has exactly one mechanically correct resolution everywhere it
+// applies; otherwise it's an Editor, however tempting the automation
+// looks); placement.go, fragments.go, and extraction.go hold the
+// machinery those verbs compose on. Flush and Reload (session.go) are
+// the disk boundary.
 type Tx struct {
 	*View
 	changed map[address.RelativePath]bool // paths this transaction touched

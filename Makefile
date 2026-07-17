@@ -12,7 +12,7 @@ tidy:
 
 .PHONY: build
 build: tidy
-	@echo "Building for $(TARGET_OS)..."
+	@echo "Building..."
 	go build -o $(BIN) $(MAIN)
 
 .PHONY: run

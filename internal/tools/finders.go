@@ -10,10 +10,38 @@ import (
 	"github.com/pedropaccola/gomcp/internal/engine"
 )
 
+type MatchEntry struct {
+	PkgPath   string `json:"pkg_path"`
+	SymbolKey string `json:"symbol_key"`
+	Kind      string `json:"kind"`
+}
+
+type SearchImplementorsInput struct {
+	PkgPath   string `json:"pkg_path"`
+	SymbolKey string `json:"symbol_key"`
+}
+
+type SearchLikeInput struct {
+	Name string `json:"name"`
+}
+
+type SearchOutput struct {
+	Matches []MatchEntry `json:"matches"`
+}
+
+type SearchReferencesInput struct {
+	PkgPath   string `json:"pkg_path"`
+	SymbolKey string `json:"symbol_key"`
+}
+
+type SearchSourceInput struct {
+	Regexp string `json:"regexp"`
+}
+
 func searchDeclarationsLike(eng *engine.Engine) mcp.ToolHandlerFor[SearchLikeInput, SearchOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in SearchLikeInput) (*mcp.CallToolResult, SearchOutput, error) {
 		var out SearchOutput
-		err := eng.Read(func(v *engine.View) error {
+		err := eng.Read(ctx, func(v *engine.View) error {
 			out.Matches = matchEntries(v.SymbolsLike(in.Name))
 			return nil
 		})
@@ -28,7 +56,7 @@ func searchSource(eng *engine.Engine) mcp.ToolHandlerFor[SearchSourceInput, Sear
 		if err != nil {
 			return nil, out, fmt.Errorf("invalid regular expression: %w", err)
 		}
-		err = eng.Read(func(v *engine.View) error {
+		err = eng.Read(ctx, func(v *engine.View) error {
 			out.Matches = matchEntries(v.SymbolsRegexp(re))
 			return nil
 		})
@@ -39,7 +67,7 @@ func searchSource(eng *engine.Engine) mcp.ToolHandlerFor[SearchSourceInput, Sear
 func searchImplementors(eng *engine.Engine) mcp.ToolHandlerFor[SearchImplementorsInput, SearchOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in SearchImplementorsInput) (*mcp.CallToolResult, SearchOutput, error) {
 		var out SearchOutput
-		err := eng.Read(func(v *engine.View) error {
+		err := eng.Read(ctx, func(v *engine.View) error {
 			_, owner, err := resolveSymbol(v, in.PkgPath, in.SymbolKey, engine.KindType)
 			if err != nil {
 				return err
@@ -58,7 +86,7 @@ func searchImplementors(eng *engine.Engine) mcp.ToolHandlerFor[SearchImplementor
 func searchReferences(eng *engine.Engine) mcp.ToolHandlerFor[SearchReferencesInput, SearchOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in SearchReferencesInput) (*mcp.CallToolResult, SearchOutput, error) {
 		var out SearchOutput
-		err := eng.Read(func(v *engine.View) error {
+		err := eng.Read(ctx, func(v *engine.View) error {
 			_, owner, err := resolveAnySymbol(v, in.PkgPath, in.SymbolKey)
 			if err != nil {
 				return err

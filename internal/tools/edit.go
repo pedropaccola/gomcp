@@ -9,17 +9,30 @@ import (
 	"github.com/pedropaccola/gomcp/internal/engine"
 )
 
+// WriteOutput is the shared echo of every write tool (creators, editors,
+// refactorings alike): the files changed grouped by package, the diagnostics
+// this edit introduced and resolved (each nil when there's nothing to report,
+// not an empty block) how many pre-existing diagnostics it left untouched,
+// and whether those two diagnostics blocks can be trusted at all.
+type WriteOutput struct {
+	Files                     map[string][]string `json:"files"`
+	IntroducedDiagnostics     *DiagBlock          `json:"introduced_diagnostics,omitempty"`
+	ResolvedDiagnostics       *DiagBlock          `json:"resolved_diagnostics,omitempty"`
+	UnrelatedDiagnosticsCount *int                `json:"unrelated_diagnostics_count,omitempty"`
+	DiagnosticsUnavailable    *bool               `json:"diagnostics_unavailable,omitempty"`
+}
+
 // runEdit is the composite every write handler flows through: one
 // transaction, echoed as files changed plus the diagnostics delta.
-func runEdit(ctx context.Context, eng *engine.Engine, fn func(*engine.Tx) error) (*mcp.CallToolResult, WriteOutput, error) {
+func runEdit(ctx context.Context, eng *engine.Engine, cfg *toolConfig, fn func(*engine.Tx) error) (*mcp.CallToolResult, WriteOutput, error) {
 	var out WriteOutput
 	report, err := eng.Edit(ctx, fn)
 	if err != nil {
 		return nil, out, err
 	}
 	out.Files = filesByPackage(eng.ModulePath(), report.Changed)
-	out.IntroducedDiagnostics = diagBlockPtr(report.Delta)
-	out.ResolvedDiagnostics = diagBlockPtr(report.Resolved)
+	out.IntroducedDiagnostics = cfg.diagBlockPtr(report.Delta)
+	out.ResolvedDiagnostics = cfg.diagBlockPtr(report.Resolved)
 	out.UnrelatedDiagnosticsCount = new(report.Unrelated)
 	out.DiagnosticsUnavailable = new(report.Stale)
 	if report.Stale {

@@ -13,6 +13,10 @@ import (
 // every structural change flows through its primitives. The fields are
 // unexported by construction — the compiler, not convention, keeps
 // arbitrary code from reshaping the model.
+//
+// Not safe for concurrent use: every method assumes exclusive access,
+// synchronized externally — internal/engine.Engine's own mutex is the
+// only caller that does this today.
 type Workspace struct {
 	module address.PkgPath
 	fset   *token.FileSet

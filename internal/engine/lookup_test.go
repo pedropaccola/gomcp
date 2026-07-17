@@ -16,7 +16,7 @@ import (
 
 func TestLookupNavigation(t *testing.T) {
 	e := sandboxEngine(t)
-	err := e.Read(func(v *View) error {
+	err := e.Read(context.Background(), func(v *View) error {
 		pkgs := v.allPackages()
 		var paths []address.RelativePath
 		for _, p := range pkgs {
@@ -72,7 +72,7 @@ func TestLookupNavigation(t *testing.T) {
 
 func TestLookupSymbolsAndExtraction(t *testing.T) {
 	e := sandboxEngine(t)
-	err := e.Read(func(v *View) error {
+	err := e.Read(context.Background(), func(v *View) error {
 		shape, owner, ok := v.resolveSymbol(spkg("shapes"), "Shape")
 		if !ok {
 			t.Fatal(`Symbol(shapes, "Shape") not found`)
@@ -135,7 +135,7 @@ func TestSymbolDiagnostics(t *testing.T) {
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
-	err := e.Read(func(v *View) error {
+	err := e.Read(context.Background(), func(v *View) error {
 		brokenSym, _, ok := v.resolveSymbol("example.com/broken", "broken")
 		if !ok {
 			t.Skip("parser recovery did not index the broken decl; nothing to attribute")
@@ -159,7 +159,7 @@ func TestSymbolDiagnostics(t *testing.T) {
 
 func TestLookupScans(t *testing.T) {
 	e := sandboxEngine(t)
-	err := e.Read(func(v *View) error {
+	err := e.Read(context.Background(), func(v *View) error {
 		hasKey := func(ms []Match, key string) bool {
 			return slices.ContainsFunc(ms, func(m Match) bool { return m.Sym.Key() == key })
 		}
@@ -200,7 +200,7 @@ func TestLookupScans(t *testing.T) {
 
 func TestTypesLoadedAndTypeDiagnostics(t *testing.T) {
 	e := sandboxEngine(t)
-	err := e.Read(func(v *View) error {
+	err := e.Read(context.Background(), func(v *View) error {
 		pkg, ok := v.resolvePackage(spkg("shapes"))
 		if !ok || pkg.Types() == nil || pkg.TypesInfo() == nil {
 			t.Fatal("shapes package missing type information after bootstrap")
@@ -223,7 +223,7 @@ func TestTypesLoadedAndTypeDiagnostics(t *testing.T) {
 
 func TestSymbolsImplementing(t *testing.T) {
 	e := sandboxEngine(t)
-	err := e.Read(func(v *View) error {
+	err := e.Read(context.Background(), func(v *View) error {
 		matches, err := v.SymbolsImplementing(spkg("shapes"), "Shape")
 		if err != nil {
 			t.Fatalf("SymbolsImplementing(Shape): %v", err)
@@ -254,7 +254,7 @@ func TestSymbolsImplementing(t *testing.T) {
 
 func TestSymbolsReferencing(t *testing.T) {
 	e := sandboxEngine(t)
-	err := e.Read(func(v *View) error {
+	err := e.Read(context.Background(), func(v *View) error {
 		refsOf := func(pkg address.PkgPath, key string) []string {
 			t.Helper()
 			matches, err := v.SymbolsReferencing(pkg, key)
@@ -298,7 +298,7 @@ func TestPublicViewSurface(t *testing.T) {
 	if err := e.LoadExternal(context.Background(), "io"); err != nil {
 		t.Fatalf("LoadExternal(io): %v", err)
 	}
-	err := e.Read(func(v *View) error {
+	err := e.Read(context.Background(), func(v *View) error {
 		pkg, ok := v.Package(spkg("shapes"))
 		if !ok {
 			t.Fatal("Package(shapes) not found")
@@ -363,7 +363,7 @@ func TestPublicViewSurface(t *testing.T) {
 
 func TestPackageAndFileDoc(t *testing.T) {
 	e := sandboxEngine(t)
-	e.Read(func(v *View) error {
+	e.Read(context.Background(), func(v *View) error {
 		pkg, ok := v.Package(spkg("shapes"))
 		if !ok {
 			t.Fatal("shapes package not resolvable")

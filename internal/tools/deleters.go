@@ -9,7 +9,45 @@ import (
 	"github.com/pedropaccola/gomcp/internal/engine"
 )
 
-func deleteSymbol(eng *engine.Engine) mcp.ToolHandlerFor[DeleteSymbolInput, WriteOutput] {
+type DeleteFileEntry struct {
+	PkgPath  string `json:"pkg_path"`
+	FileName string `json:"file_name"`
+}
+
+// DeleteFileInput deletes one or more files in one transaction, one
+// recheck, one echo — resolved in order, the whole batch discarded on the
+// first entry that fails. Deletion is idempotent, so a duplicate target
+// across entries is harmless, not refused.
+type DeleteFileInput struct {
+	Deletes []DeleteFileEntry `json:"deletes"`
+}
+
+type DeletePackageEntry struct {
+	PkgPath string `json:"pkg_path"`
+}
+
+// DeletePackageInput deletes one or more packages in one transaction, one
+// recheck, one echo — resolved in order, the whole batch discarded on the
+// first entry that fails. Deletion is idempotent, so a duplicate target
+// across entries is harmless, not refused.
+type DeletePackageInput struct {
+	Deletes []DeletePackageEntry `json:"deletes"`
+}
+
+type DeleteSymbolEntry struct {
+	PkgPath   string `json:"pkg_path"`
+	SymbolKey string `json:"symbol_key"`
+}
+
+// DeleteSymbolInput deletes one or more symbols in one transaction, one
+// recheck, one echo — resolved in order, the whole batch discarded on the
+// first entry that fails. Deletion is idempotent, so a duplicate target
+// across entries is harmless, not refused.
+type DeleteSymbolInput struct {
+	Deletes []DeleteSymbolEntry `json:"deletes"`
+}
+
+func deleteSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[DeleteSymbolInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteSymbolInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Deletes) == 0 {
 			return nil, WriteOutput{}, fmt.Errorf("deletes must not be empty")
@@ -23,7 +61,7 @@ func deleteSymbol(eng *engine.Engine) mcp.ToolHandlerFor[DeleteSymbolInput, Writ
 			}
 			pkgs[i] = pkg
 		}
-		return runEdit(ctx, eng, func(tx *engine.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
 			for i, entry := range in.Deletes {
 				if err := tx.DeleteSymbol(pkgs[i], entry.SymbolKey); err != nil {
 					return batchErr("deletes", i, n, err)
@@ -34,7 +72,7 @@ func deleteSymbol(eng *engine.Engine) mcp.ToolHandlerFor[DeleteSymbolInput, Writ
 	}
 }
 
-func deleteFile(eng *engine.Engine) mcp.ToolHandlerFor[DeleteFileInput, WriteOutput] {
+func deleteFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[DeleteFileInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteFileInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Deletes) == 0 {
 			return nil, WriteOutput{}, fmt.Errorf("deletes must not be empty")
@@ -54,7 +92,7 @@ func deleteFile(eng *engine.Engine) mcp.ToolHandlerFor[DeleteFileInput, WriteOut
 			pkgs[i] = pkg
 			files[i] = file
 		}
-		return runEdit(ctx, eng, func(tx *engine.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
 			for i := range in.Deletes {
 				if err := tx.DeleteFile(pkgs[i], files[i]); err != nil {
 					return batchErr("deletes", i, n, err)
@@ -65,7 +103,7 @@ func deleteFile(eng *engine.Engine) mcp.ToolHandlerFor[DeleteFileInput, WriteOut
 	}
 }
 
-func deletePackage(eng *engine.Engine) mcp.ToolHandlerFor[DeletePackageInput, WriteOutput] {
+func deletePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[DeletePackageInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeletePackageInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Deletes) == 0 {
 			return nil, WriteOutput{}, fmt.Errorf("deletes must not be empty")
@@ -79,7 +117,7 @@ func deletePackage(eng *engine.Engine) mcp.ToolHandlerFor[DeletePackageInput, Wr
 			}
 			pkgs[i] = pkg
 		}
-		return runEdit(ctx, eng, func(tx *engine.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
 			for i := range in.Deletes {
 				if err := tx.DeletePackage(pkgs[i]); err != nil {
 					return batchErr("deletes", i, n, err)

@@ -24,6 +24,14 @@ import (
 // pipeline, goimports, and flushing live here, while the model itself —
 // units, tombstones, position tables, the dependency cache — lives behind
 // the workspace.Workspace and is only reshaped through its primitives.
+//
+// Never call a gate-safe accessor (ModulePath, IsExternal, ...) from
+// inside a Read/Edit closure: sync.RWMutex isn't reentrant, so the
+// accessor's own lock acquisition deadlocks the calling goroutine against
+// itself — no error, no panic, just a permanent hang, and diagnostics()
+// won't catch it either, since it's a runtime property, not a type error.
+// Resolve any such value before calling Read/Edit and pass it into the
+// closure instead.
 type Engine struct {
 	mu      sync.RWMutex
 	RootDir string
@@ -57,8 +65,8 @@ func (e *Engine) Bootstrap(ctx context.Context) error {
 		return err
 	}
 	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.ws.Reset(module, fset, units)
-	e.mu.Unlock()
 	return nil
 }
 
@@ -261,46 +269,51 @@ func (e *Engine) fsetOf(pkg *workspace.Package) *token.FileSet {
 // external cache — the lazy counterpart of the workspace load, serving
 // exported API only. It is never called under the read gate: callers load
 // first, then Read; ExternalPackage resolves what this installed.
+//
+// The slow part — go/packages.Load plus type-checking — runs with no lock
+// held, so it never blocks a concurrent Read or Edit; the engine lock is
+// only taken briefly, to check the cache first and to install the result
+// after. If Bootstrap or Reload resets the dependency cache while a load
+// is in flight, the result is discarded and the load retried against the
+// fresh cache instead of installing positions keyed to a FileSet that's no
+// longer current.
 func (e *Engine) LoadExternal(ctx context.Context, pkg address.PkgPath) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if _, ok := e.ws.ExternalPackage(pkg); ok {
-		return nil
-	}
-	if err, ok := e.ws.ExternalFailure(pkg); ok {
-		return err
-	}
-	fail := func(err error) error {
-		e.ws.FailExternal(pkg, err)
-		return err
-	}
-	srcPkgs, err := packages.Load(&packages.Config{
-		Mode:    packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes,
-		Context: ctx,
-		Logf:    e.logf,
-		Dir:     e.RootDir,
-		Fset:    e.ws.ExternalFset(),
-	}, string(pkg))
-	if err != nil {
-		return fail(fmt.Errorf("dependency %q failed to load: %w", pkg, err))
-	}
-	for _, srcPkg := range srcPkgs {
-		if address.PkgPath(srcPkg.PkgPath) != pkg || srcPkg.Name == "" || len(srcPkg.Syntax) == 0 {
+	for {
+		e.mu.RLock()
+		if _, ok := e.ws.ExternalPackage(pkg); ok {
+			e.mu.RUnlock()
+			return nil
+		}
+		if err, ok := e.ws.ExternalFailure(pkg); ok {
+			e.mu.RUnlock()
+			return err
+		}
+		fset := e.ws.ExternalFset()
+		e.mu.RUnlock()
+
+		built, loadErr := e.fetchExternal(ctx, pkg, fset)
+
+		e.mu.Lock()
+		if _, ok := e.ws.ExternalPackage(pkg); ok {
+			e.mu.Unlock()
+			return nil // installed by a concurrent LoadExternal while we worked
+		}
+		if e.ws.ExternalFset() != fset {
+			// Bootstrap/Reload reset the cache mid-load: built's positions (if
+			// any) are keyed to a FileSet that's no longer current. Retry
+			// against the fresh one rather than install stale positions.
+			e.mu.Unlock()
 			continue
 		}
-		built, err := e.buildExternal(srcPkg)
-		if err != nil {
-			return fail(err)
+		if loadErr != nil {
+			e.ws.FailExternal(pkg, loadErr)
+			e.mu.Unlock()
+			return loadErr
 		}
 		e.ws.InstallExternal(pkg, built)
+		e.mu.Unlock()
 		return nil
 	}
-	for _, srcPkg := range srcPkgs {
-		if len(srcPkg.Errors) > 0 {
-			return fail(fmt.Errorf("dependency %q failed to load: %s", pkg, srcPkg.Errors[0].Msg))
-		}
-	}
-	return fail(fmt.Errorf("no package at import path %q", pkg))
 }
 
 // buildExternal is buildPackage's read-only sibling: module-cache files
@@ -329,6 +342,34 @@ func (e *Engine) IsExternal(pkg address.PkgPath) bool {
 	defer e.mu.RUnlock()
 	_, ok := e.ws.ExternalPackage(pkg)
 	return ok
+}
+
+// fetchExternal is LoadExternal's lock-free slow path: the actual
+// go/packages.Load and type-check against a specific FileSet snapshot,
+// captured by the caller before releasing the engine lock.
+func (e *Engine) fetchExternal(ctx context.Context, pkg address.PkgPath, fset *token.FileSet) (*workspace.Package, error) {
+	srcPkgs, err := packages.Load(&packages.Config{
+		Mode:    packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes,
+		Context: ctx,
+		Logf:    e.logf,
+		Dir:     e.RootDir,
+		Fset:    fset,
+	}, string(pkg))
+	if err != nil {
+		return nil, fmt.Errorf("dependency %q failed to load: %w", pkg, err)
+	}
+	for _, srcPkg := range srcPkgs {
+		if address.PkgPath(srcPkg.PkgPath) != pkg || srcPkg.Name == "" || len(srcPkg.Syntax) == 0 {
+			continue
+		}
+		return e.buildExternal(srcPkg)
+	}
+	for _, srcPkg := range srcPkgs {
+		if len(srcPkg.Errors) > 0 {
+			return nil, fmt.Errorf("dependency %q failed to load: %s", pkg, srcPkg.Errors[0].Msg)
+		}
+	}
+	return nil, fmt.Errorf("no package at import path %q", pkg)
 }
 
 // toDiagKind maps the loader's error classification onto ours.

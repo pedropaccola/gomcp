@@ -9,7 +9,37 @@ import (
 	"github.com/pedropaccola/gomcp/internal/engine"
 )
 
-func editFile(eng *engine.Engine) mcp.ToolHandlerFor[EditFileInput, WriteOutput] {
+type EditFileEntry struct {
+	PkgPath  string  `json:"pkg_path"`
+	FileName string  `json:"file_name"`
+	Doc      *string `json:"doc,omitempty"`
+}
+
+// EditFileInput edits one or more files' package doc comments in one
+// transaction, one recheck, one echo — resolved in order, the whole batch
+// discarded on the first entry that fails. Every entry must address a
+// different file; two entries targeting the same one are refused before
+// the transaction opens.
+type EditFileInput struct {
+	Edits []EditFileEntry `json:"edits"`
+}
+
+type EditSymbolEntry struct {
+	PkgPath   string `json:"pkg_path"`
+	SymbolKey string `json:"symbol_key"`
+	Source    string `json:"source"`
+}
+
+// EditSymbolInput edits several symbols in one transaction, one
+// recheck, one echo — resolved in order, the whole batch discarded on the
+// first entry that fails. Every entry must address a different symbol;
+// two entries targeting the same one, identical source or not, are
+// refused before the transaction opens.
+type EditSymbolInput struct {
+	Edits []EditSymbolEntry `json:"edits"`
+}
+
+func editFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[EditFileInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in EditFileInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Edits) == 0 {
 			return nil, WriteOutput{}, fmt.Errorf("edits must not be empty")
@@ -29,7 +59,7 @@ func editFile(eng *engine.Engine) mcp.ToolHandlerFor[EditFileInput, WriteOutput]
 			}
 			seen[addr] = true
 		}
-		return runEdit(ctx, eng, func(tx *engine.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
 			for i, entry := range in.Edits {
 				if err := tx.EditFile(pkgs[i], entry.FileName, optStr(entry.Doc)); err != nil {
 					return batchErr("edits", i, n, err)
@@ -40,7 +70,7 @@ func editFile(eng *engine.Engine) mcp.ToolHandlerFor[EditFileInput, WriteOutput]
 	}
 }
 
-func editSymbol(eng *engine.Engine) mcp.ToolHandlerFor[EditSymbolInput, WriteOutput] {
+func editSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[EditSymbolInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in EditSymbolInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Edits) == 0 {
 			return nil, WriteOutput{}, fmt.Errorf("edits must not be empty")
@@ -60,7 +90,7 @@ func editSymbol(eng *engine.Engine) mcp.ToolHandlerFor[EditSymbolInput, WriteOut
 			}
 			seen[addr] = true
 		}
-		return runEdit(ctx, eng, func(tx *engine.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
 			for i, entry := range in.Edits {
 				if err := tx.EditSymbol(pkgs[i], entry.SymbolKey, entry.Source); err != nil {
 					return batchErr("edits", i, n, err)

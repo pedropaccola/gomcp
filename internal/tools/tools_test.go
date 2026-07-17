@@ -45,7 +45,7 @@ func sandboxEngine(tb testing.TB) *engine.Engine {
 // cannot be turned into a JSON schema.
 func TestRegister(t *testing.T) {
 	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0"}, nil)
-	Register(server, sandboxEngine(t))
+	Register(server, sandboxEngine(t), 20)
 }
 
 // TestToolAnnotations asserts the annotations exactly as a client sees them
@@ -53,7 +53,7 @@ func TestRegister(t *testing.T) {
 // only Creators are non-destructive among the mutators.
 func TestToolAnnotations(t *testing.T) {
 	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0"}, nil)
-	Register(server, sandboxEngine(t))
+	Register(server, sandboxEngine(t), 20)
 
 	clientTransport, serverTransport := mcp.NewInMemoryTransports()
 	if _, err := server.Connect(context.Background(), serverTransport, nil); err != nil {
@@ -102,7 +102,7 @@ func TestToolAnnotations(t *testing.T) {
 
 func TestListPackages(t *testing.T) {
 	eng := sandboxEngine(t)
-	_, out, err := listPackages(eng)(context.Background(), nil, ListPackagesInput{})
+	_, out, err := listPackages(eng, testCfg())(context.Background(), nil, ListPackagesInput{})
 	if err != nil {
 		t.Fatalf("list_packages: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestListPackages(t *testing.T) {
 func TestListSymbolsAndFiles(t *testing.T) {
 	eng := sandboxEngine(t)
 
-	_, files, err := listFiles(eng)(context.Background(), nil, ListFilesInput{PkgPath: "shapes"})
+	_, files, err := listFiles(eng, testCfg())(context.Background(), nil, ListFilesInput{PkgPath: "shapes"})
 	if err != nil {
 		t.Fatalf("list_files: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestListSymbolsAndFiles(t *testing.T) {
 		t.Errorf("list_files missing groups.go: %v", files.Files)
 	}
 
-	_, syms, err := listSymbols(eng)(context.Background(), nil, ListSymbolsInput{
+	_, syms, err := listSymbols(eng, testCfg())(context.Background(), nil, ListSymbolsInput{
 		PkgPath:  "shapes",
 		FileName: new("groups.go"),
 	})
@@ -154,7 +154,7 @@ func TestListSymbolsAndFiles(t *testing.T) {
 		t.Errorf("KindCircle entry wrong: %+v", kindCircle)
 	}
 
-	if _, _, err := listSymbols(eng)(context.Background(), nil, ListSymbolsInput{PkgPath: "no/such/pkg"}); err == nil {
+	if _, _, err := listSymbols(eng, testCfg())(context.Background(), nil, ListSymbolsInput{PkgPath: "no/such/pkg"}); err == nil {
 		t.Error("list_symbols on a missing package must error")
 	}
 }
@@ -162,7 +162,7 @@ func TestListSymbolsAndFiles(t *testing.T) {
 func TestDescribers(t *testing.T) {
 	eng := sandboxEngine(t)
 
-	_, typ, err := describeSymbol(eng)(context.Background(), nil, DescribeSymbolInput{
+	_, typ, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		PkgPath: "shapes", SymbolKey: "Circle",
 	})
 	if err != nil {
@@ -177,7 +177,7 @@ func TestDescribers(t *testing.T) {
 		t.Errorf("describe_symbol(Circle) missing Area: %v", typ.Methods)
 	}
 
-	_, fn, err := describeSymbol(eng)(context.Background(), nil, DescribeSymbolInput{
+	_, fn, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		PkgPath: "use", SymbolKey: "NewCircle",
 	})
 	if err != nil {
@@ -187,7 +187,7 @@ func TestDescribers(t *testing.T) {
 		t.Errorf("describe_symbol(NewCircle) wrong: kind=%s", fn.Kind)
 	}
 
-	_, m, err := describeSymbol(eng)(context.Background(), nil, DescribeSymbolInput{
+	_, m, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		PkgPath: "shapes", SymbolKey: "Circle.Area",
 	})
 	if err != nil {
@@ -199,7 +199,7 @@ func TestDescribers(t *testing.T) {
 
 	// The point of consolidating: var/const now have a describe path too,
 	// which describe_type/describe_function/describe_method never gave them.
-	_, v, err := describeSymbol(eng)(context.Background(), nil, DescribeSymbolInput{
+	_, v, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		PkgPath: "shapes", SymbolKey: "DefaultScale",
 	})
 	if err != nil {
@@ -209,7 +209,7 @@ func TestDescribers(t *testing.T) {
 		t.Errorf("describe_symbol(DefaultScale) wrong: kind=%s source=%q", v.Kind, v.Source)
 	}
 
-	_, c, err := describeSymbol(eng)(context.Background(), nil, DescribeSymbolInput{
+	_, c, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		PkgPath: "shapes", SymbolKey: "KindCircle",
 	})
 	if err != nil {
@@ -219,7 +219,7 @@ func TestDescribers(t *testing.T) {
 		t.Errorf("describe_symbol(KindCircle) wrong: kind=%s source=%q", c.Kind, c.Source)
 	}
 
-	if _, _, err := describeSymbol(eng)(context.Background(), nil, DescribeSymbolInput{
+	if _, _, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		PkgPath: "shapes", SymbolKey: "Nope",
 	}); err == nil {
 		t.Error("describing a missing symbol must error")
@@ -294,7 +294,7 @@ func TestSemanticFinders(t *testing.T) {
 func TestMutationTools(t *testing.T) {
 	eng := sandboxEngine(t)
 
-	_, created, err := createSymbol(eng)(context.Background(), nil, CreateSymbolInput{
+	_, created, err := createSymbol(eng, testCfg())(context.Background(), nil, CreateSymbolInput{
 		Creates: []CreateSymbolEntry{{
 			PkgPath: "shapes", FileName: "extra.go",
 			Source: "func Twice(x float64) float64 { return 2 * x }",
@@ -307,7 +307,7 @@ func TestMutationTools(t *testing.T) {
 		t.Errorf("create echo wrong: %+v", created)
 	}
 
-	_, edited, err := editSymbol(eng)(context.Background(), nil, EditSymbolInput{
+	_, edited, err := editSymbol(eng, testCfg())(context.Background(), nil, EditSymbolInput{
 		Edits: []EditSymbolEntry{{
 			PkgPath: "shapes", SymbolKey: "Circle",
 			Source: "type Circle struct{ Radius float64 }",
@@ -322,7 +322,7 @@ func TestMutationTools(t *testing.T) {
 		t.Errorf("edit echo missing the blast radius in use/use.go: %+v", edited)
 	}
 
-	_, healed, err := editSymbol(eng)(context.Background(), nil, EditSymbolInput{
+	_, healed, err := editSymbol(eng, testCfg())(context.Background(), nil, EditSymbolInput{
 		Edits: []EditSymbolEntry{{
 			PkgPath: "shapes", SymbolKey: "Circle",
 			Source: "type Circle struct{ R float64 }",
@@ -335,7 +335,7 @@ func TestMutationTools(t *testing.T) {
 		t.Errorf("healing echo must report resolved and nothing introduced: %+v", healed)
 	}
 
-	if _, _, err := editSymbol(eng)(context.Background(), nil, EditSymbolInput{
+	if _, _, err := editSymbol(eng, testCfg())(context.Background(), nil, EditSymbolInput{
 		Edits: []EditSymbolEntry{{PkgPath: "shapes", SymbolKey: "Nope", Source: "func Nope() {}"}},
 	}); err == nil {
 		t.Error("editing a missing symbol must error")
@@ -346,12 +346,12 @@ func TestAddressForms(t *testing.T) {
 	eng := sandboxEngine(t)
 
 	// Package arguments never accept file names, on any tool.
-	if _, _, err := listSymbols(eng)(context.Background(), nil, ListSymbolsInput{
+	if _, _, err := listSymbols(eng, testCfg())(context.Background(), nil, ListSymbolsInput{
 		PkgPath: "shapes/shapes.go",
 	}); err == nil || !strings.Contains(err.Error(), "names a file") {
 		t.Errorf("file-named package must be refused, got %v", err)
 	}
-	if _, _, err := deletePackage(eng)(context.Background(), nil, DeletePackageInput{
+	if _, _, err := deletePackage(eng, testCfg())(context.Background(), nil, DeletePackageInput{
 		Deletes: []DeletePackageEntry{{PkgPath: "shapes/shapes.go"}},
 	}); err == nil || !strings.Contains(err.Error(), "names a file") {
 		t.Errorf("file-named package on a destructive tool must be refused, got %v", err)
@@ -359,29 +359,29 @@ func TestAddressForms(t *testing.T) {
 
 	// File arguments accept a bare name or a path that agrees with the
 	// package; contradictions and non-*.go forms are refused.
-	if _, syms, err := listSymbols(eng)(context.Background(), nil, ListSymbolsInput{
+	if _, syms, err := listSymbols(eng, testCfg())(context.Background(), nil, ListSymbolsInput{
 		PkgPath: "shapes", FileName: new("shapes/groups.go"),
 	}); err != nil || len(syms.Symbols) == 0 {
 		t.Errorf("file path agreeing with package must be accepted, got %v", err)
 	}
-	if _, _, err := listSymbols(eng)(context.Background(), nil, ListSymbolsInput{
+	if _, _, err := listSymbols(eng, testCfg())(context.Background(), nil, ListSymbolsInput{
 		PkgPath: "shapes", FileName: new("use/use.go"),
 	}); err == nil || !strings.Contains(err.Error(), "does not live in") {
 		t.Errorf("file outside the package must be refused, got %v", err)
 	}
-	if _, _, err := createSymbol(eng)(context.Background(), nil, CreateSymbolInput{
+	if _, _, err := createSymbol(eng, testCfg())(context.Background(), nil, CreateSymbolInput{
 		Creates: []CreateSymbolEntry{{PkgPath: "shapes", FileName: "notgo", Source: "func X() {}"}},
 	}); err == nil || !strings.Contains(err.Error(), "bare *.go name") {
 		t.Errorf("non-.go file name must be refused, got %v", err)
 	}
 
 	// File-addressed mutations speak (package, file) like everything else.
-	if _, _, err := deleteFile(eng)(context.Background(), nil, DeleteFileInput{
+	if _, _, err := deleteFile(eng, testCfg())(context.Background(), nil, DeleteFileInput{
 		Deletes: []DeleteFileEntry{{PkgPath: "use", FileName: "alias.go"}},
 	}); err != nil {
 		t.Errorf("delete_file with (package, file): %v", err)
 	}
-	if _, _, err := moveFile(eng)(context.Background(), nil, MoveFileInput{
+	if _, _, err := moveFile(eng, testCfg())(context.Background(), nil, MoveFileInput{
 		PkgPath: "shapes", FileName: "shapes/groups.go", NewFileName: new("grouped.go"),
 	}); err != nil {
 		t.Errorf("move_file with an agreeing file path: %v", err)
@@ -391,7 +391,7 @@ func TestAddressForms(t *testing.T) {
 func TestExternalReadToolsAndRefusals(t *testing.T) {
 	eng := sandboxEngine(t)
 
-	_, typ, err := describeSymbol(eng)(context.Background(), nil, DescribeSymbolInput{
+	_, typ, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		PkgPath: "io", SymbolKey: "Reader",
 	})
 	if err != nil {
@@ -401,7 +401,7 @@ func TestExternalReadToolsAndRefusals(t *testing.T) {
 		t.Errorf("describe_symbol(io.Reader) wrong: file=%s", typ.File)
 	}
 
-	_, syms, err := listSymbols(eng)(context.Background(), nil, ListSymbolsInput{PkgPath: "io"})
+	_, syms, err := listSymbols(eng, testCfg())(context.Background(), nil, ListSymbolsInput{PkgPath: "io"})
 	if err != nil {
 		t.Fatalf("list_symbols(io): %v", err)
 	}
@@ -419,7 +419,7 @@ func TestExternalReadToolsAndRefusals(t *testing.T) {
 	}
 
 	// The workspace is the only mutable world.
-	if _, _, err := createSymbol(eng)(context.Background(), nil, CreateSymbolInput{
+	if _, _, err := createSymbol(eng, testCfg())(context.Background(), nil, CreateSymbolInput{
 		Creates: []CreateSymbolEntry{{PkgPath: "io", FileName: "extra.go", Source: "func Nope() {}"}},
 	}); err == nil || !strings.Contains(err.Error(), "read-only") {
 		t.Errorf("mutating a dependency must refuse, got %v", err)
@@ -433,22 +433,19 @@ func TestExternalReadToolsAndRefusals(t *testing.T) {
 	}
 
 	// A workspace typo still errors after the failed dependency attempt.
-	if _, _, err := listFiles(eng)(context.Background(), nil, ListFilesInput{PkgPath: "shaeps"}); err == nil {
+	if _, _, err := listFiles(eng, testCfg())(context.Background(), nil, ListFilesInput{PkgPath: "shaeps"}); err == nil {
 		t.Error("typo'd address must error")
 	}
 }
 
 func TestDiagBlockTruncation(t *testing.T) {
-	orig := diagLimit
-	defer func() { diagLimit = orig }()
-
 	diags := make([]engine.Diagnostic, 5)
 	for i := range diags {
 		diags[i] = engine.Diagnostic{Kind: engine.DiagType, Msg: fmt.Sprintf("problem %d", i)}
 	}
 
-	SetDiagLimit(3)
-	block := diagBlock(diags)
+	cfg := newToolConfig(3)
+	block := cfg.diagBlock(diags)
 	if len(block.Diagnostics) != 3 {
 		t.Fatalf("len(Diagnostics) = %d, want 3 shown", len(block.Diagnostics))
 	}
@@ -456,26 +453,25 @@ func TestDiagBlockTruncation(t *testing.T) {
 		t.Errorf("Truncated = %v, want 2", block.Truncated)
 	}
 
-	SetDiagLimit(10)
-	if block := diagBlock(diags); len(block.Diagnostics) != 5 || block.Truncated != nil {
+	cfg = newToolConfig(10)
+	if block := cfg.diagBlock(diags); len(block.Diagnostics) != 5 || block.Truncated != nil {
 		t.Errorf("below the limit: %+v, want 5 shown, no truncation", block)
 	}
 
-	SetDiagLimit(0)
-	if block := diagBlock(diags); len(block.Diagnostics) != 0 || block.Truncated == nil || *block.Truncated != 5 {
+	cfg = newToolConfig(0)
+	if block := cfg.diagBlock(diags); len(block.Diagnostics) != 0 || block.Truncated == nil || *block.Truncated != 5 {
 		t.Errorf("zero limit must still count everything as truncated: %+v", block)
 	}
 
-	diagLimit = 3
-	SetDiagLimit(-1)
-	if diagLimit != 3 {
-		t.Errorf("SetDiagLimit must ignore negative n, got %d", diagLimit)
+	cfg = newToolConfig(-1)
+	if cfg.diagLimit != 20 {
+		t.Errorf("newToolConfig must ignore negative n in favor of the default, got %d", cfg.diagLimit)
 	}
 
-	if block := diagBlock(nil); block.Diagnostics != nil || block.Truncated != nil {
+	if block := cfg.diagBlock(nil); block.Diagnostics != nil || block.Truncated != nil {
 		t.Errorf("empty input must stay a zero-value DiagBlock, got %+v", block)
 	}
-	if diagBlockPtr(nil) != nil {
+	if cfg.diagBlockPtr(nil) != nil {
 		t.Error("diagBlockPtr must return nil for empty input")
 	}
 }
@@ -483,7 +479,7 @@ func TestDiagBlockTruncation(t *testing.T) {
 func TestPackageDocTools(t *testing.T) {
 	eng := sandboxEngine(t)
 
-	_, desc, err := describePackage(eng)(context.Background(), nil, DescribePackageInput{PkgPath: "shapes"})
+	_, desc, err := describePackage(eng, testCfg())(context.Background(), nil, DescribePackageInput{PkgPath: "shapes"})
 	if err != nil {
 		t.Fatalf("describe_package: %v", err)
 	}
@@ -495,7 +491,7 @@ func TestPackageDocTools(t *testing.T) {
 		t.Errorf("describe_package(shapes).Files missing entries: %v", desc.Files)
 	}
 
-	_, file, err := describeFile(eng)(context.Background(), nil, DescribeFileInput{PkgPath: "shapes", FileName: "shapes.go"})
+	_, file, err := describeFile(eng, testCfg())(context.Background(), nil, DescribeFileInput{PkgPath: "shapes", FileName: "shapes.go"})
 	if err != nil {
 		t.Fatalf("describe_file: %v", err)
 	}
@@ -503,7 +499,7 @@ func TestPackageDocTools(t *testing.T) {
 		t.Errorf("describe_file(shapes.go).Doc = %v", file.Doc)
 	}
 
-	_, created, err := createFile(eng)(context.Background(), nil, CreateFileInput{
+	_, created, err := createFile(eng, testCfg())(context.Background(), nil, CreateFileInput{
 		Creates: []CreateFileEntry{{PkgPath: "shapes", FileName: "new_doc.go", Doc: new("New file doc.")}},
 	})
 	if err != nil {
@@ -512,7 +508,7 @@ func TestPackageDocTools(t *testing.T) {
 	if created.IntroducedDiagnostics != nil {
 		t.Errorf("create_file with doc produced diagnostics: %+v", created)
 	}
-	_, newFile, err := describeFile(eng)(context.Background(), nil, DescribeFileInput{PkgPath: "shapes", FileName: "new_doc.go"})
+	_, newFile, err := describeFile(eng, testCfg())(context.Background(), nil, DescribeFileInput{PkgPath: "shapes", FileName: "new_doc.go"})
 	if err != nil {
 		t.Fatalf("describe_file(new_doc.go): %v", err)
 	}
@@ -520,12 +516,12 @@ func TestPackageDocTools(t *testing.T) {
 		t.Errorf("new_doc.go doc = %v, want %q", newFile.Doc, "New file doc.")
 	}
 
-	if _, _, err := editFile(eng)(context.Background(), nil, EditFileInput{
+	if _, _, err := editFile(eng, testCfg())(context.Background(), nil, EditFileInput{
 		Edits: []EditFileEntry{{PkgPath: "shapes", FileName: "new_doc.go", Doc: new("")}},
 	}); err != nil {
 		t.Fatalf("edit_file (clear): %v", err)
 	}
-	_, cleared, err := describeFile(eng)(context.Background(), nil, DescribeFileInput{PkgPath: "shapes", FileName: "new_doc.go"})
+	_, cleared, err := describeFile(eng, testCfg())(context.Background(), nil, DescribeFileInput{PkgPath: "shapes", FileName: "new_doc.go"})
 	if err != nil {
 		t.Fatalf("describe_file(new_doc.go) after clear: %v", err)
 	}
@@ -533,7 +529,7 @@ func TestPackageDocTools(t *testing.T) {
 		t.Errorf("cleared doc = %v, want nil", cleared.Doc)
 	}
 
-	if _, _, err := editFile(eng)(context.Background(), nil, EditFileInput{
+	if _, _, err := editFile(eng, testCfg())(context.Background(), nil, EditFileInput{
 		Edits: []EditFileEntry{{PkgPath: "shapes", FileName: "nope.go", Doc: new("x")}},
 	}); err == nil {
 		t.Error("edit_file on a missing file must error")
@@ -543,19 +539,19 @@ func TestPackageDocTools(t *testing.T) {
 func TestMoveSymbolInputWiring(t *testing.T) {
 	eng := sandboxEngine(t)
 
-	if _, _, err := moveSymbol(eng)(context.Background(), nil, MoveSymbolInput{
+	if _, _, err := moveSymbol(eng, testCfg())(context.Background(), nil, MoveSymbolInput{
 		PkgPath: "shapes", SymbolKey: "NotShape", NewSymbolKey: new("AlsoNotShape"),
 	}); err != nil {
 		t.Fatalf("move_symbol rename: %v", err)
 	}
 
-	if _, _, err := moveSymbol(eng)(context.Background(), nil, MoveSymbolInput{
+	if _, _, err := moveSymbol(eng, testCfg())(context.Background(), nil, MoveSymbolInput{
 		PkgPath: "shapes", SymbolKey: "Circle.Area", NewSymbolKey: new("Square.Extent"),
 	}); err == nil || !strings.Contains(err.Error(), "cannot change") {
 		t.Errorf("mismatched receiver via move_symbol must be refused, got %v", err)
 	}
 
-	if _, _, err := moveSymbol(eng)(context.Background(), nil, MoveSymbolInput{
+	if _, _, err := moveSymbol(eng, testCfg())(context.Background(), nil, MoveSymbolInput{
 		PkgPath: "shapes", SymbolKey: "Circle.Area", NewSymbolKey: new("Circle.Extent"),
 	}); err != nil {
 		t.Fatalf("move_symbol qualified method rename: %v", err)
@@ -564,7 +560,7 @@ func TestMoveSymbolInputWiring(t *testing.T) {
 
 func TestCreateSymbolMultiEntry(t *testing.T) {
 	eng := sandboxEngine(t)
-	_, out, err := createSymbol(eng)(context.Background(), nil, CreateSymbolInput{
+	_, out, err := createSymbol(eng, testCfg())(context.Background(), nil, CreateSymbolInput{
 		Creates: []CreateSymbolEntry{
 			{PkgPath: "shapes", FileName: "batch.go", Source: "func Foo() {}"},
 			{PkgPath: "shapes", FileName: "batch.go", Source: "func Bar() {}"},
@@ -576,17 +572,17 @@ func TestCreateSymbolMultiEntry(t *testing.T) {
 	if out.IntroducedDiagnostics != nil {
 		t.Errorf("batch introduced diagnostics: %+v", out)
 	}
-	if _, _, err := describeSymbol(eng)(context.Background(), nil, DescribeSymbolInput{PkgPath: "shapes", SymbolKey: "Foo"}); err != nil {
+	if _, _, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{PkgPath: "shapes", SymbolKey: "Foo"}); err != nil {
 		t.Errorf("Foo missing after batch: %v", err)
 	}
-	if _, _, err := describeSymbol(eng)(context.Background(), nil, DescribeSymbolInput{PkgPath: "shapes", SymbolKey: "Bar"}); err != nil {
+	if _, _, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{PkgPath: "shapes", SymbolKey: "Bar"}); err != nil {
 		t.Errorf("Bar missing after batch: %v", err)
 	}
 }
 
 func TestCreateSymbolBatchAbortsWhollyOnFailure(t *testing.T) {
 	eng := sandboxEngine(t)
-	_, _, err := createSymbol(eng)(context.Background(), nil, CreateSymbolInput{
+	_, _, err := createSymbol(eng, testCfg())(context.Background(), nil, CreateSymbolInput{
 		Creates: []CreateSymbolEntry{
 			{PkgPath: "shapes", FileName: "batch.go", Source: "func Foo() {}"},
 			{PkgPath: "shapes", FileName: "batch.go", Source: "func Foo() {}"},
@@ -595,21 +591,21 @@ func TestCreateSymbolBatchAbortsWhollyOnFailure(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "creates[1]") {
 		t.Fatalf("expected creates[1] to fail on the duplicate, got %v", err)
 	}
-	if _, _, err := describeSymbol(eng)(context.Background(), nil, DescribeSymbolInput{PkgPath: "shapes", SymbolKey: "Foo"}); err == nil {
+	if _, _, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{PkgPath: "shapes", SymbolKey: "Foo"}); err == nil {
 		t.Error("Foo must not exist — the whole batch should have been discarded, including entry 0")
 	}
 }
 
 func TestCreateSymbolBatchRefusesEmpty(t *testing.T) {
 	eng := sandboxEngine(t)
-	if _, _, err := createSymbol(eng)(context.Background(), nil, CreateSymbolInput{}); err == nil {
+	if _, _, err := createSymbol(eng, testCfg())(context.Background(), nil, CreateSymbolInput{}); err == nil {
 		t.Error("an empty batch must be refused")
 	}
 }
 
 func TestEditSymbolMultiEntry(t *testing.T) {
 	eng := sandboxEngine(t)
-	_, out, err := editSymbol(eng)(context.Background(), nil, EditSymbolInput{
+	_, out, err := editSymbol(eng, testCfg())(context.Background(), nil, EditSymbolInput{
 		Edits: []EditSymbolEntry{
 			{PkgPath: "shapes", SymbolKey: "NotShape", Source: "type NotShape struct{ X int }"},
 			{PkgPath: "shapes", SymbolKey: "DefaultScale", Source: "// DefaultScale stretches everything.\nDefaultScale = 2.0"},
@@ -621,11 +617,11 @@ func TestEditSymbolMultiEntry(t *testing.T) {
 	if out.IntroducedDiagnostics != nil {
 		t.Errorf("batch introduced diagnostics: %+v", out)
 	}
-	_, ns, err := describeSymbol(eng)(context.Background(), nil, DescribeSymbolInput{PkgPath: "shapes", SymbolKey: "NotShape"})
+	_, ns, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{PkgPath: "shapes", SymbolKey: "NotShape"})
 	if err != nil || !strings.Contains(ns.Source, "X int") {
 		t.Errorf("NotShape not updated: %v %q", err, ns.Source)
 	}
-	_, ds, err := describeSymbol(eng)(context.Background(), nil, DescribeSymbolInput{PkgPath: "shapes", SymbolKey: "DefaultScale"})
+	_, ds, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{PkgPath: "shapes", SymbolKey: "DefaultScale"})
 	if err != nil || !strings.Contains(ds.Source, "2.0") {
 		t.Errorf("DefaultScale not updated: %v %q", err, ds.Source)
 	}
@@ -633,7 +629,7 @@ func TestEditSymbolMultiEntry(t *testing.T) {
 
 func TestEditSymbolBatchRefusesDuplicateTarget(t *testing.T) {
 	eng := sandboxEngine(t)
-	_, _, err := editSymbol(eng)(context.Background(), nil, EditSymbolInput{
+	_, _, err := editSymbol(eng, testCfg())(context.Background(), nil, EditSymbolInput{
 		Edits: []EditSymbolEntry{
 			{PkgPath: "shapes", SymbolKey: "NotShape", Source: "type NotShape struct{ X int }"},
 			{PkgPath: "shapes", SymbolKey: "NotShape", Source: "type NotShape struct{ Y int }"},
@@ -642,7 +638,7 @@ func TestEditSymbolBatchRefusesDuplicateTarget(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "duplicate target") {
 		t.Fatalf("expected a duplicate-target refusal, got %v", err)
 	}
-	_, ns, derr := describeSymbol(eng)(context.Background(), nil, DescribeSymbolInput{PkgPath: "shapes", SymbolKey: "NotShape"})
+	_, ns, derr := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{PkgPath: "shapes", SymbolKey: "NotShape"})
 	if derr != nil || strings.Contains(ns.Source, "X int") || strings.Contains(ns.Source, "Y int") {
 		t.Errorf("NotShape must be untouched after a refused batch: %v %q", derr, ns.Source)
 	}
@@ -650,7 +646,7 @@ func TestEditSymbolBatchRefusesDuplicateTarget(t *testing.T) {
 
 func TestEditSymbolBatchAbortsWhollyOnFailure(t *testing.T) {
 	eng := sandboxEngine(t)
-	_, _, err := editSymbol(eng)(context.Background(), nil, EditSymbolInput{
+	_, _, err := editSymbol(eng, testCfg())(context.Background(), nil, EditSymbolInput{
 		Edits: []EditSymbolEntry{
 			{PkgPath: "shapes", SymbolKey: "NotShape", Source: "type NotShape struct{ X int }"},
 			{PkgPath: "shapes", SymbolKey: "Missing", Source: "type Missing struct{}"},
@@ -659,7 +655,7 @@ func TestEditSymbolBatchAbortsWhollyOnFailure(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "edits[1]") {
 		t.Fatalf("expected edits[1] to fail on the missing symbol, got %v", err)
 	}
-	_, ns, derr := describeSymbol(eng)(context.Background(), nil, DescribeSymbolInput{PkgPath: "shapes", SymbolKey: "NotShape"})
+	_, ns, derr := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{PkgPath: "shapes", SymbolKey: "NotShape"})
 	if derr != nil || strings.Contains(ns.Source, "X int") {
 		t.Errorf("NotShape must be untouched — the whole batch should have been discarded: %v %q", derr, ns.Source)
 	}
@@ -667,7 +663,7 @@ func TestEditSymbolBatchAbortsWhollyOnFailure(t *testing.T) {
 
 func TestEditSymbolBatchRefusesEmpty(t *testing.T) {
 	eng := sandboxEngine(t)
-	if _, _, err := editSymbol(eng)(context.Background(), nil, EditSymbolInput{}); err == nil {
+	if _, _, err := editSymbol(eng, testCfg())(context.Background(), nil, EditSymbolInput{}); err == nil {
 		t.Error("an empty batch must be refused")
 	}
 }
@@ -675,7 +671,7 @@ func TestEditSymbolBatchRefusesEmpty(t *testing.T) {
 func TestDeleteTools(t *testing.T) {
 	eng := sandboxEngine(t)
 
-	_, out, err := deleteSymbol(eng)(context.Background(), nil, DeleteSymbolInput{
+	_, out, err := deleteSymbol(eng, testCfg())(context.Background(), nil, DeleteSymbolInput{
 		Deletes: []DeleteSymbolEntry{{PkgPath: "shapes", SymbolKey: "Circle"}},
 	})
 	if err != nil {
@@ -685,7 +681,7 @@ func TestDeleteTools(t *testing.T) {
 		t.Errorf("delete echo missing the touched file: %+v", out)
 	}
 
-	_, noop, err := deleteSymbol(eng)(context.Background(), nil, DeleteSymbolInput{
+	_, noop, err := deleteSymbol(eng, testCfg())(context.Background(), nil, DeleteSymbolInput{
 		Deletes: []DeleteSymbolEntry{{PkgPath: "shapes", SymbolKey: "Circle"}},
 	})
 	if err != nil {
@@ -695,7 +691,7 @@ func TestDeleteTools(t *testing.T) {
 		t.Errorf("deleting an already-gone symbol must be a noop, got %+v", noop)
 	}
 
-	_, fileNoop, err := deleteFile(eng)(context.Background(), nil, DeleteFileInput{
+	_, fileNoop, err := deleteFile(eng, testCfg())(context.Background(), nil, DeleteFileInput{
 		Deletes: []DeleteFileEntry{{PkgPath: "shapes", FileName: "nosuch.go"}},
 	})
 	if err != nil {
@@ -705,7 +701,7 @@ func TestDeleteTools(t *testing.T) {
 		t.Errorf("deleting a nonexistent file must be a noop, got %+v", fileNoop)
 	}
 
-	_, pkgNoop, err := deletePackage(eng)(context.Background(), nil, DeletePackageInput{
+	_, pkgNoop, err := deletePackage(eng, testCfg())(context.Background(), nil, DeletePackageInput{
 		Deletes: []DeletePackageEntry{{PkgPath: "nosuchpkg"}},
 	})
 	if err != nil {
@@ -721,7 +717,7 @@ func TestDeleteSymbolBatchDuplicateIsHarmless(t *testing.T) {
 	// KindCircle with it; a later entry naming KindCircle must not abort
 	// the batch just because the first entry already satisfied it.
 	eng := sandboxEngine(t)
-	_, out, err := deleteSymbol(eng)(context.Background(), nil, DeleteSymbolInput{
+	_, out, err := deleteSymbol(eng, testCfg())(context.Background(), nil, DeleteSymbolInput{
 		Deletes: []DeleteSymbolEntry{
 			{PkgPath: "shapes", SymbolKey: "KindSquare"},
 			{PkgPath: "shapes", SymbolKey: "KindCircle"},
@@ -737,7 +733,7 @@ func TestDeleteSymbolBatchDuplicateIsHarmless(t *testing.T) {
 
 func TestDeleteFileBatchAbortsWhollyOnFailure(t *testing.T) {
 	eng := sandboxEngine(t)
-	_, _, err := deleteFile(eng)(context.Background(), nil, DeleteFileInput{
+	_, _, err := deleteFile(eng, testCfg())(context.Background(), nil, DeleteFileInput{
 		Deletes: []DeleteFileEntry{
 			{PkgPath: "shapes", FileName: "shapes.go"},
 			{PkgPath: "shapes", FileName: "notgo"},
@@ -749,7 +745,7 @@ func TestDeleteFileBatchAbortsWhollyOnFailure(t *testing.T) {
 	if !strings.Contains(err.Error(), "deletes[1]") {
 		t.Errorf("error must name the failing entry, got %v", err)
 	}
-	_, out, err := listFiles(eng)(context.Background(), nil, ListFilesInput{PkgPath: "shapes"})
+	_, out, err := listFiles(eng, testCfg())(context.Background(), nil, ListFilesInput{PkgPath: "shapes"})
 	if err != nil {
 		t.Fatalf("list_files: %v", err)
 	}
@@ -760,7 +756,7 @@ func TestDeleteFileBatchAbortsWhollyOnFailure(t *testing.T) {
 
 func TestCreatePackageBatch(t *testing.T) {
 	eng := sandboxEngine(t)
-	_, out, err := createPackage(eng)(context.Background(), nil, CreatePackageInput{
+	_, out, err := createPackage(eng, testCfg())(context.Background(), nil, CreatePackageInput{
 		Creates: []CreatePackageEntry{
 			{PkgPath: "widgets"},
 			{PkgPath: "gadgets"},
@@ -777,7 +773,7 @@ func TestCreatePackageBatch(t *testing.T) {
 
 func TestCreateFileBatchAbortsWhollyOnFailure(t *testing.T) {
 	eng := sandboxEngine(t)
-	_, _, err := createFile(eng)(context.Background(), nil, CreateFileInput{
+	_, _, err := createFile(eng, testCfg())(context.Background(), nil, CreateFileInput{
 		Creates: []CreateFileEntry{
 			{PkgPath: "shapes", FileName: "first.go"},
 			{PkgPath: "shapes", FileName: "shapes.go"}, // already exists
@@ -789,7 +785,7 @@ func TestCreateFileBatchAbortsWhollyOnFailure(t *testing.T) {
 	if !strings.Contains(err.Error(), "creates[1]") {
 		t.Errorf("error must name the failing entry, got %v", err)
 	}
-	_, out, err := listFiles(eng)(context.Background(), nil, ListFilesInput{PkgPath: "shapes"})
+	_, out, err := listFiles(eng, testCfg())(context.Background(), nil, ListFilesInput{PkgPath: "shapes"})
 	if err != nil {
 		t.Fatalf("list_files: %v", err)
 	}
@@ -800,7 +796,7 @@ func TestCreateFileBatchAbortsWhollyOnFailure(t *testing.T) {
 
 func TestEditFileBatch(t *testing.T) {
 	eng := sandboxEngine(t)
-	_, out, err := editFile(eng)(context.Background(), nil, EditFileInput{
+	_, out, err := editFile(eng, testCfg())(context.Background(), nil, EditFileInput{
 		Edits: []EditFileEntry{
 			{PkgPath: "shapes", FileName: "shapes.go", Doc: new("Updated shapes doc.")},
 			{PkgPath: "use", FileName: "use.go", Doc: new("Updated use doc.")},
@@ -817,7 +813,7 @@ func TestEditFileBatch(t *testing.T) {
 
 func TestEditFileBatchRefusesDuplicateTarget(t *testing.T) {
 	eng := sandboxEngine(t)
-	_, _, err := editFile(eng)(context.Background(), nil, EditFileInput{
+	_, _, err := editFile(eng, testCfg())(context.Background(), nil, EditFileInput{
 		Edits: []EditFileEntry{
 			{PkgPath: "shapes", FileName: "shapes.go", Doc: new("First.")},
 			{PkgPath: "shapes", FileName: "shapes.go", Doc: new("Second.")},
@@ -826,4 +822,10 @@ func TestEditFileBatchRefusesDuplicateTarget(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "duplicate target") {
 		t.Errorf("duplicate target must be refused before the transaction opens, got %v", err)
 	}
+}
+
+// testCfg returns a toolConfig for tests that call a handler factory
+// directly (bypassing Register) and need one to satisfy the signature.
+func testCfg() *toolConfig {
+	return newToolConfig(20)
 }

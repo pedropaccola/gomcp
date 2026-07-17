@@ -8,12 +8,16 @@ import (
 	"github.com/pedropaccola/gomcp/internal/engine"
 )
 
-// diagLimit caps the diagnostics rendered in every scoped DiagBlock —
-// list_* output, describe_* output, and mutation echoes — so a
-// wide-blast-radius read or edit can't drown the agent in text; the
-// diagnostics tool remains the uncapped inventory. SetDiagLimit overrides
-// the default once at startup, ahead of Register.
-var diagLimit = 20
+// toolConfig holds process-wide tool configuration set once at Register
+// time — currently just diagLimit, threaded into every handler that caps
+// diagnostics instead of living as a package-level var. Replaces a former
+// diagLimit global plus a SetDiagLimit setter: that shape was safe only by
+// convention (SetDiagLimit had to run before Register, unenforced by the
+// type system), whereas this shape makes the value immutable for the
+// server's whole lifetime by construction.
+type toolConfig struct {
+	diagLimit int
+}
 
 // diagEntry renders one diagnostic into its wire-facing shape.
 func diagEntry(d engine.Diagnostic) DiagnosticEntry {
@@ -89,33 +93,24 @@ func pkgAddr(module address.PkgPath, dir address.RelativePath) string {
 	return module.String() + "/" + dir.String()
 }
 
-// SetDiagLimit overrides diagLimit (see its doc); call before Register.
-// Negative n is ignored — there is no such thing as showing fewer than
-// zero diagnostics.
-func SetDiagLimit(n int) {
-	if n >= 0 {
-		diagLimit = n
-	}
-}
-
-// diagBlock renders diagnostics into a DiagBlock, capped to diagLimit —
+// diagBlock renders diagnostics into a DiagBlock, capped to c.diagLimit —
 // the read-side shape, embedded directly (never nil: an empty DiagBlock's
 // fields already omit independently, so there's no wrapping key to hide).
-func diagBlock(diags []engine.Diagnostic) DiagBlock {
+func (c *toolConfig) diagBlock(diags []engine.Diagnostic) DiagBlock {
 	if len(diags) == 0 {
 		return DiagBlock{}
 	}
 	shown := diags
-	if len(diags) > diagLimit {
-		shown = diags[:diagLimit]
+	if len(diags) > c.diagLimit {
+		shown = diags[:c.diagLimit]
 	}
 	entries := make([]DiagnosticEntry, len(shown))
 	for i, d := range shown {
 		entries[i] = diagEntry(d)
 	}
 	block := DiagBlock{Diagnostics: entries}
-	if len(diags) > diagLimit {
-		block.Truncated = new(len(diags) - diagLimit)
+	if len(diags) > c.diagLimit {
+		block.Truncated = new(len(diags) - c.diagLimit)
 	}
 	return block
 }
@@ -123,12 +118,36 @@ func diagBlock(diags []engine.Diagnostic) DiagBlock {
 // diagBlockPtr is diagBlock's write-side counterpart: nil when there's
 // nothing to report, so a named field carrying it (WriteOutput) omits the
 // whole object instead of delivering an empty one.
-func diagBlockPtr(diags []engine.Diagnostic) *DiagBlock {
+func (c *toolConfig) diagBlockPtr(diags []engine.Diagnostic) *DiagBlock {
 	if len(diags) == 0 {
 		return nil
 	}
-	block := diagBlock(diags)
+	block := c.diagBlock(diags)
 	return &block
+}
+
+// DiagBlock is the shared optional diagnostics view, scoped to whatever the
+// carrying tool read. See the package doc's output convention. Diagnostics
+// is capped at diagLimit (default 20, tunable via -diagnostics-limit);
+// Truncated is nil when everything fit, otherwise the count left out —
+// the diagnostics tool itself is never capped, so it's always the
+// complete-inventory fallback.
+type DiagBlock struct {
+	Diagnostics []DiagnosticEntry `json:"diagnostics,omitempty"`
+	Truncated   *int              `json:"truncated,omitempty"`
+}
+
+// DiagnosticEntry is one problem report, addressed the same way every other
+// tool addresses a symbol: PkgPath/SymbolKey are directly usable as-is with
+// describe_symbol/edit_symbol. FileName is the coarser fallback when a
+// diagnostic is attributable to a file but no single declaration; all three
+// are nil for module/driver-level problems.
+type DiagnosticEntry struct {
+	PkgPath   *string `json:"pkg_path,omitempty"`
+	FileName  *string `json:"file_name,omitempty"`
+	SymbolKey *string `json:"symbol_key,omitempty"`
+	Kind      string  `json:"kind"`
+	Message   string  `json:"message"`
 }
 
 // diagsForFile narrows a package's diagnostics down to one file's own.
@@ -151,4 +170,14 @@ func optStr(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+// newToolConfig builds a toolConfig; a negative diagLimit is ignored in
+// favor of the default (20) — there is no such thing as showing fewer than
+// zero diagnostics.
+func newToolConfig(diagLimit int) *toolConfig {
+	if diagLimit < 0 {
+		diagLimit = 20
+	}
+	return &toolConfig{diagLimit: diagLimit}
 }

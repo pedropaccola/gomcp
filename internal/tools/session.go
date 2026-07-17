@@ -7,6 +7,23 @@ import (
 	"github.com/pedropaccola/gomcp/internal/engine"
 )
 
+type FlushInput struct{}
+
+type FlushOutput struct {
+	FilesWritten map[string][]string `json:"files_written,omitempty"`
+	FilesRemoved map[string][]string `json:"files_removed,omitempty"`
+}
+
+type ReloadInput struct{}
+
+// ReloadOutput reports what a reload threw away, grouped by package, plus
+// the fresh workspace diagnostics — reload's scope is the whole workspace,
+// so here the view and the inventory coincide.
+type ReloadOutput struct {
+	FilesDiscarded map[string][]string `json:"files_discarded,omitempty"`
+	DiagBlock
+}
+
 func flush(eng *engine.Engine) mcp.ToolHandlerFor[FlushInput, FlushOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, _ FlushInput) (*mcp.CallToolResult, FlushOutput, error) {
 		written, removed, err := eng.Flush()
@@ -18,7 +35,7 @@ func flush(eng *engine.Engine) mcp.ToolHandlerFor[FlushInput, FlushOutput] {
 	}
 }
 
-func reload(eng *engine.Engine) mcp.ToolHandlerFor[ReloadInput, ReloadOutput] {
+func reload(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ReloadInput, ReloadOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, _ ReloadInput) (*mcp.CallToolResult, ReloadOutput, error) {
 		var out ReloadOutput
 		discarded, err := eng.Reload(ctx)
@@ -26,8 +43,8 @@ func reload(eng *engine.Engine) mcp.ToolHandlerFor[ReloadInput, ReloadOutput] {
 			return nil, out, err
 		}
 		out.FilesDiscarded = filesByPackage(eng.ModulePath(), discarded)
-		err = eng.Read(func(v *engine.View) error {
-			out.DiagBlock = diagBlock(v.AllDiagnostics())
+		err = eng.Read(ctx, func(v *engine.View) error {
+			out.DiagBlock = cfg.diagBlock(v.AllDiagnostics())
 			return nil
 		})
 		return nil, out, err

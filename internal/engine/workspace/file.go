@@ -27,10 +27,6 @@ func (f *File) Ast() *ast.File { return f.ast }
 // Dirty reports whether the file's bytes await a flush to disk.
 func (f *File) Dirty() bool { return f.dirty }
 
-// MarkFlushed clears the dirty mark once the bytes reached disk — Flush's
-// half of the dirty lifecycle; SwapFile and MoveFile set the mark.
-func (f *File) MarkFlushed() { f.dirty = false }
-
 // Src returns the file's canonical bytes.
 func (f *File) Src() []byte { return f.src }
 

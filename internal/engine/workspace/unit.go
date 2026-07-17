@@ -10,14 +10,18 @@ type Unit struct {
 }
 
 // MarkDirty re-marks path dirty in whichever of the unit's packages holds
-// it — how dirty state survives a reload built from overlays.
+// it — how dirty state survives a reload built from overlays. Replaces
+// rather than mutates in place, since a File may still be shared with
+// another Workspace generation via Clone.
 func (u *Unit) MarkDirty(path address.RelativePath) {
 	for _, p := range []*Package{u.Prod, u.XTest} {
 		if p == nil {
 			continue
 		}
 		if file, ok := p.files[path]; ok {
-			file.dirty = true
+			cp := *file
+			cp.dirty = true
+			p.files[path] = &cp
 		}
 	}
 }
