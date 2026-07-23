@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/engine"
 )
 
@@ -53,17 +52,13 @@ func createPackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Creat
 			return nil, WriteOutput{}, fmt.Errorf("creates must not be empty")
 		}
 		n := len(in.Creates)
-		pkgs := make([]address.PkgPath, n)
-		for i, entry := range in.Creates {
-			pkg, err := packageArg(eng, entry.PkgPath)
-			if err != nil {
-				return nil, WriteOutput{}, batchErr("creates", i, n, err)
-			}
-			pkgs[i] = pkg
-		}
 		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
 			for i, entry := range in.Creates {
-				if err := tx.CreatePackage(pkgs[i], optStr(entry.Name)); err != nil {
+				pkg, err := packageArg(tx.View, entry.PkgPath)
+				if err != nil {
+					return batchErr("creates", i, n, err)
+				}
+				if err := tx.CreatePackage(pkg, optStr(entry.Name)); err != nil {
 					return batchErr("creates", i, n, err)
 				}
 			}
@@ -78,23 +73,17 @@ func createFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[CreateFi
 			return nil, WriteOutput{}, fmt.Errorf("creates must not be empty")
 		}
 		n := len(in.Creates)
-		pkgs := make([]address.PkgPath, n)
-		files := make([]string, n)
-		for i, entry := range in.Creates {
-			pkg, err := packageArg(eng, entry.PkgPath)
-			if err != nil {
-				return nil, WriteOutput{}, batchErr("creates", i, n, err)
-			}
-			file, err := fileArg(eng.ModulePath(), pkg, entry.FileName)
-			if err != nil {
-				return nil, WriteOutput{}, batchErr("creates", i, n, err)
-			}
-			pkgs[i] = pkg
-			files[i] = file
-		}
 		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
 			for i, entry := range in.Creates {
-				if err := tx.CreateFile(pkgs[i], files[i], optStr(entry.Doc)); err != nil {
+				pkg, err := packageArg(tx.View, entry.PkgPath)
+				if err != nil {
+					return batchErr("creates", i, n, err)
+				}
+				file, err := fileArg(tx.Module(), pkg, entry.FileName)
+				if err != nil {
+					return batchErr("creates", i, n, err)
+				}
+				if err := tx.CreateFile(pkg, file, optStr(entry.Doc)); err != nil {
 					return batchErr("creates", i, n, err)
 				}
 			}
@@ -109,23 +98,17 @@ func createSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Create
 			return nil, WriteOutput{}, fmt.Errorf("creates must not be empty")
 		}
 		n := len(in.Creates)
-		pkgs := make([]address.PkgPath, n)
-		files := make([]string, n)
-		for i, entry := range in.Creates {
-			pkg, err := packageArg(eng, entry.PkgPath)
-			if err != nil {
-				return nil, WriteOutput{}, batchErr("creates", i, n, err)
-			}
-			file, err := fileArg(eng.ModulePath(), pkg, entry.FileName)
-			if err != nil {
-				return nil, WriteOutput{}, batchErr("creates", i, n, err)
-			}
-			pkgs[i] = pkg
-			files[i] = file
-		}
 		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
 			for i, entry := range in.Creates {
-				if err := tx.CreateSymbol(pkgs[i], files[i], entry.Source); err != nil {
+				pkg, err := packageArg(tx.View, entry.PkgPath)
+				if err != nil {
+					return batchErr("creates", i, n, err)
+				}
+				file, err := fileArg(tx.Module(), pkg, entry.FileName)
+				if err != nil {
+					return batchErr("creates", i, n, err)
+				}
+				if err := tx.CreateSymbol(pkg, file, entry.Source); err != nil {
 					return batchErr("creates", i, n, err)
 				}
 			}

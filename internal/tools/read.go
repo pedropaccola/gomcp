@@ -13,16 +13,17 @@ import (
 // dependency cache, lazily loading the dependency on a workspace miss —
 // loads never happen under the gate.
 func readPackage(ctx context.Context, eng *engine.Engine, addr string, fn func(*engine.View, engine.Package) error) error {
-	canon, err := canonPkg(eng.ModulePath(), addr)
-	if err != nil {
-		return err
-	}
 	clean, cleanOK := address.CleanPath(addr)
 	ext := address.PkgPath(clean)
-	extOK := cleanOK && ext != canon && ext != "."
+	var extOK bool
 	attempt := func() (bool, error) {
 		found := false
 		err := eng.Read(ctx, func(v *engine.View) error {
+			canon, err := canonPkg(v.Module(), addr)
+			if err != nil {
+				return err
+			}
+			extOK = cleanOK && ext != canon && ext != "."
 			if pkg, ok := v.Package(canon); ok {
 				found = true
 				return fn(v, pkg)

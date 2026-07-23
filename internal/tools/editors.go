@@ -45,21 +45,21 @@ func editFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[EditFileIn
 			return nil, WriteOutput{}, fmt.Errorf("edits must not be empty")
 		}
 		n := len(in.Edits)
-		pkgs := make([]address.PkgPath, n)
-		seen := make(map[string]bool, n)
-		for i, entry := range in.Edits {
-			pkg, err := packageArg(eng, entry.PkgPath)
-			if err != nil {
-				return nil, WriteOutput{}, batchErr("edits", i, n, err)
-			}
-			pkgs[i] = pkg
-			addr := string(pkg) + "\x00" + entry.FileName
-			if seen[addr] {
-				return nil, WriteOutput{}, fmt.Errorf("edits[%d]: duplicate target %q in %q — a batch must address each file once", i, entry.FileName, pkg)
-			}
-			seen[addr] = true
-		}
 		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
+			pkgs := make([]address.PkgPath, n)
+			seen := make(map[string]bool, n)
+			for i, entry := range in.Edits {
+				pkg, err := packageArg(tx.View, entry.PkgPath)
+				if err != nil {
+					return batchErr("edits", i, n, err)
+				}
+				pkgs[i] = pkg
+				addr := string(pkg) + "\x00" + entry.FileName
+				if seen[addr] {
+					return fmt.Errorf("edits[%d]: duplicate target %q in %q — a batch must address each file once", i, entry.FileName, pkg)
+				}
+				seen[addr] = true
+			}
 			for i, entry := range in.Edits {
 				if err := tx.EditFile(pkgs[i], entry.FileName, optStr(entry.Doc)); err != nil {
 					return batchErr("edits", i, n, err)
@@ -76,21 +76,21 @@ func editSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[EditSymb
 			return nil, WriteOutput{}, fmt.Errorf("edits must not be empty")
 		}
 		n := len(in.Edits)
-		pkgs := make([]address.PkgPath, n)
-		seen := make(map[string]bool, n)
-		for i, entry := range in.Edits {
-			pkg, err := packageArg(eng, entry.PkgPath)
-			if err != nil {
-				return nil, WriteOutput{}, batchErr("edits", i, n, err)
-			}
-			pkgs[i] = pkg
-			addr := string(pkg) + "\x00" + entry.SymbolKey
-			if seen[addr] {
-				return nil, WriteOutput{}, fmt.Errorf("edits[%d]: duplicate target %q in %q — a batch must address each symbol once", i, entry.SymbolKey, pkg)
-			}
-			seen[addr] = true
-		}
 		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
+			pkgs := make([]address.PkgPath, n)
+			seen := make(map[string]bool, n)
+			for i, entry := range in.Edits {
+				pkg, err := packageArg(tx.View, entry.PkgPath)
+				if err != nil {
+					return batchErr("edits", i, n, err)
+				}
+				pkgs[i] = pkg
+				addr := string(pkg) + "\x00" + entry.SymbolKey
+				if seen[addr] {
+					return fmt.Errorf("edits[%d]: duplicate target %q in %q — a batch must address each symbol once", i, entry.SymbolKey, pkg)
+				}
+				seen[addr] = true
+			}
 			for i, entry := range in.Edits {
 				if err := tx.EditSymbol(pkgs[i], entry.SymbolKey, entry.Source); err != nil {
 					return batchErr("edits", i, n, err)

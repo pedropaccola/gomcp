@@ -25,13 +25,17 @@ import (
 // units, tombstones, position tables, the dependency cache — lives behind
 // the workspace.Workspace and is only reshaped through its primitives.
 //
-// Never call a gate-safe accessor (ModulePath, IsExternal, ...) from
-// inside a Read/Edit closure: sync.RWMutex isn't reentrant, so the
-// accessor's own lock acquisition deadlocks the calling goroutine against
+// ModulePath is the one remaining gate-safe accessor, safe only for
+// callers outside a Read/Edit closure: sync.RWMutex isn't reentrant, so
+// calling it from inside one deadlocks the calling goroutine against
 // itself — no error, no panic, just a permanent hang, and diagnostics()
 // won't catch it either, since it's a runtime property, not a type error.
-// Resolve any such value before calling Read/Edit and pass it into the
-// closure instead.
+// Prefer View.Module() (or Tx.Module(), via its embedded View) for any
+// value needed from inside a closure — View never locks, so it's always
+// safe there. Helpers shared between before-the-gate and inside-the-gate
+// callers (packageArg, fileArg in internal/tools) take *View, never
+// *Engine, specifically so that choice is made once, at the helper's
+// signature, not re-decided at every call site.
 type Engine struct {
 	mu      sync.RWMutex
 	RootDir string
@@ -333,15 +337,6 @@ func (e *Engine) buildExternal(srcPkg *packages.Package) (*workspace.Package, er
 	}
 	pkg.RebuildIndex()
 	return pkg, nil
-}
-
-// IsExternal reports whether pkg is resident in the dependency cache — the
-// gate-safe accessor behind refusing mutations on read-only packages.
-func (e *Engine) IsExternal(pkg address.PkgPath) bool {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	_, ok := e.ws.ExternalPackage(pkg)
-	return ok
 }
 
 // fetchExternal is LoadExternal's lock-free slow path: the actual

@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/engine"
 )
 
@@ -53,17 +52,13 @@ func deleteSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Delete
 			return nil, WriteOutput{}, fmt.Errorf("deletes must not be empty")
 		}
 		n := len(in.Deletes)
-		pkgs := make([]address.PkgPath, n)
-		for i, entry := range in.Deletes {
-			pkg, err := packageArg(eng, entry.PkgPath)
-			if err != nil {
-				return nil, WriteOutput{}, batchErr("deletes", i, n, err)
-			}
-			pkgs[i] = pkg
-		}
 		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
 			for i, entry := range in.Deletes {
-				if err := tx.DeleteSymbol(pkgs[i], entry.SymbolKey); err != nil {
+				pkg, err := packageArg(tx.View, entry.PkgPath)
+				if err != nil {
+					return batchErr("deletes", i, n, err)
+				}
+				if err := tx.DeleteSymbol(pkg, entry.SymbolKey); err != nil {
 					return batchErr("deletes", i, n, err)
 				}
 			}
@@ -78,23 +73,17 @@ func deleteFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[DeleteFi
 			return nil, WriteOutput{}, fmt.Errorf("deletes must not be empty")
 		}
 		n := len(in.Deletes)
-		pkgs := make([]address.PkgPath, n)
-		files := make([]string, n)
-		for i, entry := range in.Deletes {
-			pkg, err := packageArg(eng, entry.PkgPath)
-			if err != nil {
-				return nil, WriteOutput{}, batchErr("deletes", i, n, err)
-			}
-			file, err := fileArg(eng.ModulePath(), pkg, entry.FileName)
-			if err != nil {
-				return nil, WriteOutput{}, batchErr("deletes", i, n, err)
-			}
-			pkgs[i] = pkg
-			files[i] = file
-		}
 		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
-			for i := range in.Deletes {
-				if err := tx.DeleteFile(pkgs[i], files[i]); err != nil {
+			for i, entry := range in.Deletes {
+				pkg, err := packageArg(tx.View, entry.PkgPath)
+				if err != nil {
+					return batchErr("deletes", i, n, err)
+				}
+				file, err := fileArg(tx.Module(), pkg, entry.FileName)
+				if err != nil {
+					return batchErr("deletes", i, n, err)
+				}
+				if err := tx.DeleteFile(pkg, file); err != nil {
 					return batchErr("deletes", i, n, err)
 				}
 			}
@@ -109,17 +98,13 @@ func deletePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Delet
 			return nil, WriteOutput{}, fmt.Errorf("deletes must not be empty")
 		}
 		n := len(in.Deletes)
-		pkgs := make([]address.PkgPath, n)
-		for i, entry := range in.Deletes {
-			pkg, err := packageArg(eng, entry.PkgPath)
-			if err != nil {
-				return nil, WriteOutput{}, batchErr("deletes", i, n, err)
-			}
-			pkgs[i] = pkg
-		}
 		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
-			for i := range in.Deletes {
-				if err := tx.DeletePackage(pkgs[i]); err != nil {
+			for i, entry := range in.Deletes {
+				pkg, err := packageArg(tx.View, entry.PkgPath)
+				if err != nil {
+					return batchErr("deletes", i, n, err)
+				}
+				if err := tx.DeletePackage(pkg); err != nil {
 					return batchErr("deletes", i, n, err)
 				}
 			}

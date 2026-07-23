@@ -30,27 +30,27 @@ type MoveSymbolInput struct {
 
 func moveSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveSymbolInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in MoveSymbolInput) (*mcp.CallToolResult, WriteOutput, error) {
-		pkg, err := packageArg(eng, in.PkgPath)
-		if err != nil {
-			return nil, WriteOutput{}, err
-		}
-		var newPkg address.PkgPath
-		destPkg := pkg
-		if newPkgPath := optStr(in.NewPkgPath); newPkgPath != "" {
-			newPkg, err = packageArg(eng, newPkgPath)
-			if err != nil {
-				return nil, WriteOutput{}, err
-			}
-			destPkg = newPkg
-		}
-		var newFile string
-		if newFileName := optStr(in.NewFileName); newFileName != "" {
-			newFile, err = fileArg(eng.ModulePath(), destPkg, newFileName)
-			if err != nil {
-				return nil, WriteOutput{}, err
-			}
-		}
 		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
+			pkg, err := packageArg(tx.View, in.PkgPath)
+			if err != nil {
+				return err
+			}
+			var newPkg address.PkgPath
+			destPkg := pkg
+			if newPkgPath := optStr(in.NewPkgPath); newPkgPath != "" {
+				newPkg, err = packageArg(tx.View, newPkgPath)
+				if err != nil {
+					return err
+				}
+				destPkg = newPkg
+			}
+			var newFile string
+			if newFileName := optStr(in.NewFileName); newFileName != "" {
+				newFile, err = fileArg(tx.Module(), destPkg, newFileName)
+				if err != nil {
+					return err
+				}
+			}
 			return tx.MoveSymbol(pkg, in.SymbolKey, newPkg, newFile, optStr(in.NewSymbolKey))
 		})
 	}
@@ -58,22 +58,22 @@ func moveSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveSymb
 
 func moveFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveFileInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in MoveFileInput) (*mcp.CallToolResult, WriteOutput, error) {
-		pkg, err := packageArg(eng, in.PkgPath)
-		if err != nil {
-			return nil, WriteOutput{}, err
-		}
-		file, err := fileArg(eng.ModulePath(), pkg, in.FileName)
-		if err != nil {
-			return nil, WriteOutput{}, err
-		}
-		var newPkg address.PkgPath
-		if newPkgPath := optStr(in.NewPkgPath); newPkgPath != "" {
-			newPkg, err = packageArg(eng, newPkgPath)
-			if err != nil {
-				return nil, WriteOutput{}, err
-			}
-		}
 		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
+			pkg, err := packageArg(tx.View, in.PkgPath)
+			if err != nil {
+				return err
+			}
+			file, err := fileArg(tx.Module(), pkg, in.FileName)
+			if err != nil {
+				return err
+			}
+			var newPkg address.PkgPath
+			if newPkgPath := optStr(in.NewPkgPath); newPkgPath != "" {
+				newPkg, err = packageArg(tx.View, newPkgPath)
+				if err != nil {
+					return err
+				}
+			}
 			return tx.MoveFile(pkg, file, newPkg, optStr(in.NewFileName))
 		})
 	}
@@ -81,15 +81,15 @@ func moveFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveFileIn
 
 func movePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MovePackageInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in MovePackageInput) (*mcp.CallToolResult, WriteOutput, error) {
-		pkg, err := packageArg(eng, in.PkgPath)
-		if err != nil {
-			return nil, WriteOutput{}, err
-		}
-		newPkg, err := packageArg(eng, in.NewPkgPath)
-		if err != nil {
-			return nil, WriteOutput{}, err
-		}
 		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
+			pkg, err := packageArg(tx.View, in.PkgPath)
+			if err != nil {
+				return err
+			}
+			newPkg, err := packageArg(tx.View, in.NewPkgPath)
+			if err != nil {
+				return err
+			}
 			return tx.MovePackage(pkg, newPkg)
 		})
 	}

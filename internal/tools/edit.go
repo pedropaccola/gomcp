@@ -43,14 +43,18 @@ func runEdit(ctx context.Context, eng *engine.Engine, cfg *toolConfig, fn func(*
 
 // packageArg validates and canonicalizes a package address for the
 // mutation handlers — the write-side gate: dependencies are refused, the
-// workspace is the only mutable world.
-func packageArg(eng *engine.Engine, addr string) (address.PkgPath, error) {
-	canon, err := canonPkg(eng.ModulePath(), addr)
+// workspace is the only mutable world. Takes a *engine.View (never eng
+// *engine.Engine directly) so it's safe to call from inside a Read/Edit
+// closure too — View never acquires the gate lock itself.
+func packageArg(v *engine.View, addr string) (address.PkgPath, error) {
+	canon, err := canonPkg(v.Module(), addr)
 	if err != nil {
 		return "", err
 	}
-	if clean, ok := address.CleanPath(addr); ok && eng.IsExternal(address.PkgPath(clean)) {
-		return "", fmt.Errorf("dependency %q is read-only", addr)
+	if clean, ok := address.CleanPath(addr); ok {
+		if _, ok := v.ExternalPackage(address.PkgPath(clean)); ok {
+			return "", fmt.Errorf("dependency %q is read-only", addr)
+		}
 	}
 	return canon, nil
 }
