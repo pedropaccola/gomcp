@@ -100,7 +100,7 @@ func (tx *Tx) repairMissingImports() bool {
 
 	needed := make(map[address.RelativePath]map[string]bool) // file -> import paths
 	for _, diag := range tx.AllDiagnostics() {
-		if diag.Kind != DiagType || diag.File == "" {
+		if diag.Kind != workspace.DiagType || diag.File == "" {
 			continue
 		}
 		name, found := strings.CutPrefix(diag.Msg, "undefined: ")

@@ -26,7 +26,7 @@ func (v *View) Diagnostics(pkg address.PkgPath) []Diagnostic {
 		}
 	}
 	sortDiagnostics(out)
-	return v.attributeDiagnostics(out)
+	return v.attributeDiagnostics(out, pkg)
 }
 
 // symbolDiagnostics filters the owning file's diagnostics to those whose
@@ -55,16 +55,9 @@ func (v *View) symbolDiagnostics(sym *workspace.Symbol) []workspace.Diagnostic {
 	return out
 }
 
-// WorkspaceDiagnostics enumerates only the workspace-scoped diagnostics:
-// module/driver-level problems not attributable to any package.
-func (v *View) WorkspaceDiagnostics() []Diagnostic {
-	return v.attributeDiagnostics(v.ws.WorkspaceDiags())
-}
-
-// AllDiagnostics aggregates workspace-scoped diagnostics followed by every
-// address's, in path order.
+// AllDiagnostics aggregates every address's diagnostics, in path order.
 func (v *View) AllDiagnostics() []Diagnostic {
-	out := v.WorkspaceDiagnostics()
+	var out []Diagnostic
 	for _, pkg := range v.ws.UnitKeys() {
 		out = append(out, v.Diagnostics(pkg)...)
 	}
@@ -87,17 +80,21 @@ func (v *View) SymbolDiagnostics(pkg address.PkgPath, key string) []Diagnostic {
 // attributeDiagnostics resolves each diagnostic's enclosing package and
 // declaration before translating it into engine's own shape — the
 // per-item counterpart of newDiagnostics for a set that may span multiple
-// declarations or files, falling back to the owning package alone when a
-// diagnostic lands outside every declaration, and to neither for
-// module/driver-level problems.
-func (v *View) attributeDiagnostics(ds []workspace.Diagnostic) []Diagnostic {
+// declarations or files. fallback is the caller's own already-known
+// package, if it has one (empty when the caller has no single package to
+// offer, e.g. a workspace-wide scan) — used when a diagnostic carries no
+// position to resolve from, so package-scoped-but-position-less problems
+// (pkg.Diags: "no usable file position") don't lose attribution the
+// caller already had. Falls back further to the owning package alone when
+// a diagnostic lands outside every declaration, and to neither for
+// module/driver-level problems with no package at all.
+func (v *View) attributeDiagnostics(ds []workspace.Diagnostic, fallback address.PkgPath) []Diagnostic {
 	if ds == nil {
 		return nil
 	}
 	out := make([]Diagnostic, len(ds))
 	for i, d := range ds {
-		var pkg address.PkgPath
-		var key string
+		pkg, key := fallback, ""
 		if d.File != "" {
 			if sym, owner, ok := v.symbolFromLine(d.File, d.Line); ok {
 				pkg, key = owner.PkgPath, sym.Key()

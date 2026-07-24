@@ -118,9 +118,6 @@ func TestListPackages(t *testing.T) {
 	if !slices.IsSorted(out.Packages) {
 		t.Error("list_packages output not sorted")
 	}
-	if len(out.Diagnostics) != 0 {
-		t.Errorf("broken's type error is package-scoped, not workspace-scoped: %v", out.Diagnostics)
-	}
 }
 
 func TestListSymbolsAndFiles(t *testing.T) {
@@ -447,7 +444,7 @@ func TestExternalReadToolsAndRefusals(t *testing.T) {
 func TestDiagBlockTruncation(t *testing.T) {
 	diags := make([]engine.Diagnostic, 5)
 	for i := range diags {
-		diags[i] = engine.Diagnostic{Kind: engine.DiagType, Msg: fmt.Sprintf("problem %d", i)}
+		diags[i] = engine.Diagnostic{Msg: fmt.Sprintf("problem %d", i)}
 	}
 
 	block := newDiagnosticsTruncated(diags, 3)

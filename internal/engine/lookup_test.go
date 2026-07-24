@@ -207,7 +207,7 @@ func TestTypesLoadedAndTypeDiagnostics(t *testing.T) {
 		}
 		var typeDiags []Diagnostic
 		for _, d := range v.Diagnostics(spkg("broken")) {
-			if d.Kind == DiagType {
+			if d.Kind == workspace.DiagType {
 				typeDiags = append(typeDiags, d)
 			}
 		}
@@ -397,4 +397,42 @@ func TestPackageAndFileDoc(t *testing.T) {
 		}
 		return nil
 	})
+}
+
+// TestDiagnosticsPreservesPackageOnPositionlessProblem covers the case
+// View.Diagnostics(pkg) already knows the package but attributeDiagnostics
+// used to re-derive it from position alone: a package-level problem with
+// no usable file position (go/packages' own "found packages X and Y in
+// one directory" conflict is a real, reproducible trigger, not
+// synthesized) must still come back attributed to pkg, not empty.
+func TestDiagnosticsPreservesPackageOnPositionlessProblem(t *testing.T) {
+	dir := t.TempDir()
+	writeFile := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile("go.mod", "module example.com/conflict\n\ngo 1.21\n")
+	writeFile("a.go", "package foo\n\nfunc A() {}\n")
+	writeFile("b.go", "package bar\n\nfunc B() {}\n")
+
+	e := NewEngine(dir, nil)
+	if err := e.Bootstrap(context.Background()); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+	err := e.Read(context.Background(), func(v *View) error {
+		diags := v.Diagnostics("example.com/conflict")
+		i := slices.IndexFunc(diags, func(d Diagnostic) bool { return d.File == "" })
+		if i < 0 {
+			t.Fatal("expected a position-less diagnostic (go/packages' package-name-conflict error); none found")
+		}
+		if diags[i].Package != "example.com/conflict" {
+			t.Errorf("Package = %q, want the caller's own known package %q", diags[i].Package, "example.com/conflict")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }

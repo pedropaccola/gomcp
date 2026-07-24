@@ -32,7 +32,6 @@ type ListPackagesInput struct{}
 
 type ListPackagesOutput struct {
 	Packages []string `json:"packages"`
-	DiagnosticsTruncated
 }
 
 type ListSymbolsInput struct {
@@ -64,7 +63,6 @@ func listPackages(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListPa
 					last = addr
 				}
 			}
-			out.DiagnosticsTruncated = newDiagnosticsTruncated(v.WorkspaceDiagnostics(), cfg.diagLimit)
 			return nil
 		})
 		return nil, out, err

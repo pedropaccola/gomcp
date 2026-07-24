@@ -69,8 +69,7 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 		Annotations: reads("List Packages"),
 		Description: "[Enumerator] List every Go package in the workspace by import path — the package " +
 			"address every other tool expects (workspace-relative directories are accepted " +
-			"too). Workspace-level diagnostics (module or toolchain problems) are included " +
-			"when present.",
+			"too).",
 	}, listPackages(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{

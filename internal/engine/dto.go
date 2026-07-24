@@ -117,24 +117,12 @@ func (p Package) Symbol(key string) (Symbol, bool) {
 	return Symbol{}, false
 }
 
-// DiagKind classifies a problem report by its source in the load pipeline.
-type DiagKind int
-
-const (
-	DiagUnknown DiagKind = iota
-	DiagList
-	DiagParse
-	DiagType
-)
-
 // Doc is the package's godoc — every file's own doc comment, concatenated
 // in file order.
 func (p Package) Doc() string { return p.doc }
 
 // Doc is the file's own package-doc comment text, or "" when it has none.
 func (f File) Doc() string { return f.doc }
-
-func (k DiagKind) String() string { return workspace.DiagKind(k).String() }
 
 // Diagnostic is a source-agnostic problem report: engine's own copy of the
 // workspace's finding, safe to hold past the Read/Edit closure that
@@ -148,7 +136,7 @@ type Diagnostic struct {
 	File    address.RelativePath // "" when not attributable to a workspace file
 	Package address.PkgPath      // "" when not attributable to a package
 	Key     string               // enclosing declaration's key; "" when not attributable to one
-	Kind    DiagKind
+	Kind    workspace.DiagKind
 	Msg     string
 }
 
@@ -166,7 +154,7 @@ func (d Diagnostic) String() string {
 // newDiagnostic copies one workspace diagnostic into engine's own shape,
 // attributing it to pkg/key when the caller has already resolved them.
 func newDiagnostic(d workspace.Diagnostic, pkg address.PkgPath, key string) Diagnostic {
-	return Diagnostic{File: d.File, Package: pkg, Key: key, Kind: DiagKind(d.Kind), Msg: d.Msg}
+	return Diagnostic{File: d.File, Package: pkg, Key: key, Kind: d.Kind, Msg: d.Msg}
 }
 
 // newDiagnostics copies a slice of workspace diagnostics into engine's own

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/pedropaccola/gomcp/internal/address"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 func mustEdit(t *testing.T, e *Engine, fn func(*Tx) error) *EditReport {
@@ -91,11 +92,11 @@ func TestReplaceSymbolBlastRadiusAndHealing(t *testing.T) {
 		return tx.EditSymbol(spkg("shapes"), "Circle", "type Circle struct{ Radius float64 }")
 	})
 	if !slices.ContainsFunc(report.Delta, func(d Diagnostic) bool {
-		return d.Kind == DiagType && strings.Contains(string(d.File), "use/use.go")
+		return d.Kind == workspace.DiagType && strings.Contains(string(d.File), "use/use.go")
 	}) {
 		t.Errorf("renaming Circle's field must break use/use.go in the delta: %v", deltaStrings(report))
 	}
-	if slices.ContainsFunc(report.Delta, func(d Diagnostic) bool { return d.Kind == DiagList }) {
+	if slices.ContainsFunc(report.Delta, func(d Diagnostic) bool { return d.Kind == workspace.DiagList }) {
 		t.Errorf("relayed go list compiler output must be filtered: %v", deltaStrings(report))
 	}
 

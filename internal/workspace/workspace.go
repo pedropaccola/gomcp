@@ -33,7 +33,6 @@ type Workspace struct {
 	fset        *token.FileSet
 	units       map[address.PkgPath]*Unit
 	unitsForked bool
-	diags       []Diagnostic // workspace-scoped: module/driver-level problems
 
 	// removed maps tombstoned paths (deleted or renamed away in-memory) to
 	// the overlay mask that hides their on-disk content from rechecks;
@@ -69,14 +68,12 @@ func NewWorkspace() *Workspace {
 }
 
 // Reset replaces the whole model with a fresh load's truth, discarding
-// tombstones, workspace diagnostics, and the dependency cache — the
-// bootstrap swap. units come from the loader and are trusted as its
-// output.
+// tombstones and the dependency cache — the bootstrap swap. units come
+// from the loader and are trusted as its output.
 func (w *Workspace) Reset(module address.PkgPath, fset *token.FileSet, units map[address.PkgPath]*Unit) {
 	w.module = module
 	w.fset = fset
 	w.units = units
-	w.diags = nil
 	w.removed = make(map[address.RelativePath][]byte)
 	w.external = make(map[address.PkgPath]*Package)
 	w.externalErr = make(map[address.PkgPath]error)
@@ -137,10 +134,4 @@ func (w *Workspace) InstallUnit(pkg address.PkgPath, unit *Unit) {
 func (w *Workspace) RemoveUnit(pkg address.PkgPath) {
 	w.ensureUnitsForked()
 	delete(w.units, pkg)
-}
-
-// WorkspaceDiags enumerates the workspace-scoped diagnostics:
-// module/driver-level problems not attributable to any package.
-func (w *Workspace) WorkspaceDiags() []Diagnostic {
-	return slices.Clone(w.diags)
 }
