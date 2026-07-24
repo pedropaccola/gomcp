@@ -183,7 +183,7 @@ func (v *View) symbolFromLine(path address.RelativePath, line int) (*workspace.S
 	if !ok {
 		return nil, nil, false
 	}
-	fset := v.eng.fsetOf(owner)
+	fset := v.fsetOf(owner)
 	var groupHit *workspace.Symbol
 	for _, sym := range owner.Symbols() {
 		if sym.File != path {
@@ -239,7 +239,7 @@ func (v *View) symbolsReferencing(pkg address.PkgPath, key string) ([]match, err
 			if objKey(obj) != target {
 				continue
 			}
-			relFile, err := v.eng.relativePath(v.eng.ws.FileSet().Position(ident.Pos()).Filename)
+			relFile, err := v.eng.relativePath(v.ws.FileSet().Position(ident.Pos()).Filename)
 			if err != nil || relFile.EscapesRoot() {
 				continue
 			}

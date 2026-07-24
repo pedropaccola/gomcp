@@ -55,7 +55,7 @@ func (tx *Tx) DeleteSymbol(pkg address.PkgPath, key string) error {
 // noop, not a failure — the file being gone is the success condition,
 // whoever caused it.
 func (tx *Tx) DeleteFile(pkg address.PkgPath, name string) error {
-	unit, ok := tx.eng.ws.Unit(pkg)
+	unit, ok := tx.ws.Unit(pkg)
 	if !ok {
 		return nil
 	}
@@ -70,7 +70,7 @@ func (tx *Tx) DeleteFile(pkg address.PkgPath, name string) error {
 		if _, ok := owner.File(path); !ok {
 			continue
 		}
-		tx.eng.ws.DropFile(pkg, owner, path)
+		tx.ws.DropFile(pkg, owner, path)
 		tx.touch(path)
 		return nil
 	}
@@ -80,7 +80,7 @@ func (tx *Tx) DeleteFile(pkg address.PkgPath, name string) error {
 // DeletePackage removes a whole package address, tombstoning every file.
 // Deletion is idempotent: a missing package is a noop, not a failure.
 func (tx *Tx) DeletePackage(pkg address.PkgPath) error {
-	unit, ok := tx.eng.ws.Unit(pkg)
+	unit, ok := tx.ws.Unit(pkg)
 	if !ok {
 		return nil
 	}
@@ -89,11 +89,11 @@ func (tx *Tx) DeletePackage(pkg address.PkgPath) error {
 			continue
 		}
 		for _, file := range p.Files() {
-			tx.eng.ws.Tombstone(file.Path, p.Name)
+			tx.ws.Tombstone(file.Path, p.Name)
 			tx.touch(file.Path)
 		}
 	}
-	tx.eng.ws.RemoveUnit(pkg)
+	tx.ws.RemoveUnit(pkg)
 	return nil
 }
 

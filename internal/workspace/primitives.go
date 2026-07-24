@@ -90,6 +90,19 @@ func (w *Workspace) pruneEmptyUnit(pkg address.PkgPath) {
 	}
 }
 
+// ForkExternal returns a shallow copy of w with fresh, independent
+// external and externalErr maps seeded from the current ones — safe for
+// LoadExternal to mutate without racing a reader still holding an older
+// generation that shares this Workspace's dependency cache. Everything
+// else (units, removed, fset, module) stays shared, since LoadExternal
+// never touches them.
+func (w *Workspace) ForkExternal() *Workspace {
+	forked := *w
+	forked.external = maps.Clone(w.external)
+	forked.externalErr = maps.Clone(w.externalErr)
+	return &forked
+}
+
 // PruneFile removes path from a freshly loaded unit map — the load-path
 // counterpart of DropFile: overlays can only mask a deleted file as empty,
 // so the mask's residue must not survive as a real file. Emptied packages

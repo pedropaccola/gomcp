@@ -12,12 +12,17 @@ import (
 
 // Flush writes every dirty file to disk, unlinks tombstoned paths, and
 // clears both marks — the only place the mutation layer touches the
-// filesystem.
+// filesystem. Built against a private clone and published with one Store,
+// same as Edit: a failure partway through discards the whole clone, so
+// nothing appears flushed even if some files already reached disk —
+// re-flushing recovers, at the cost of re-writing what already landed.
 func (e *Engine) Flush() (written, removed []address.RelativePath, err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	for _, addr := range e.ws.UnitKeys() {
-		unit, _ := e.ws.Unit(addr)
+
+	candidate := e.ws.Load().Clone()
+	for _, addr := range candidate.UnitKeys() {
+		unit, _ := candidate.Unit(addr)
 		for _, pkg := range []*workspace.Package{unit.Prod, unit.XTest} {
 			if pkg == nil {
 				continue
@@ -38,13 +43,14 @@ func (e *Engine) Flush() (written, removed []address.RelativePath, err error) {
 			}
 		}
 	}
-	for _, path := range e.ws.Tombstones() {
+	for _, path := range candidate.Tombstones() {
 		if err := os.Remove(e.absPath(path)); err != nil && !os.IsNotExist(err) {
 			return written, removed, err
 		}
-		e.ws.ClearTombstone(path)
+		candidate.ClearTombstone(path)
 		removed = append(removed, path)
 	}
+	e.ws.Store(candidate)
 	return written, removed, nil
 }
 
@@ -60,9 +66,10 @@ func (e *Engine) Reload(ctx context.Context) ([]address.RelativePath, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	orig := e.ws.Load()
 	var discarded []address.RelativePath
-	for _, addr := range e.ws.UnitKeys() {
-		unit, _ := e.ws.Unit(addr)
+	for _, addr := range orig.UnitKeys() {
+		unit, _ := orig.Unit(addr)
 		for _, pkg := range []*workspace.Package{unit.Prod, unit.XTest} {
 			if pkg == nil {
 				continue
@@ -74,10 +81,12 @@ func (e *Engine) Reload(ctx context.Context) ([]address.RelativePath, error) {
 			}
 		}
 	}
-	discarded = append(discarded, e.ws.Tombstones()...)
+	discarded = append(discarded, orig.Tombstones()...)
 	slices.Sort(discarded)
 	discarded = slices.Compact(discarded)
 
-	e.ws.Reset(module, fset, units)
+	ws := workspace.NewWorkspace()
+	ws.Reset(module, fset, units)
+	e.ws.Store(ws)
 	return discarded, nil
 }

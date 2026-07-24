@@ -11,7 +11,7 @@ import (
 // Diagnostics aggregates one package address's package- and file-scoped
 // diagnostics across its Prod and XTest packages.
 func (v *View) Diagnostics(pkg address.PkgPath) []Diagnostic {
-	unit, ok := v.eng.ws.Unit(pkg)
+	unit, ok := v.ws.Unit(pkg)
 	if !ok {
 		return nil
 	}
@@ -43,7 +43,7 @@ func (v *View) symbolDiagnostics(sym *workspace.Symbol) []workspace.Diagnostic {
 	if doc := workspace.DocOf(sym.Decl()); doc != nil {
 		start = doc.Pos()
 	}
-	fset := v.eng.fsetOf(owner)
+	fset := v.fsetOf(owner)
 	from := fset.Position(start).Line
 	to := fset.Position(sym.Decl().End()).Line
 	var out []workspace.Diagnostic
@@ -58,14 +58,14 @@ func (v *View) symbolDiagnostics(sym *workspace.Symbol) []workspace.Diagnostic {
 // WorkspaceDiagnostics enumerates only the workspace-scoped diagnostics:
 // module/driver-level problems not attributable to any package.
 func (v *View) WorkspaceDiagnostics() []Diagnostic {
-	return v.attributeDiagnostics(v.eng.ws.WorkspaceDiags())
+	return v.attributeDiagnostics(v.ws.WorkspaceDiags())
 }
 
 // AllDiagnostics aggregates workspace-scoped diagnostics followed by every
 // address's, in path order.
 func (v *View) AllDiagnostics() []Diagnostic {
 	out := v.WorkspaceDiagnostics()
-	for _, pkg := range v.eng.ws.UnitKeys() {
+	for _, pkg := range v.ws.UnitKeys() {
 		out = append(out, v.Diagnostics(pkg)...)
 	}
 	return out

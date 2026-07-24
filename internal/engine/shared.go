@@ -57,7 +57,7 @@ func (v *View) offsetSpan(path address.RelativePath, from, to token.Pos) (span, 
 	if !ok || !from.IsValid() || !to.IsValid() {
 		return span{}, false
 	}
-	fset := v.eng.fsetOf(owner)
+	fset := v.fsetOf(owner)
 	start := fset.Position(from).Offset
 	end := fset.Position(to).Offset
 	if start < 0 || end > len(file.Src()) || start > end {

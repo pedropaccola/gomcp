@@ -124,7 +124,7 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 	if newPkgPath == "" && newName == "" {
 		return fmt.Errorf("nothing to do for %q: give newPkgPath and/or newName", fileName)
 	}
-	unit, ok := tx.eng.ws.Unit(pkg)
+	unit, ok := tx.ws.Unit(pkg)
 	if !ok {
 		return fmt.Errorf("no package at %q", pkg)
 	}
@@ -158,7 +158,7 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 			return fmt.Errorf("file %q already exists", newPath)
 		}
 		if destOwner == owner {
-			tx.eng.ws.MoveFile(owner, path, newPath)
+			tx.ws.MoveFile(owner, path, newPath)
 			tx.touch(path, newPath)
 			return nil
 		}
@@ -185,7 +185,7 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 		if sp, ok := tx.offsetSpan(path, file.Ast().Name.Pos(), file.Ast().Name.End()); ok {
 			candidate = applySplices(candidate, []splice{{span: sp, repl: []byte(destOwner.Name)}})
 		}
-		tx.eng.ws.DropFile(pkg, owner, path)
+		tx.ws.DropFile(pkg, owner, path)
 		tx.touch(path)
 		return tx.reloadFile(destOwner, newPath, candidate)
 	}
@@ -198,19 +198,19 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 // and each file's own "Package oldBase" doc-comment opening are renamed
 // too; aliased imports keep their alias untouched.
 func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
-	dir, ok := tx.eng.dirOf(oldPkg)
+	dir, ok := tx.dirOf(oldPkg)
 	if !ok || dir == "." {
 		return fmt.Errorf("no workspace package at %q", oldPkg)
 	}
-	newDir, ok := tx.eng.dirOf(newPkg)
+	newDir, ok := tx.dirOf(newPkg)
 	if !ok || newDir == "." || newDir.EscapesRoot() {
-		return fmt.Errorf("cannot move %q to %q: workspace packages live under module %q", oldPkg, newPkg, tx.eng.ws.Module())
+		return fmt.Errorf("cannot move %q to %q: workspace packages live under module %q", oldPkg, newPkg, tx.ws.Module())
 	}
-	unit, ok := tx.eng.ws.Unit(oldPkg)
+	unit, ok := tx.ws.Unit(oldPkg)
 	if !ok {
 		return fmt.Errorf("no package at %q", oldPkg)
 	}
-	if _, exists := tx.eng.ws.Unit(newPkg); exists {
+	if _, exists := tx.ws.Unit(newPkg); exists {
 		return fmt.Errorf("a package already exists at %q", newPkg)
 	}
 	oldBase, newBase := filepath.Base(string(dir)), filepath.Base(string(newDir))
@@ -247,7 +247,7 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 				if ident.Name != oldBase {
 					continue // aliased import: the alias survives the move
 				}
-				relFile, err := tx.eng.relativePath(tx.eng.ws.FileSet().Position(ident.Pos()).Filename)
+				relFile, err := tx.eng.relativePath(tx.ws.FileSet().Position(ident.Pos()).Filename)
 				if err != nil || relFile.EscapesRoot() {
 					continue
 				}
@@ -277,8 +277,8 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 		}
 		for _, file := range pkg.Files() {
 			newPath := newDir.Join(filepath.Base(string(file.Path)))
-			tx.eng.ws.Tombstone(file.Path, pkg.Name)
-			tx.eng.ws.ClearTombstone(newPath)
+			tx.ws.Tombstone(file.Path, pkg.Name)
+			tx.ws.ClearTombstone(newPath)
 			tx.touch(file.Path, newPath)
 			candidate := file.Src()
 			if renameName {
@@ -303,8 +303,8 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 			newUnit.XTest = moved
 		}
 	}
-	tx.eng.ws.RemoveUnit(oldPkg)
-	tx.eng.ws.InstallUnit(newPkg, newUnit)
+	tx.ws.RemoveUnit(oldPkg)
+	tx.ws.InstallUnit(newPkg, newUnit)
 	return nil
 }
 

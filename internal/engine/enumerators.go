@@ -6,8 +6,8 @@ import "github.com/pedropaccola/gomcp/internal/workspace"
 // workspace's own model type: addresses in path order, Prod before XTest.
 func (v *View) allPackages() []*workspace.Package {
 	var out []*workspace.Package
-	for _, pkg := range v.eng.ws.UnitKeys() {
-		unit, _ := v.eng.ws.Unit(pkg)
+	for _, pkg := range v.ws.UnitKeys() {
+		unit, _ := v.ws.Unit(pkg)
 		if unit.Prod != nil {
 			out = append(out, unit.Prod)
 		}

@@ -43,7 +43,7 @@ func (tx *Tx) reloadFile(pkg *workspace.Package, path address.RelativePath, cand
 	if err != nil {
 		return fmt.Errorf("%s does not format: %w", path, err)
 	}
-	if err := tx.eng.ws.SwapFile(pkg, path, abs, formatted); err != nil {
+	if err := tx.ws.SwapFile(pkg, path, abs, formatted); err != nil {
 		return err
 	}
 	tx.touch(path)
@@ -81,8 +81,8 @@ func (tx *Tx) repairMissingImports() bool {
 	// Unique importable package names known to the workspace.
 	candidates := make(map[string]address.PkgPath) // package name -> import path
 	ambiguous := make(map[string]bool)
-	for _, addr := range tx.eng.ws.UnitKeys() {
-		unit, _ := tx.eng.ws.Unit(addr)
+	for _, addr := range tx.ws.UnitKeys() {
+		unit, _ := tx.ws.Unit(addr)
 		pkg := unit.Prod
 		if pkg == nil || pkg.PkgPath == "" || pkg.Name == "main" {
 			continue
@@ -152,7 +152,7 @@ func (tx *Tx) gatherUses(target string, fn func(address.RelativePath, span)) {
 			if objKey(obj) != target {
 				continue
 			}
-			relFile, err := tx.eng.relativePath(tx.eng.ws.FileSet().Position(ident.Pos()).Filename)
+			relFile, err := tx.eng.relativePath(tx.ws.FileSet().Position(ident.Pos()).Filename)
 			if err != nil || relFile.EscapesRoot() {
 				continue
 			}

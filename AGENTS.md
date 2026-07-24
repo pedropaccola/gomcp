@@ -73,14 +73,6 @@ workspace-relative spelling) are on `canonPkg`/`fileArg`
 extending it, rather than working from a second-hand summary that can go
 stale on its own.
 
-One exception, kept here because it's a runtime property no type checker
-catches: **never call a gate-safe `Engine` accessor (`ModulePath`,
-`IsExternal`, ...) from inside a `Read`/`Edit` closure** — see `Engine`'s
-own doc comment for why (a non-reentrant mutex deadlocking against
-itself, silently, with no error or panic). Resolve any such value
-*before* calling `Read`/`Edit`, never inside a loop running inside the
-closure.
-
 ## Testing
 
 - Everything runs against `testdata/sandbox` (bootstrapped in-memory;

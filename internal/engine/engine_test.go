@@ -23,10 +23,10 @@ func TestBootstrapLiveRepo(t *testing.T) {
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
-	if e.ws.Module() != "github.com/pedropaccola/gomcp" {
-		t.Errorf("Module = %q, module path not learned at bootstrap", e.ws.Module())
+	if e.ws.Load().Module() != "github.com/pedropaccola/gomcp" {
+		t.Errorf("Module = %q, module path not learned at bootstrap", e.ws.Load().Module())
 	}
-	unit, ok := e.ws.Unit("github.com/pedropaccola/gomcp/internal/engine")
+	unit, ok := e.ws.Load().Unit("github.com/pedropaccola/gomcp/internal/engine")
 	if !ok || unit.Prod == nil {
 		t.Fatal("internal/engine unit missing after bootstrap")
 	}
@@ -40,10 +40,10 @@ func TestBootstrapLiveRepo(t *testing.T) {
 
 func TestBootstrapSandbox(t *testing.T) {
 	e := sandboxEngine(t)
-	if e.ws.Module() != "example.com/sandbox" {
-		t.Errorf("Module = %q, module path not learned at bootstrap", e.ws.Module())
+	if e.ws.Load().Module() != "example.com/sandbox" {
+		t.Errorf("Module = %q, module path not learned at bootstrap", e.ws.Load().Module())
 	}
-	unit, ok := e.ws.Unit(spkg("shapes"))
+	unit, ok := e.ws.Load().Unit(spkg("shapes"))
 	if !ok || unit.Prod == nil {
 		t.Fatal("shapes unit missing")
 	}
@@ -86,8 +86,9 @@ func TestBootstrapSandbox(t *testing.T) {
 		t.Error("blank identifier was indexed")
 	}
 
-	for _, addr := range e.ws.UnitKeys() {
-		u, _ := e.ws.Unit(addr)
+	ws := e.ws.Load()
+	for _, addr := range ws.UnitKeys() {
+		u, _ := ws.Unit(addr)
 		for _, p := range []*workspace.Package{u.Prod, u.XTest} {
 			if p == nil {
 				continue
@@ -109,12 +110,12 @@ func TestBootstrapSandbox(t *testing.T) {
 
 func TestBootstrapIsIdempotent(t *testing.T) {
 	e := sandboxEngine(t)
-	first := len(e.ws.UnitKeys())
+	first := len(e.ws.Load().UnitKeys())
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatalf("second Bootstrap: %v", err)
 	}
-	if len(e.ws.UnitKeys()) != first {
-		t.Errorf("package count changed across re-bootstrap: %d -> %d", first, len(e.ws.UnitKeys()))
+	if len(e.ws.Load().UnitKeys()) != first {
+		t.Errorf("package count changed across re-bootstrap: %d -> %d", first, len(e.ws.Load().UnitKeys()))
 	}
 }
 
@@ -155,7 +156,7 @@ func TestIngestErrorsOnBrokenFile(t *testing.T) {
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatalf("Bootstrap must not fail on diagnostics: %v", err)
 	}
-	unit, ok := e.ws.Unit("example.com/broken")
+	unit, ok := e.ws.Load().Unit("example.com/broken")
 	if !ok || unit.Prod == nil {
 		t.Fatal("broken package missing from state")
 	}

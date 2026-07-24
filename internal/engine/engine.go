@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pedropaccola/gomcp/internal/address"
@@ -25,32 +26,29 @@ import (
 // units, tombstones, position tables, the dependency cache — lives behind
 // the workspace.Workspace and is only reshaped through its primitives.
 //
-// ModulePath is the one remaining gate-safe accessor, safe only for
-// callers outside a Read/Edit closure: sync.RWMutex isn't reentrant, so
-// calling it from inside one deadlocks the calling goroutine against
-// itself — no error, no panic, just a permanent hang, and diagnostics()
-// won't catch it either, since it's a runtime property, not a type error.
-// Prefer View.Module() (or Tx.Module(), via its embedded View) for any
-// value needed from inside a closure — View never locks, so it's always
-// safe there. Helpers shared between before-the-gate and inside-the-gate
-// callers (packageArg, fileArg in internal/tools) take *View, never
-// *Engine, specifically so that choice is made once, at the helper's
-// signature, not re-decided at every call site.
+// ws is published via atomic.Pointer: Read loads it lock-free, so readers
+// never block on a writer or on each other, and a pointer obtained by one
+// Read stays a complete, consistent snapshot for its whole duration, even
+// while a writer is building the next one. mu serializes writers only
+// (Edit, Flush, Bootstrap, Reload, and LoadExternal's install step) —
+// each builds its change against a private copy and publishes it with one
+// ws.Store, never mutating the published Workspace in place.
 type Engine struct {
-	mu      sync.RWMutex
+	mu      sync.Mutex
 	RootDir string
-	ws      *workspace.Workspace
+	ws      atomic.Pointer[workspace.Workspace]
 	logf    func(string, ...any)
 }
 
 // NewEngine creates an engine rooted at rootDir. logf enables go/packages
 // loader debug output; nil means silent.
 func NewEngine(rootDir string, logf func(string, ...any)) *Engine {
-	return &Engine{
+	e := &Engine{
 		RootDir: rootDir,
-		ws:      workspace.NewWorkspace(),
 		logf:    logf,
 	}
+	e.ws.Store(workspace.NewWorkspace())
+	return e
 }
 
 // absPath maps a workspace-relative path back to the filesystem.
@@ -70,16 +68,17 @@ func (e *Engine) Bootstrap(ctx context.Context) error {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.ws.Reset(module, fset, units)
+	ws := workspace.NewWorkspace()
+	ws.Reset(module, fset, units)
+	e.ws.Store(ws)
 	return nil
 }
 
-// ModulePath returns the workspace's module path under the read lock: the
-// gate-safe accessor for callers outside Read and Edit.
+// ModulePath returns the workspace's module path — safe to call from
+// anywhere, including from inside a Read or Edit closure, since it only
+// loads the published pointer and never touches e.mu.
 func (e *Engine) ModulePath() address.PkgPath {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return e.ws.Module()
+	return e.ws.Load().Module()
 }
 
 // load runs the full pipeline — go/packages load, variant selection, package
@@ -243,91 +242,68 @@ func (e *Engine) relativePath(fullPath string) (address.RelativePath, error) {
 	return address.RelativePath(relPath), nil
 }
 
-// pkgAt wraps a workspace directory into its canonical package address.
-func (e *Engine) pkgAt(dir address.RelativePath) address.PkgPath {
-	if dir == "." {
-		return e.ws.Module()
-	}
-	return address.PkgPath(string(e.ws.Module()) + "/" + string(dir))
-}
-
-// dirOf unwraps a workspace package address to its directory, comma-ok
-// false outside the module: dependencies have no workspace location.
-func (e *Engine) dirOf(pkg address.PkgPath) (address.RelativePath, bool) {
-	if pkg == e.ws.Module() {
-		return ".", true
-	}
-	if rest, ok := strings.CutPrefix(string(pkg), string(e.ws.Module())+"/"); ok {
-		return address.RelativePath(rest), true
-	}
-	return "", false
-}
-
-// fsetOf is the FileSet a package's positions live in: the external
-// cache's for dependencies, the workspace FileSet otherwise.
-func (e *Engine) fsetOf(pkg *workspace.Package) *token.FileSet {
-	return e.ws.FsetOf(pkg)
-}
-
 // LoadExternal resolves a dependency by import path into the read-only
 // external cache — the lazy counterpart of the workspace load, serving
 // exported API only. It is never called under the read gate: callers load
 // first, then Read; ExternalPackage resolves what this installed.
 //
 // The slow part — go/packages.Load plus type-checking — runs with no lock
-// held, so it never blocks a concurrent Read or Edit; the engine lock is
-// only taken briefly, to check the cache first and to install the result
-// after. If Bootstrap or Reload resets the dependency cache while a load
-// is in flight, the result is discarded and the load retried against the
-// fresh cache instead of installing positions keyed to a FileSet that's no
-// longer current.
+// held, so it never blocks a concurrent Read or Edit; e.mu is only taken
+// briefly, to check the cache first and to fork-then-install the result
+// after — the fork keeps the mutation off the published Workspace's own
+// external map, so a concurrent lock-free Read sharing that generation
+// never races it. If Bootstrap or Reload resets the dependency cache while
+// a load is in flight, the result is discarded and the load retried
+// against the fresh cache instead of installing positions keyed to a
+// FileSet that's no longer current.
 func (e *Engine) LoadExternal(ctx context.Context, pkg address.PkgPath) error {
 	for {
-		e.mu.RLock()
-		if _, ok := e.ws.ExternalPackage(pkg); ok {
-			e.mu.RUnlock()
+		ws := e.ws.Load()
+		if _, ok := ws.ExternalPackage(pkg); ok {
 			return nil
 		}
-		if err, ok := e.ws.ExternalFailure(pkg); ok {
-			e.mu.RUnlock()
+		if err, ok := ws.ExternalFailure(pkg); ok {
 			return err
 		}
-		fset := e.ws.ExternalFset()
-		e.mu.RUnlock()
+		fset := ws.ExternalFset()
 
 		built, loadErr := e.fetchExternal(ctx, pkg, fset)
 
 		e.mu.Lock()
-		if _, ok := e.ws.ExternalPackage(pkg); ok {
+		cur := e.ws.Load()
+		if _, ok := cur.ExternalPackage(pkg); ok {
 			e.mu.Unlock()
 			return nil // installed by a concurrent LoadExternal while we worked
 		}
-		if e.ws.ExternalFset() != fset {
+		if cur.ExternalFset() != fset {
 			// Bootstrap/Reload reset the cache mid-load: built's positions (if
 			// any) are keyed to a FileSet that's no longer current. Retry
 			// against the fresh one rather than install stale positions.
 			e.mu.Unlock()
 			continue
 		}
+		next := cur.ForkExternal()
 		if loadErr != nil {
-			e.ws.FailExternal(pkg, loadErr)
-			e.mu.Unlock()
-			return loadErr
+			next.FailExternal(pkg, loadErr)
+		} else {
+			next.InstallExternal(pkg, built)
 		}
-		e.ws.InstallExternal(pkg, built)
+		e.ws.Store(next)
 		e.mu.Unlock()
-		return nil
+		return loadErr
 	}
 }
 
 // buildExternal is buildPackage's read-only sibling: module-cache files
 // are addressed by import-path-qualified pseudo-paths (never flushable),
 // and only exported symbols survive indexing — a dependency is API
-// surface, not editable code.
-func (e *Engine) buildExternal(srcPkg *packages.Package) (*workspace.Package, error) {
+// surface, not editable code. fset is the same snapshot fetchExternal
+// loaded srcPkg's positions into — never re-derived from e.ws, since this
+// runs with no lock held and the published cache can move on beneath it.
+func (e *Engine) buildExternal(srcPkg *packages.Package, fset *token.FileSet) (*workspace.Package, error) {
 	pkg := workspace.NewPackage(srcPkg.Name, "", address.PkgPath(srcPkg.PkgPath), srcPkg.Types, nil, true)
 	for _, astFile := range srcPkg.Syntax {
-		abs := e.ws.ExternalFset().File(astFile.FileStart).Name()
+		abs := fset.File(astFile.FileStart).Name()
 		src, err := os.ReadFile(abs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read dependency source %s: %w", abs, err)
@@ -357,7 +333,7 @@ func (e *Engine) fetchExternal(ctx context.Context, pkg address.PkgPath, fset *t
 		if address.PkgPath(srcPkg.PkgPath) != pkg || srcPkg.Name == "" || len(srcPkg.Syntax) == 0 {
 			continue
 		}
-		return e.buildExternal(srcPkg)
+		return e.buildExternal(srcPkg, fset)
 	}
 	for _, srcPkg := range srcPkgs {
 		if len(srcPkg.Errors) > 0 {

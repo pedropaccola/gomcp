@@ -13,11 +13,11 @@ import (
 // file named after the package. name defaults to the address base. Fails if
 // the address already holds a package; the directory is created at Flush.
 func (tx *Tx) CreatePackage(pkg address.PkgPath, name string) error {
-	dir, ok := tx.eng.dirOf(pkg)
+	dir, ok := tx.dirOf(pkg)
 	if !ok || dir == "." || dir.EscapesRoot() {
-		return fmt.Errorf("cannot create a package at %q: workspace packages live under module %q", pkg, tx.eng.ws.Module())
+		return fmt.Errorf("cannot create a package at %q: workspace packages live under module %q", pkg, tx.ws.Module())
 	}
-	if _, exists := tx.eng.ws.Unit(pkg); exists {
+	if _, exists := tx.ws.Unit(pkg); exists {
 		return fmt.Errorf("a package already exists at %q", pkg)
 	}
 	if name == "" {
@@ -30,7 +30,7 @@ func (tx *Tx) CreatePackage(pkg address.PkgPath, name string) error {
 	if err := tx.reloadFile(p, dir.Join(name+".go"), []byte("package "+name+"\n")); err != nil {
 		return err
 	}
-	tx.eng.ws.InstallUnit(pkg, &workspace.Unit{Prod: p})
+	tx.ws.InstallUnit(pkg, &workspace.Unit{Prod: p})
 	return nil
 }
 
