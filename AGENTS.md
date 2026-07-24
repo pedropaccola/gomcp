@@ -121,3 +121,9 @@ change often and reconnects discard any unflushed edit silently, same as
 not the in-memory model — flush before trusting their output. And
 the connected server's tool schema reflects the *running binary*, not
 source you just edited — parameter names can be stale until reconnect.
+
+**Watch every response for friction** — too much information, too little,
+an unexpected shape, a tool that didn't do what its description implied.
+Report it to the user in the moment it happens, not only when explicitly
+asked to audit for it: this feedback is how the tools surface itself
+improves.
