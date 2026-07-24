@@ -1402,3 +1402,57 @@ func TestMoveFileRequalifiesOutboundExportedDependency(t *testing.T) {
 		return nil
 	})
 }
+
+// TestModelMatchesDiskAfterFlush is the equivalence oracle's own
+// regression test: after a mixed batch of edits and a Flush, a fresh
+// Bootstrap of the same root must produce an identical model. Exercises
+// create, move, and delete together so the oracle itself is proven
+// against more than one verb before steps 4 and 5 start relying on it.
+func TestModelMatchesDiskAfterFlush(t *testing.T) {
+	root := copySandbox(t)
+	e := NewEngine(root, nil)
+	if err := e.Bootstrap(context.Background()); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+	mustEdit(t, e, func(tx *Tx) error {
+		if err := tx.CreateSymbol(spkg("shapes"), "extra.go", "func Twice(x float64) float64 { return 2 * x }"); err != nil {
+			return err
+		}
+		if err := tx.MoveFile(spkg("shapes"), "groups.go", "", "extras.go"); err != nil {
+			return err
+		}
+		return tx.DeleteFile(spkg("broken"), "broken.go")
+	})
+	if _, _, err := e.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	assertModelEqualsDisk(t, e)
+}
+
+// TestModelMatchesDiskAfterGroupAndMethodMutations stresses the oracle
+// against structural shapes the other regression test doesn't touch: a
+// position-dependent (iota) const group relocated whole to a new file,
+// then edited to add a member, and a method relocated to a new file.
+// Each has splice/propagation machinery distinct from a plain function or
+// file move.
+func TestModelMatchesDiskAfterGroupAndMethodMutations(t *testing.T) {
+	root := copySandbox(t)
+	e := NewEngine(root, nil)
+	if err := e.Bootstrap(context.Background()); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+	mustEdit(t, e, func(tx *Tx) error {
+		if err := tx.MoveSymbol(spkg("shapes"), "KindSquare", "", "kinds.go", ""); err != nil {
+			return err
+		}
+		if err := tx.EditSymbol(spkg("shapes"), "KindSquare",
+			"// KindCircle is the round one.\nKindCircle Kind = iota\nKindSquare\nKindTriangle"); err != nil {
+			return err
+		}
+		return tx.MoveSymbol(spkg("shapes"), "Circle.Area", "", "shapes_extra.go", "")
+	})
+	if _, _, err := e.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	assertModelEqualsDisk(t, e)
+}
