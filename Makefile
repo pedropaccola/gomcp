@@ -30,6 +30,21 @@ test: vet
 	@echo "Running tests..."
 	go test -v ./...
 
+.PHONY: test-race
+test-race: vet
+	@echo "Running tests with race detector..."
+	go test -race ./...
+
+.PHONY: test-short
+test-short: vet
+	@echo "Running tests (short, skips self-hosting smoke test)..."
+	go test -short ./...
+
+.PHONY: bench
+bench:
+	@echo "Running benchmarks..."
+	go test -bench . -benchtime 3x ./internal/engine
+
 .PHONY: inspect
 inspect: build
 	@npx @modelcontextprotocol/inspector ./$(BIN)

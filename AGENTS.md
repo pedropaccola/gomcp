@@ -85,15 +85,16 @@ stale on its own.
   add the fixture shape that would have caught its absence — that's this
   project's actual coverage discipline, not a percentage target.
 - One deliberate exception: `TestBootstrapLiveRepo` self-hosts on this
-  repository as a smoke check, skipped under `-short`.
-- Benchmarks: `go test -bench . -benchtime 3x ./internal/engine` (see
-  bench_test.go; current numbers recorded in ROADMAP.md). Per-phase load
-  timing logs via the engine's `logf` (`-verbose` on the binary).
-- Verify with `gofmt -l internal cmd`, `go vet ./...`, and
-  `go test ./...` before calling anything done; add `-race` whenever a
-  change touches `Engine`'s lock or anything concurrent. Tests shell out
-  to `go list` and type-check real modules — expect seconds, not
-  milliseconds.
+  repository as a smoke check; `make test-short` skips it for faster
+  iteration.
+- All go tooling is standardized through the `Makefile`: `make tidy`
+  (format, tidy modules), `make vet`, `make test`, `make test-race` (use
+  whenever a change touches `Engine`'s lock or anything concurrent),
+  `make test-short`, `make bench` (per-phase load timing logs via the
+  engine's `logf`, `-verbose` on the binary; current numbers recorded in
+  ROADMAP.md). Verify with `make tidy` and `make test` before calling
+  anything done. Tests shell out to `go list` and type-check real
+  modules — expect seconds, not milliseconds.
 
 ## Working on this repo from a connected gomcp session
 
@@ -116,7 +117,7 @@ the test suite — echoes referee only what the type system distinguishes.
 
 **Always `flush` at the end of a turn** — this repo's own tools/schema
 change often and reconnects discard any unflushed edit silently, same as
-`reload`. Two consequences: `go test`/`gofmt`/`go vet` via a shell read
-disk, not the in-memory model — flush before trusting their output. And
+`reload`. Two consequences: `make test`/`make tidy`/`make vet` read disk,
+not the in-memory model — flush before trusting their output. And
 the connected server's tool schema reflects the *running binary*, not
 source you just edited — parameter names can be stale until reconnect.
