@@ -37,7 +37,7 @@ func (w *Workspace) SwapFile(addr address.PkgPath, isXTest bool, path address.Re
 	if pkg.files == nil {
 		pkg.files = make(map[address.RelativePath]*File)
 	}
-	pkg.files[path] = &File{Path: path, src: src, ast: astFile, dirty: true}
+	pkg.files[path] = newFile(path, src, astFile, true)
 	w.ensureRemovedForked()
 	delete(w.removed, path)
 	pkg.RebuildIndex()

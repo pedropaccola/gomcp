@@ -60,7 +60,7 @@ func (p *Package) AddLoadedFile(path address.RelativePath, src []byte, astFile *
 	if p.files == nil {
 		p.files = make(map[address.RelativePath]*File)
 	}
-	p.files[path] = &File{Path: path, src: src, ast: astFile}
+	p.files[path] = newFile(path, src, astFile, false)
 }
 
 // Clone copies the package shallowly with fresh maps; File values are

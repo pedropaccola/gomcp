@@ -44,7 +44,7 @@ func reload(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ReloadInput,
 		}
 		out.FilesDiscarded = filesByPackage(eng.ModulePath(), discarded)
 		err = eng.Read(ctx, func(v *engine.View) error {
-			out.DiagnosticsTruncated = NewDiagnosticsTruncated(v.AllDiagnostics(), cfg.diagLimit)
+			out.DiagnosticsTruncated = newDiagnosticsTruncated(v.AllDiagnostics(), cfg.diagLimit)
 			return nil
 		})
 		return nil, out, err

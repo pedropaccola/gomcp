@@ -42,7 +42,7 @@ func searchDeclarationsLike(eng *engine.Engine) mcp.ToolHandlerFor[SearchLikeInp
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in SearchLikeInput) (*mcp.CallToolResult, SearchOutput, error) {
 		var out SearchOutput
 		err := eng.Read(ctx, func(v *engine.View) error {
-			out.Matches = matchEntries(v.SymbolsLike(in.Name))
+			out.Matches = newMatchEntries(v.SymbolsLike(in.Name))
 			return nil
 		})
 		return nil, out, err
@@ -57,7 +57,7 @@ func searchSource(eng *engine.Engine) mcp.ToolHandlerFor[SearchSourceInput, Sear
 			return nil, out, fmt.Errorf("invalid regular expression: %w", err)
 		}
 		err = eng.Read(ctx, func(v *engine.View) error {
-			out.Matches = matchEntries(v.SymbolsRegexp(re))
+			out.Matches = newMatchEntries(v.SymbolsRegexp(re))
 			return nil
 		})
 		return nil, out, err
@@ -76,7 +76,7 @@ func searchImplementors(eng *engine.Engine) mcp.ToolHandlerFor[SearchImplementor
 			if err != nil {
 				return err
 			}
-			out.Matches = matchEntries(matches)
+			out.Matches = newMatchEntries(matches)
 			return nil
 		})
 		return nil, out, err
@@ -95,7 +95,7 @@ func searchReferences(eng *engine.Engine) mcp.ToolHandlerFor[SearchReferencesInp
 			if err != nil {
 				return err
 			}
-			out.Matches = matchEntries(matches)
+			out.Matches = newMatchEntries(matches)
 			return nil
 		})
 		return nil, out, err
@@ -133,9 +133,9 @@ func resolveSymbol(v *engine.View, dir, key string, want engine.SymbolKind) (eng
 	return sym, owner, nil
 }
 
-// matchEntries renders scan hits for the search_* outputs: canonical
+// newMatchEntries renders scan hits for the search_* outputs: canonical
 // package address, key, kind.
-func matchEntries(matches []engine.Match) []MatchEntry {
+func newMatchEntries(matches []engine.Match) []MatchEntry {
 	out := make([]MatchEntry, 0, len(matches))
 	for _, m := range matches {
 		out = append(out, MatchEntry{

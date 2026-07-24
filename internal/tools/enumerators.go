@@ -64,7 +64,7 @@ func listPackages(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListPa
 					last = addr
 				}
 			}
-			out.DiagnosticsTruncated = NewDiagnosticsTruncated(v.WorkspaceDiagnostics(), cfg.diagLimit)
+			out.DiagnosticsTruncated = newDiagnosticsTruncated(v.WorkspaceDiagnostics(), cfg.diagLimit)
 			return nil
 		})
 		return nil, out, err
@@ -80,7 +80,7 @@ func listFiles(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListFiles
 			for _, file := range files {
 				out.Files = append(out.Files, file.Path().Base())
 			}
-			out.DiagnosticsTruncated = NewDiagnosticsTruncated(v.Diagnostics(pkg.PkgPath()), cfg.diagLimit)
+			out.DiagnosticsTruncated = newDiagnosticsTruncated(v.Diagnostics(pkg.PkgPath()), cfg.diagLimit)
 			return nil
 		})
 		return nil, out, err
@@ -123,7 +123,7 @@ func listSymbols(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListSym
 			if target != nil {
 				diags = diagsForFile(diags, target.Path())
 			}
-			out.DiagnosticsTruncated = NewDiagnosticsTruncated(diags, cfg.diagLimit)
+			out.DiagnosticsTruncated = newDiagnosticsTruncated(diags, cfg.diagLimit)
 			return nil
 		})
 		return nil, out, err
@@ -139,7 +139,7 @@ func listMethods(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListMet
 			for _, m := range v.Methods(pkg, in.SymbolKey) {
 				diags = append(diags, v.SymbolDiagnostics(pkg.PkgPath(), m.Key())...)
 			}
-			out.DiagnosticsTruncated = NewDiagnosticsTruncated(diags, cfg.diagLimit)
+			out.DiagnosticsTruncated = newDiagnosticsTruncated(diags, cfg.diagLimit)
 			return nil
 		})
 		return nil, out, err

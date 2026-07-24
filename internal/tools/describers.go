@@ -103,7 +103,7 @@ func describePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Des
 				for _, f := range files {
 					res.Files = append(res.Files, f.Path().Base())
 				}
-				res.DiagnosticsTruncated = NewDiagnosticsTruncated(v.Diagnostics(pkg.PkgPath()), cfg.diagLimit)
+				res.DiagnosticsTruncated = newDiagnosticsTruncated(v.Diagnostics(pkg.PkgPath()), cfg.diagLimit)
 				return nil
 			})
 			if err != nil {
@@ -142,7 +142,7 @@ func describeFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Descri
 					res.Doc = new(string)
 					*res.Doc = doc
 				}
-				res.DiagnosticsTruncated = NewDiagnosticsTruncated(diagsForFile(v.Diagnostics(pkg.PkgPath()), target.Path()), cfg.diagLimit)
+				res.DiagnosticsTruncated = newDiagnosticsTruncated(diagsForFile(v.Diagnostics(pkg.PkgPath()), target.Path()), cfg.diagLimit)
 				return nil
 			})
 			if err != nil {
@@ -177,7 +177,7 @@ func describeSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Desc
 						diags = append(diags, v.SymbolDiagnostics(owner.PkgPath(), m.Key())...)
 					}
 				}
-				res.DiagnosticsTruncated = NewDiagnosticsTruncated(diags, cfg.diagLimit)
+				res.DiagnosticsTruncated = newDiagnosticsTruncated(diags, cfg.diagLimit)
 				return nil
 			})
 			if err != nil {

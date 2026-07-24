@@ -19,8 +19,8 @@ type toolConfig struct {
 	diagLimit int
 }
 
-// NewDiagnosticEntry renders one diagnostic into its wire-facing shape.
-func NewDiagnosticEntry(d engine.Diagnostic) DiagnosticEntry {
+// newDiagnosticEntry renders one diagnostic into its wire-facing shape.
+func newDiagnosticEntry(d engine.Diagnostic) DiagnosticEntry {
 	e := DiagnosticEntry{
 		Kind:    d.Kind.String(),
 		Message: d.Msg,
@@ -149,10 +149,10 @@ func newToolConfig(diagLimit int) *toolConfig {
 	return &toolConfig{diagLimit: diagLimit}
 }
 
-// NewDiagnosticsTruncated converts and caps diags to at most limit
+// newDiagnosticsTruncated converts and caps diags to at most limit
 // entries, returning the view: the entries shown and, when any were cut,
 // how many.
-func NewDiagnosticsTruncated(diags []engine.Diagnostic, limit int) DiagnosticsTruncated {
+func newDiagnosticsTruncated(diags []engine.Diagnostic, limit int) DiagnosticsTruncated {
 	if len(diags) == 0 {
 		return DiagnosticsTruncated{}
 	}
@@ -162,7 +162,7 @@ func NewDiagnosticsTruncated(diags []engine.Diagnostic, limit int) DiagnosticsTr
 	}
 	entries := make([]DiagnosticEntry, len(shown))
 	for i, d := range shown {
-		entries[i] = NewDiagnosticEntry(d)
+		entries[i] = newDiagnosticEntry(d)
 	}
 	block := DiagnosticsTruncated{Diagnostics: entries}
 	if len(diags) > limit {

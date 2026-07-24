@@ -32,10 +32,10 @@ func runEdit(ctx context.Context, eng *engine.Engine, cfg *toolConfig, fn func(*
 		return nil, out, err
 	}
 	out.Files = filesByPackage(eng.ModulePath(), report.Changed)
-	if introduced := NewDiagnosticsTruncated(report.Delta, cfg.diagLimit); len(introduced.Diagnostics) > 0 || introduced.Truncated != nil {
+	if introduced := newDiagnosticsTruncated(report.Delta, cfg.diagLimit); len(introduced.Diagnostics) > 0 || introduced.Truncated != nil {
 		out.IntroducedDiagnostics = &introduced
 	}
-	if resolved := NewDiagnosticsTruncated(report.Resolved, cfg.diagLimit); len(resolved.Diagnostics) > 0 || resolved.Truncated != nil {
+	if resolved := newDiagnosticsTruncated(report.Resolved, cfg.diagLimit); len(resolved.Diagnostics) > 0 || resolved.Truncated != nil {
 		out.ResolvedDiagnostics = &resolved
 	}
 	out.UnrelatedDiagnosticsCount = new(report.Unrelated)

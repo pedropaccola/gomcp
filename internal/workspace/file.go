@@ -38,3 +38,11 @@ func (f *File) Doc() string {
 	}
 	return strings.TrimSpace(f.ast.Doc.Text())
 }
+
+// newFile builds a File from already-parsed content — the one construction
+// point behind File's two legitimate doors, Workspace.SwapFile and
+// Package.AddLoadedFile, so a future field never has to be kept in sync by
+// hand between them.
+func newFile(path address.RelativePath, src []byte, astFile *ast.File, dirty bool) *File {
+	return &File{Path: path, src: src, ast: astFile, dirty: dirty}
+}

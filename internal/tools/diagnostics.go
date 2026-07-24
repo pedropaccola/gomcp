@@ -20,7 +20,7 @@ func diagnostics(eng *engine.Engine) mcp.ToolHandlerFor[DiagnosticsInput, Diagno
 			diags := v.AllDiagnostics()
 			out.Diagnostics = make([]DiagnosticEntry, len(diags))
 			for i, diag := range diags {
-				out.Diagnostics[i] = NewDiagnosticEntry(diag)
+				out.Diagnostics[i] = newDiagnosticEntry(diag)
 			}
 			return nil
 		})
