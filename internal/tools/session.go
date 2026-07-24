@@ -21,7 +21,7 @@ type ReloadInput struct{}
 // so here the view and the inventory coincide.
 type ReloadOutput struct {
 	FilesDiscarded map[string][]string `json:"files_discarded,omitempty"`
-	DiagBlock
+	DiagnosticsTruncated
 }
 
 func flush(eng *engine.Engine) mcp.ToolHandlerFor[FlushInput, FlushOutput] {
@@ -44,7 +44,7 @@ func reload(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ReloadInput,
 		}
 		out.FilesDiscarded = filesByPackage(eng.ModulePath(), discarded)
 		err = eng.Read(ctx, func(v *engine.View) error {
-			out.DiagBlock = cfg.diagBlock(v.AllDiagnostics())
+			out.DiagnosticsTruncated = NewDiagnosticsTruncated(v.AllDiagnostics(), cfg.diagLimit)
 			return nil
 		})
 		return nil, out, err

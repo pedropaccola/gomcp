@@ -450,8 +450,7 @@ func TestDiagBlockTruncation(t *testing.T) {
 		diags[i] = engine.Diagnostic{Kind: engine.DiagType, Msg: fmt.Sprintf("problem %d", i)}
 	}
 
-	cfg := newToolConfig(3)
-	block := cfg.diagBlock(diags)
+	block := NewDiagnosticsTruncated(diags, 3)
 	if len(block.Diagnostics) != 3 {
 		t.Fatalf("len(Diagnostics) = %d, want 3 shown", len(block.Diagnostics))
 	}
@@ -459,26 +458,20 @@ func TestDiagBlockTruncation(t *testing.T) {
 		t.Errorf("Truncated = %v, want 2", block.Truncated)
 	}
 
-	cfg = newToolConfig(10)
-	if block := cfg.diagBlock(diags); len(block.Diagnostics) != 5 || block.Truncated != nil {
+	if block := NewDiagnosticsTruncated(diags, 10); len(block.Diagnostics) != 5 || block.Truncated != nil {
 		t.Errorf("below the limit: %+v, want 5 shown, no truncation", block)
 	}
 
-	cfg = newToolConfig(0)
-	if block := cfg.diagBlock(diags); len(block.Diagnostics) != 0 || block.Truncated == nil || *block.Truncated != 5 {
+	if block := NewDiagnosticsTruncated(diags, 0); len(block.Diagnostics) != 0 || block.Truncated == nil || *block.Truncated != 5 {
 		t.Errorf("zero limit must still count everything as truncated: %+v", block)
 	}
 
-	cfg = newToolConfig(-1)
-	if cfg.diagLimit != 20 {
+	if cfg := newToolConfig(-1); cfg.diagLimit != 20 {
 		t.Errorf("newToolConfig must ignore negative n in favor of the default, got %d", cfg.diagLimit)
 	}
 
-	if block := cfg.diagBlock(nil); block.Diagnostics != nil || block.Truncated != nil {
-		t.Errorf("empty input must stay a zero-value DiagBlock, got %+v", block)
-	}
-	if cfg.diagBlockPtr(nil) != nil {
-		t.Error("diagBlockPtr must return nil for empty input")
+	if block := NewDiagnosticsTruncated(nil, 20); block.Diagnostics != nil || block.Truncated != nil {
+		t.Errorf("empty input must stay a zero-value DiagnosticsTruncated, got %+v", block)
 	}
 }
 

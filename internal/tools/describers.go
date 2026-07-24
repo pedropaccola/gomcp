@@ -57,7 +57,7 @@ type DescribeSymbolResult struct {
 	Source  string   `json:"source"`
 	Kind    string   `json:"kind"`
 	Methods []string `json:"methods,omitempty"`
-	DiagBlock
+	DiagnosticsTruncated
 }
 
 // DescribeFileEntry addresses one file to describe.
@@ -68,7 +68,7 @@ type DescribeFileEntry struct {
 
 type DescribeFileResult struct {
 	Doc *string `json:"doc,omitempty"`
-	DiagBlock
+	DiagnosticsTruncated
 }
 
 // DescribePackageEntry addresses one package to describe.
@@ -81,7 +81,7 @@ type DescribePackageEntry struct {
 type DescribePackageResult struct {
 	Doc   *string  `json:"doc,omitempty"`
 	Files []string `json:"files,omitempty"`
-	DiagBlock
+	DiagnosticsTruncated
 }
 
 func describePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[DescribePackageInput, DescribePackageOutput] {
@@ -103,7 +103,7 @@ func describePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Des
 				for _, f := range files {
 					res.Files = append(res.Files, f.Path().Base())
 				}
-				res.DiagBlock = cfg.diagBlock(v.Diagnostics(pkg.PkgPath()))
+				res.DiagnosticsTruncated = NewDiagnosticsTruncated(v.Diagnostics(pkg.PkgPath()), cfg.diagLimit)
 				return nil
 			})
 			if err != nil {
@@ -142,7 +142,7 @@ func describeFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Descri
 					res.Doc = new(string)
 					*res.Doc = doc
 				}
-				res.DiagBlock = cfg.diagBlock(diagsForFile(v.Diagnostics(pkg.PkgPath()), target.Path()))
+				res.DiagnosticsTruncated = NewDiagnosticsTruncated(diagsForFile(v.Diagnostics(pkg.PkgPath()), target.Path()), cfg.diagLimit)
 				return nil
 			})
 			if err != nil {
@@ -177,7 +177,7 @@ func describeSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Desc
 						diags = append(diags, v.SymbolDiagnostics(owner.PkgPath(), m.Key())...)
 					}
 				}
-				res.DiagBlock = cfg.diagBlock(diags)
+				res.DiagnosticsTruncated = NewDiagnosticsTruncated(diags, cfg.diagLimit)
 				return nil
 			})
 			if err != nil {

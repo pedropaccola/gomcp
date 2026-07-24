@@ -19,8 +19,8 @@ type toolConfig struct {
 	diagLimit int
 }
 
-// diagEntry renders one diagnostic into its wire-facing shape.
-func diagEntry(d engine.Diagnostic) DiagnosticEntry {
+// NewDiagnosticEntry renders one diagnostic into its wire-facing shape.
+func NewDiagnosticEntry(d engine.Diagnostic) DiagnosticEntry {
 	e := DiagnosticEntry{
 		Kind:    d.Kind.String(),
 		Message: d.Msg,
@@ -93,46 +93,13 @@ func pkgAddr(module address.PkgPath, dir address.RelativePath) string {
 	return module.String() + "/" + dir.String()
 }
 
-// diagBlock renders diagnostics into a DiagBlock, capped to c.diagLimit —
-// the read-side shape, embedded directly (never nil: an empty DiagBlock's
-// fields already omit independently, so there's no wrapping key to hide).
-func (c *toolConfig) diagBlock(diags []engine.Diagnostic) DiagBlock {
-	if len(diags) == 0 {
-		return DiagBlock{}
-	}
-	shown := diags
-	if len(diags) > c.diagLimit {
-		shown = diags[:c.diagLimit]
-	}
-	entries := make([]DiagnosticEntry, len(shown))
-	for i, d := range shown {
-		entries[i] = diagEntry(d)
-	}
-	block := DiagBlock{Diagnostics: entries}
-	if len(diags) > c.diagLimit {
-		block.Truncated = new(len(diags) - c.diagLimit)
-	}
-	return block
-}
-
-// diagBlockPtr is diagBlock's write-side counterpart: nil when there's
-// nothing to report, so a named field carrying it (WriteOutput) omits the
-// whole object instead of delivering an empty one.
-func (c *toolConfig) diagBlockPtr(diags []engine.Diagnostic) *DiagBlock {
-	if len(diags) == 0 {
-		return nil
-	}
-	block := c.diagBlock(diags)
-	return &block
-}
-
-// DiagBlock is the shared optional diagnostics view, scoped to whatever the
+// DiagnosticsTruncated is the shared optional diagnostics view, scoped to whatever the
 // carrying tool read. See the package doc's output convention. Diagnostics
 // is capped at diagLimit (default 20, tunable via -diagnostics-limit);
 // Truncated is nil when everything fit, otherwise the count left out —
 // the diagnostics tool itself is never capped, so it's always the
 // complete-inventory fallback.
-type DiagBlock struct {
+type DiagnosticsTruncated struct {
 	Diagnostics []DiagnosticEntry `json:"diagnostics,omitempty"`
 	Truncated   *int              `json:"truncated,omitempty"`
 }
@@ -180,4 +147,26 @@ func newToolConfig(diagLimit int) *toolConfig {
 		diagLimit = 20
 	}
 	return &toolConfig{diagLimit: diagLimit}
+}
+
+// NewDiagnosticsTruncated converts and caps diags to at most limit
+// entries, returning the view: the entries shown and, when any were cut,
+// how many.
+func NewDiagnosticsTruncated(diags []engine.Diagnostic, limit int) DiagnosticsTruncated {
+	if len(diags) == 0 {
+		return DiagnosticsTruncated{}
+	}
+	shown := diags
+	if len(diags) > limit {
+		shown = diags[:limit]
+	}
+	entries := make([]DiagnosticEntry, len(shown))
+	for i, d := range shown {
+		entries[i] = NewDiagnosticEntry(d)
+	}
+	block := DiagnosticsTruncated{Diagnostics: entries}
+	if len(diags) > limit {
+		block.Truncated = new(len(diags) - limit)
+	}
+	return block
 }

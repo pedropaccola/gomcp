@@ -10,16 +10,17 @@ import (
 )
 
 // WriteOutput is the shared echo of every write tool (creators, editors,
-// refactorings alike): the files changed grouped by package, the diagnostics
-// this edit introduced and resolved (each nil when there's nothing to report,
-// not an empty block) how many pre-existing diagnostics it left untouched,
-// and whether those two diagnostics blocks can be trusted at all.
+// refactorings alike): the files changed grouped by package, the
+// diagnostics this edit introduced and resolved (each nil when there's
+// nothing to report, not an empty block), how many pre-existing
+// diagnostics it left untouched, and whether those two diagnostics blocks
+// can be trusted at all.
 type WriteOutput struct {
-	Files                     map[string][]string `json:"files"`
-	IntroducedDiagnostics     *DiagBlock          `json:"introduced_diagnostics,omitempty"`
-	ResolvedDiagnostics       *DiagBlock          `json:"resolved_diagnostics,omitempty"`
-	UnrelatedDiagnosticsCount *int                `json:"unrelated_diagnostics_count,omitempty"`
-	DiagnosticsUnavailable    *bool               `json:"diagnostics_unavailable,omitempty"`
+	Files                     map[string][]string   `json:"files"`
+	IntroducedDiagnostics     *DiagnosticsTruncated `json:"introduced_diagnostics,omitempty"`
+	ResolvedDiagnostics       *DiagnosticsTruncated `json:"resolved_diagnostics,omitempty"`
+	UnrelatedDiagnosticsCount *int                  `json:"unrelated_diagnostics_count,omitempty"`
+	DiagnosticsUnavailable    *bool                 `json:"diagnostics_unavailable,omitempty"`
 }
 
 // runEdit is the composite every write handler flows through: one
@@ -31,12 +32,16 @@ func runEdit(ctx context.Context, eng *engine.Engine, cfg *toolConfig, fn func(*
 		return nil, out, err
 	}
 	out.Files = filesByPackage(eng.ModulePath(), report.Changed)
-	out.IntroducedDiagnostics = cfg.diagBlockPtr(report.Delta)
-	out.ResolvedDiagnostics = cfg.diagBlockPtr(report.Resolved)
+	if introduced := NewDiagnosticsTruncated(report.Delta, cfg.diagLimit); len(introduced.Diagnostics) > 0 || introduced.Truncated != nil {
+		out.IntroducedDiagnostics = &introduced
+	}
+	if resolved := NewDiagnosticsTruncated(report.Resolved, cfg.diagLimit); len(resolved.Diagnostics) > 0 || resolved.Truncated != nil {
+		out.ResolvedDiagnostics = &resolved
+	}
 	out.UnrelatedDiagnosticsCount = new(report.Unrelated)
 	out.DiagnosticsUnavailable = new(report.Stale)
 	if report.Stale {
-		out.IntroducedDiagnostics = &DiagBlock{Diagnostics: []DiagnosticEntry{{Message: "diagnostics unavailable: " + report.Note}}}
+		out.IntroducedDiagnostics = &DiagnosticsTruncated{Diagnostics: []DiagnosticEntry{{Message: "diagnostics unavailable: " + report.Note}}}
 	}
 	return nil, out, nil
 }

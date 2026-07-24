@@ -15,7 +15,7 @@ type ListFilesInput struct {
 
 type ListFilesOutput struct {
 	Files []string `json:"files"`
-	DiagBlock
+	DiagnosticsTruncated
 }
 
 type ListMethodsInput struct {
@@ -25,14 +25,14 @@ type ListMethodsInput struct {
 
 type ListMethodsOutput struct {
 	Methods []string `json:"methods"`
-	DiagBlock
+	DiagnosticsTruncated
 }
 
 type ListPackagesInput struct{}
 
 type ListPackagesOutput struct {
 	Packages []string `json:"packages"`
-	DiagBlock
+	DiagnosticsTruncated
 }
 
 type ListSymbolsInput struct {
@@ -42,7 +42,7 @@ type ListSymbolsInput struct {
 
 type ListSymbolsOutput struct {
 	Symbols []SymbolEntry `json:"symbols"`
-	DiagBlock
+	DiagnosticsTruncated
 }
 
 type SymbolEntry struct {
@@ -64,7 +64,7 @@ func listPackages(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListPa
 					last = addr
 				}
 			}
-			out.DiagBlock = cfg.diagBlock(v.WorkspaceDiagnostics())
+			out.DiagnosticsTruncated = NewDiagnosticsTruncated(v.WorkspaceDiagnostics(), cfg.diagLimit)
 			return nil
 		})
 		return nil, out, err
@@ -80,7 +80,7 @@ func listFiles(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListFiles
 			for _, file := range files {
 				out.Files = append(out.Files, file.Path().Base())
 			}
-			out.DiagBlock = cfg.diagBlock(v.Diagnostics(pkg.PkgPath()))
+			out.DiagnosticsTruncated = NewDiagnosticsTruncated(v.Diagnostics(pkg.PkgPath()), cfg.diagLimit)
 			return nil
 		})
 		return nil, out, err
@@ -123,7 +123,7 @@ func listSymbols(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListSym
 			if target != nil {
 				diags = diagsForFile(diags, target.Path())
 			}
-			out.DiagBlock = cfg.diagBlock(diags)
+			out.DiagnosticsTruncated = NewDiagnosticsTruncated(diags, cfg.diagLimit)
 			return nil
 		})
 		return nil, out, err
@@ -139,7 +139,7 @@ func listMethods(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListMet
 			for _, m := range v.Methods(pkg, in.SymbolKey) {
 				diags = append(diags, v.SymbolDiagnostics(pkg.PkgPath(), m.Key())...)
 			}
-			out.DiagBlock = cfg.diagBlock(diags)
+			out.DiagnosticsTruncated = NewDiagnosticsTruncated(diags, cfg.diagLimit)
 			return nil
 		})
 		return nil, out, err
