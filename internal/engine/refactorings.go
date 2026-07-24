@@ -128,10 +128,11 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 	if !ok {
 		return fmt.Errorf("no package at %q", pkg)
 	}
-	for _, owner := range []*workspace.Package{unit.Prod, unit.XTest} {
+	for i, owner := range []*workspace.Package{unit.Prod, unit.XTest} {
 		if owner == nil {
 			continue
 		}
+		isXTest := i == 1
 		path, err := fileAddress(owner, fileName)
 		if err != nil {
 			return err
@@ -158,7 +159,7 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 			return fmt.Errorf("file %q already exists", newPath)
 		}
 		if destOwner == owner {
-			tx.ws.MoveFile(owner, path, newPath)
+			tx.ws.MoveFile(pkg, isXTest, path, newPath)
 			tx.touch(path, newPath)
 			return nil
 		}
@@ -179,15 +180,31 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 			if err := tx.applyFileSplices(fixups); err != nil {
 				return err
 			}
+			// applyFileSplices may have forked owner's or destOwner's
+			// package if either had a file among the fixups — re-resolve
+			// both from their stable addresses rather than trust pointers
+			// taken before the splice.
+			if isXTest {
+				owner, ok = tx.resolveXTest(pkg)
+			} else {
+				owner, ok = tx.resolvePackage(pkg)
+			}
+			if !ok {
+				return fmt.Errorf("internal error: %q vanished after qualifier fixups", pkg)
+			}
+			destOwner, ok = tx.resolvePackage(newPkgPath)
+			if !ok {
+				return fmt.Errorf("internal error: %q vanished after qualifier fixups", newPkgPath)
+			}
 		}
 		file, _ := owner.File(path)
 		candidate := file.Src()
 		if sp, ok := tx.offsetSpan(path, file.Ast().Name.Pos(), file.Ast().Name.End()); ok {
 			candidate = applySplices(candidate, []splice{{span: sp, repl: []byte(destOwner.Name)}})
 		}
-		tx.ws.DropFile(pkg, owner, path)
+		tx.ws.DropFile(pkg, isXTest, path)
 		tx.touch(path)
-		return tx.reloadFile(destOwner, newPath, candidate)
+		return tx.reloadFile(newPkgPath, false, newPath, candidate)
 	}
 	return fmt.Errorf("no file %q in %q", fileName, pkg)
 }
@@ -260,31 +277,61 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 	if err := tx.applyFileSplices(edits); err != nil {
 		return err
 	}
+	// applyFileSplices may have forked unit.XTest's package (it imports
+	// its own Prod sibling, so it's a splice target) — re-resolve the
+	// unit fresh rather than trust the pointers captured before the
+	// splice.
+	unit, ok = tx.ws.Unit(oldPkg)
+	if !ok {
+		return fmt.Errorf("internal error: %q vanished after import rewrites", oldPkg)
+	}
 
-	// Move the address's packages, renaming package clauses when due.
-	// Every moved file re-enters through the content pipeline, so SwapFile
-	// stays the one door for file content.
+	// Move the address's packages, renaming package clauses when due. Both
+	// halves' shells are built and set on newUnit before any file reloads
+	// into it: reloading forks newUnit (replacing it with a new *Unit in
+	// the map), so setting Prod, moving its files, and only then setting
+	// XTest would silently mutate the original, already-orphaned newUnit
+	// instead of whatever fork actually landed in the map.
+	type half struct {
+		orig, moved *workspace.Package
+	}
 	newUnit := &workspace.Unit{}
-	for i, pkg := range []*workspace.Package{unit.Prod, unit.XTest} {
-		if pkg == nil {
+	halves := [2]half{}
+	for i, orig := range []*workspace.Package{unit.Prod, unit.XTest} {
+		if orig == nil {
 			continue
 		}
-		moved := pkg.CloneShell()
+		moved := orig.CloneShell()
 		moved.Path = newDir
-		moved.PkgPath = address.PkgPath(strings.Replace(string(pkg.PkgPath), oldImport, newImport, 1))
+		moved.PkgPath = address.PkgPath(strings.Replace(string(orig.PkgPath), oldImport, newImport, 1))
 		if renameName {
-			moved.Name = newBase + strings.TrimPrefix(pkg.Name, oldBase)
+			moved.Name = newBase + strings.TrimPrefix(orig.Name, oldBase)
 		}
-		for _, file := range pkg.Files() {
+		halves[i] = half{orig: orig, moved: moved}
+		if i == 1 {
+			newUnit.XTest = moved
+		} else {
+			newUnit.Prod = moved
+		}
+	}
+	// Every moved file re-enters through the content pipeline, so SwapFile
+	// stays the one door for file content.
+	tx.ws.InstallUnit(newPkg, newUnit)
+	for i, h := range halves {
+		if h.orig == nil {
+			continue
+		}
+		isXTest := i == 1
+		for _, file := range h.orig.Files() {
 			newPath := newDir.Join(filepath.Base(string(file.Path)))
-			tx.ws.Tombstone(file.Path, pkg.Name)
+			tx.ws.Tombstone(file.Path, h.orig.Name)
 			tx.ws.ClearTombstone(newPath)
 			tx.touch(file.Path, newPath)
 			candidate := file.Src()
 			if renameName {
 				var fileSplices []splice
 				if sp, ok := tx.offsetSpan(file.Path, file.Ast().Name.Pos(), file.Ast().Name.End()); ok {
-					fileSplices = append(fileSplices, splice{span: sp, repl: []byte(moved.Name)})
+					fileSplices = append(fileSplices, splice{span: sp, repl: []byte(h.moved.Name)})
 				} else {
 					return fmt.Errorf("cannot locate package clause of %q", file.Path)
 				}
@@ -293,18 +340,12 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 				}
 				candidate = applySplices(file.Src(), fileSplices)
 			}
-			if err := tx.reloadFile(moved, newPath, candidate); err != nil {
+			if err := tx.reloadFile(newPkg, isXTest, newPath, candidate); err != nil {
 				return err
 			}
 		}
-		if i == 0 {
-			newUnit.Prod = moved
-		} else {
-			newUnit.XTest = moved
-		}
 	}
 	tx.ws.RemoveUnit(oldPkg)
-	tx.ws.InstallUnit(newPkg, newUnit)
 	return nil
 }
 
@@ -339,6 +380,7 @@ func (tx *Tx) relocateSymbol(srcPkg, destPkg address.PkgPath, key, fileName stri
 	if conflicts := tx.moveConflicts(srcPkg, destPkg, []*workspace.Symbol{sym}); len(conflicts) > 0 {
 		return fmt.Errorf("moving %q to %q would break the workspace: %s", key, destPkg, strings.Join(conflicts, "; "))
 	}
+	srcIsXTest := isXTestOwner(tx.ws, srcPkg, owner)
 	if srcPkg != destPkg {
 		fixups, ferr := tx.qualifierFixups([]*workspace.Symbol{sym}, srcPkg, destPkg)
 		if ferr != nil {
@@ -356,6 +398,7 @@ func (tx *Tx) relocateSymbol(srcPkg, destPkg address.PkgPath, key, fileName stri
 			if !ok {
 				return fmt.Errorf("internal error: %q vanished after qualifier fixups", destPkg)
 			}
+			srcIsXTest = isXTestOwner(tx.ws, srcPkg, owner)
 		}
 	}
 	file, _ := owner.File(sym.File)
@@ -371,14 +414,14 @@ func (tx *Tx) relocateSymbol(srcPkg, destPkg address.PkgPath, key, fileName stri
 	if _, _, exists := tx.resolveFile(destPath); exists && !inDest {
 		return fmt.Errorf("file %q belongs to another package", destPath)
 	}
-	if err := tx.reloadFile(owner, sym.File, applySplices(file.Src(), []splice{{span: sp}})); err != nil {
+	if err := tx.reloadFile(srcPkg, srcIsXTest, sym.File, applySplices(file.Src(), []splice{{span: sp}})); err != nil {
 		return err
 	}
 	if !inDest {
-		return tx.reloadFile(destOwner, destPath, []byte("package "+destOwner.Name+"\n\n"+src+"\n"))
+		return tx.reloadFile(destPkg, false, destPath, []byte("package "+destOwner.Name+"\n\n"+src+"\n"))
 	}
 	at := tx.insertOffset(dest, frag)
-	return tx.reloadFile(destOwner, destPath, applySplices(dest.Src(), []splice{{span: span{start: at, end: at}, repl: []byte("\n\n" + src + "\n")}}))
+	return tx.reloadFile(destPkg, false, destPath, applySplices(dest.Src(), []splice{{span: span{start: at, end: at}, repl: []byte("\n\n" + src + "\n")}}))
 }
 
 // moveConflicts reports every reason relocating moving (all currently

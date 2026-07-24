@@ -26,12 +26,8 @@ func (tx *Tx) CreatePackage(pkg address.PkgPath, name string) error {
 	if !token.IsIdentifier(name) {
 		return fmt.Errorf("%q is not a valid package name", name)
 	}
-	p := workspace.NewPackage(name, dir, pkg, nil, nil, false)
-	if err := tx.reloadFile(p, dir.Join(name+".go"), []byte("package "+name+"\n")); err != nil {
-		return err
-	}
-	tx.ws.InstallUnit(pkg, &workspace.Unit{Prod: p})
-	return nil
+	tx.ws.InstallUnit(pkg, &workspace.Unit{Prod: workspace.NewPackage(name, dir, pkg, nil, nil, false)})
+	return tx.reloadFile(pkg, false, dir.Join(name+".go"), []byte("package "+name+"\n"))
 }
 
 // CreateFile adds an empty file to an existing package, optionally seeded
@@ -49,7 +45,7 @@ func (tx *Tx) CreateFile(pkg address.PkgPath, name, doc string) error {
 		return fmt.Errorf("file %q already exists", path)
 	}
 	content := string(renderDocComment(doc)) + "package " + p.Name + "\n"
-	return tx.reloadFile(p, path, []byte(content))
+	return tx.reloadFile(pkg, false, path, []byte(content))
 }
 
 // CreateSymbol adds one new top-level declaration to a file of an existing
@@ -90,7 +86,7 @@ func (tx *Tx) CreateSymbol(pkg address.PkgPath, fileName, src string) error {
 	file, ok := p.File(path)
 	if !ok {
 		candidate := []byte("package " + p.Name + "\n\n" + src + "\n")
-		return tx.reloadFile(p, path, candidate)
+		return tx.reloadFile(pkg, false, path, candidate)
 	}
 
 	if (frag.kind == KindConst || frag.kind == KindVar) && !frag.usesIota {
@@ -107,7 +103,7 @@ func (tx *Tx) CreateSymbol(pkg address.PkgPath, fileName, src string) error {
 			if !ok {
 				return fmt.Errorf("cannot locate insertion point in %q", path)
 			}
-			return tx.reloadFile(p, path, applySplices(file.Src(), []splice{{span: span{start: at.start, end: at.start}, repl: []byte("\n" + specs + "\n")}}))
+			return tx.reloadFile(pkg, false, path, applySplices(file.Src(), []splice{{span: span{start: at.start, end: at.start}, repl: []byte("\n" + specs + "\n")}}))
 		}
 	}
 
@@ -119,5 +115,5 @@ func (tx *Tx) CreateSymbol(pkg address.PkgPath, fileName, src string) error {
 			}
 		}
 	}
-	return tx.reloadFile(p, path, applySplices(file.Src(), []splice{{span: span{start: at, end: at}, repl: []byte("\n\n" + src + "\n")}}))
+	return tx.reloadFile(pkg, false, path, applySplices(file.Src(), []splice{{span: span{start: at, end: at}, repl: []byte("\n\n" + src + "\n")}}))
 }

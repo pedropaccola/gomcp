@@ -30,12 +30,13 @@ func (tx *Tx) DeleteSymbol(pkg address.PkgPath, key string) error {
 	if !ok {
 		return nil
 	}
+	isXTest := isXTestOwner(tx.ws, pkg, owner)
 	gen, grouped := groupOf(sym)
 	if !constPositionDependent(gen, grouped, sym) {
 		if spec, ok := sym.Spec().(*ast.ValueSpec); ok && len(spec.Names) > 1 {
 			if splices, ok := tx.trimSpecName(sym, spec, key); ok {
 				file, _ := owner.File(sym.File)
-				return tx.reloadFile(owner, sym.File, applySplices(file.Src(), splices))
+				return tx.reloadFile(pkg, isXTest, sym.File, applySplices(file.Src(), splices))
 			}
 		}
 	}
@@ -47,7 +48,7 @@ func (tx *Tx) DeleteSymbol(pkg address.PkgPath, key string) error {
 		return fmt.Errorf("cannot locate %q in source", key)
 	}
 	file, _ := owner.File(sym.File)
-	return tx.reloadFile(owner, sym.File, applySplices(file.Src(), []splice{{span: sp}}))
+	return tx.reloadFile(pkg, isXTest, sym.File, applySplices(file.Src(), []splice{{span: sp}}))
 }
 
 // DeleteFile removes one file and every declaration in it, tombstoning the
@@ -59,7 +60,7 @@ func (tx *Tx) DeleteFile(pkg address.PkgPath, name string) error {
 	if !ok {
 		return nil
 	}
-	for _, owner := range []*workspace.Package{unit.Prod, unit.XTest} {
+	for i, owner := range []*workspace.Package{unit.Prod, unit.XTest} {
 		if owner == nil {
 			continue
 		}
@@ -70,7 +71,7 @@ func (tx *Tx) DeleteFile(pkg address.PkgPath, name string) error {
 		if _, ok := owner.File(path); !ok {
 			continue
 		}
-		tx.ws.DropFile(pkg, owner, path)
+		tx.ws.DropFile(pkg, i == 1, path)
 		tx.touch(path)
 		return nil
 	}

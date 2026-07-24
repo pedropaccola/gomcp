@@ -15,12 +15,14 @@ func tombstoneMask(pkgName string) []byte {
 
 // Tombstone masks a path as removed for the next recheck and flush.
 func (w *Workspace) Tombstone(path address.RelativePath, pkgName string) {
+	w.ensureRemovedForked()
 	w.removed[path] = tombstoneMask(pkgName)
 }
 
 // ClearTombstone lifts a pending removal — a path recreated or moved onto
 // is alive again.
 func (w *Workspace) ClearTombstone(path address.RelativePath) {
+	w.ensureRemovedForked()
 	delete(w.removed, path)
 }
 

@@ -35,15 +35,17 @@ func applySplices(src []byte, splices []splice) []byte {
 // reloadFile is the goimports half of the content pipeline: format the
 // candidate bytes, then hand them to the workspace's parse-enforcing
 // SwapFile — the one door through which file content enters the model.
-// Every fallible step precedes the swap; an error means state is
-// untouched.
-func (tx *Tx) reloadFile(pkg *workspace.Package, path address.RelativePath, candidate []byte) error {
+// addr/isXTest select the package to swap into, resolved fresh by
+// SwapFile itself rather than trusted from a pointer the caller might
+// have resolved before an intervening mutation. Every fallible step
+// precedes the swap; an error means state is untouched.
+func (tx *Tx) reloadFile(addr address.PkgPath, isXTest bool, path address.RelativePath, candidate []byte) error {
 	abs := tx.eng.absPath(path)
 	formatted, err := imports.Process(abs, candidate, nil)
 	if err != nil {
 		return fmt.Errorf("%s does not format: %w", path, err)
 	}
-	if err := tx.ws.SwapFile(pkg, path, abs, formatted); err != nil {
+	if err := tx.ws.SwapFile(addr, isXTest, path, abs, formatted); err != nil {
 		return err
 	}
 	tx.touch(path)
@@ -61,7 +63,8 @@ func (tx *Tx) applyFileSplices(splices map[address.RelativePath][]splice) error 
 		batch := splices[path]
 		slices.SortFunc(batch, func(a, b splice) int { return cmp.Compare(a.start, b.start) })
 		batch = slices.CompactFunc(batch, func(a, b splice) bool { return a.span == b.span })
-		if err := tx.reloadFile(owner, path, applySplices(file.Src(), batch)); err != nil {
+		addr := tx.pkgAt(path.Dir())
+		if err := tx.reloadFile(addr, isXTestOwner(tx.ws, addr, owner), path, applySplices(file.Src(), batch)); err != nil {
 			return err
 		}
 	}
@@ -133,7 +136,8 @@ func (tx *Tx) repairMissingImports() bool {
 			fmt.Fprintf(&repl, "\n\nimport %q", path)
 		}
 		candidate := applySplices(file.Src(), []splice{{span: span{start: sp.end, end: sp.end}, repl: []byte(repl.String())}})
-		if err := tx.reloadFile(owner, filePath, candidate); err != nil {
+		addr := tx.pkgAt(filePath.Dir())
+		if err := tx.reloadFile(addr, isXTestOwner(tx.ws, addr, owner), filePath, candidate); err != nil {
 			continue // repair is best-effort; the diagnostic stays visible
 		}
 		repaired = true
@@ -199,4 +203,14 @@ func renderDocComment(doc string) []byte {
 		}
 	}
 	return []byte(b.String())
+}
+
+// isXTestOwner reports whether owner is pkg's external test package
+// rather than its production one — the Prod/XTest selector every
+// address-based workspace primitive needs alongside an address, for
+// callers (like relocateSymbol) that resolved owner through a path that
+// doesn't already know which half matched.
+func isXTestOwner(ws *workspace.Workspace, pkg address.PkgPath, owner *workspace.Package) bool {
+	unit, ok := ws.Unit(pkg)
+	return ok && owner == unit.XTest
 }

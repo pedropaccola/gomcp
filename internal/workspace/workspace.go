@@ -14,20 +14,37 @@ import (
 // unexported by construction — the compiler, not convention, keeps
 // arbitrary code from reshaping the model.
 //
+// Clone is lazy copy-on-write, not a deep copy: units, packages, and the
+// tombstone map start shared with whatever generation this one was cloned
+// from, and fork only on first mutation, one unit/package/map at a time
+// (ensureUnitsForked, ensureRemovedForked, ensurePackageForked) — a Tx
+// touching 2 packages out of 80 forks exactly those 2. unitsForked and
+// removedForked are reset by Clone, so each generation forks its own copy
+// exactly once; forkedPkgs tracks which *Package objects are already
+// private to this generation specifically (reset to nil by Clone too),
+// since a pointer already forked in one generation is shared and
+// un-forked again the moment a later Clone hands it to the next.
+//
 // Not safe for concurrent use: every method assumes exclusive access,
 // synchronized externally — internal/engine.Engine's own mutex is the
 // only caller that does this today.
 type Workspace struct {
-	module address.PkgPath
-	fset   *token.FileSet
-	units  map[address.PkgPath]*Unit
-	diags  []Diagnostic // workspace-scoped: module/driver-level problems
+	module      address.PkgPath
+	fset        *token.FileSet
+	units       map[address.PkgPath]*Unit
+	unitsForked bool
+	diags       []Diagnostic // workspace-scoped: module/driver-level problems
 
 	// removed maps tombstoned paths (deleted or renamed away in-memory) to
 	// the overlay mask that hides their on-disk content from rechecks;
 	// Flush unlinks them. go/packages overlays cannot remove files, only
 	// replace their content, hence the mask.
-	removed map[address.RelativePath][]byte
+	removed       map[address.RelativePath][]byte
+	removedForked bool
+
+	// forkedPkgs marks which *Package objects this generation has already
+	// privately forked — see ensurePackageForked.
+	forkedPkgs map[*Package]bool
 
 	// The read-only dependency cache. External positions live in their own
 	// FileSet — workspace swaps must not invalidate cached positions.
@@ -112,6 +129,7 @@ func (w *Workspace) UnitKeys() []address.PkgPath {
 // InstallUnit maps a unit at an address; creation and package moves end
 // here.
 func (w *Workspace) InstallUnit(pkg address.PkgPath, unit *Unit) {
+	w.ensureUnitsForked()
 	w.units[pkg] = unit
 }
 
@@ -119,6 +137,7 @@ func (w *Workspace) InstallUnit(pkg address.PkgPath, unit *Unit) {
 // moves relocate files individually first. DeletePackage-style removal
 // tombstones each file, then removes the unit.
 func (w *Workspace) RemoveUnit(pkg address.PkgPath) {
+	w.ensureUnitsForked()
 	delete(w.units, pkg)
 }
 

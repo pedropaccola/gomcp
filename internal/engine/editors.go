@@ -74,7 +74,7 @@ func (tx *Tx) EditSymbol(pkg address.PkgPath, key, src string) error {
 		return fmt.Errorf("replacement declares %q, which already exists in %q", newKey, pkg)
 	}
 	file, _ := owner.File(sym.File)
-	return tx.reloadFile(owner, sym.File, applySplices(file.Src(), []splice{{span: sp, repl: []byte(replacement)}}))
+	return tx.reloadFile(pkg, isXTestOwner(tx.ws, pkg, owner), sym.File, applySplices(file.Src(), []splice{{span: sp, repl: []byte(replacement)}}))
 }
 
 // EditFile replaces or clears a file's package doc comment — the comment
@@ -104,5 +104,5 @@ func (tx *Tx) EditFile(pkg address.PkgPath, name, doc string) error {
 		return fmt.Errorf("cannot locate doc comment span in %q", path)
 	}
 	candidate := applySplices(file.Src(), []splice{{span: docSpan, repl: renderDocComment(doc)}})
-	return tx.reloadFile(p, path, candidate)
+	return tx.reloadFile(pkg, false, path, candidate)
 }

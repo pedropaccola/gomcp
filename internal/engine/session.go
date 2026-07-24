@@ -23,10 +23,11 @@ func (e *Engine) Flush() (written, removed []address.RelativePath, err error) {
 	candidate := e.ws.Load().Clone()
 	for _, addr := range candidate.UnitKeys() {
 		unit, _ := candidate.Unit(addr)
-		for _, pkg := range []*workspace.Package{unit.Prod, unit.XTest} {
+		for i, pkg := range []*workspace.Package{unit.Prod, unit.XTest} {
 			if pkg == nil {
 				continue
 			}
+			isXTest := i == 1
 			for _, file := range pkg.Files() {
 				if !file.Dirty() {
 					continue
@@ -38,7 +39,7 @@ func (e *Engine) Flush() (written, removed []address.RelativePath, err error) {
 				if err := os.WriteFile(abs, file.Src(), 0o644); err != nil {
 					return written, removed, err
 				}
-				pkg.MarkFlushed(file.Path)
+				candidate.MarkFlushed(addr, isXTest, file.Path)
 				written = append(written, file.Path)
 			}
 		}
