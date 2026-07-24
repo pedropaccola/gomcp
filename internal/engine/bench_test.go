@@ -10,15 +10,6 @@ import (
 	"testing"
 )
 
-// The benchmarks split the two cost regimes: reads (in-memory, should be
-// microseconds) and the load pipeline (go list subprocess + type-check,
-// the only genuinely expensive operations). Run with:
-//
-//	go test -bench . -benchtime 3x ./internal/engine
-//
-// The recheck-v2 decision (import-graph invalidation) is gated on
-// BenchmarkEditRoundTrip and BenchmarkBootstrapGenerated numbers.
-
 func BenchmarkBootstrapSandbox(b *testing.B) {
 	root := filepath.Join(moduleRoot(b), "testdata", "sandbox")
 	b.ResetTimer()
