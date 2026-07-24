@@ -99,23 +99,33 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "describe_package",
 		Annotations: reads("Describe Package"),
-		Description: "[Describer] Show a package's godoc — every file's doc comment (the comment block " +
-			"directly above \"package X\"), concatenated in file order — plus its file list." + depNote,
+		Description: "[Describer] Show one or more packages' godoc — every file's doc comment (the " +
+			"comment block directly above \"package X\"), concatenated in file order — plus " +
+			"its file list, in one round trip, resolved in order. If any entry fails, the " +
+			"whole call fails and the error names which entry failed — batch entries that are " +
+			"independent and already known-good; call once per entry instead if you want " +
+			"feedback between steps." + depNote,
 	}, describePackage(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "describe_file",
 		Annotations: reads("Describe File"),
-		Description: "[Describer] Show one file's own doc comment alone — the narrower read when only " +
-			"that file's contribution to the package doc is needed." + depNote,
+		Description: "[Describer] Show one or more files' own doc comment alone — the narrower read " +
+			"when only a file's contribution to its package doc is needed, in one round trip, " +
+			"resolved in order. If any entry fails, the whole call fails and the error names " +
+			"which entry failed — batch entries that are independent and already known-good; " +
+			"call once per entry instead if you want feedback between steps." + depNote,
 	}, describeFile(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "describe_symbol",
 		Annotations: reads("Describe Symbol"),
-		Description: "[Describer] Show a symbol's full declaration source (doc comment included) and " +
-			"kind, whatever it is — func, method, type, var, or const. A type's method " +
-			"signatures are included too." + keyNote + depNote,
+		Description: "[Describer] Show one or more symbols' full declaration source (doc comment " +
+			"included) and kind, whatever each is — func, method, type, var, or const, in one " +
+			"round trip, resolved in order. A type's method signatures are included too. If " +
+			"any entry fails, the whole call fails and the error names which entry failed — " +
+			"batch entries that are independent and already known-good; call once per entry " +
+			"instead if you want feedback between steps." + keyNote + depNote,
 	}, describeSymbol(eng, cfg))
 
 	// Finders
