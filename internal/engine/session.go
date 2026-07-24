@@ -45,11 +45,13 @@ func (e *Engine) Flush() (written, removed []address.RelativePath, err error) {
 		}
 	}
 	for _, path := range candidate.Tombstones() {
-		if err := os.Remove(e.absPath(path)); err != nil && !os.IsNotExist(err) {
+		abs := e.absPath(path)
+		if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
 			return written, removed, err
 		}
 		candidate.ClearTombstone(path)
 		removed = append(removed, path)
+		e.removeEmptyAncestors(filepath.Dir(abs))
 	}
 	e.ws.Store(candidate)
 	return written, removed, nil
@@ -90,4 +92,18 @@ func (e *Engine) Reload(ctx context.Context) ([]address.RelativePath, error) {
 	ws.Reset(module, fset, units)
 	e.ws.Store(ws)
 	return discarded, nil
+}
+
+// removeEmptyAncestors best-effort removes dir and each now-empty parent
+// up to (not including) RootDir, stopping at the first non-empty or
+// already-gone directory. A leftover empty directory is disk debris, not
+// a modeled entity, so a failure here is silently swallowed rather than
+// failing Flush.
+func (e *Engine) removeEmptyAncestors(dir string) {
+	root := filepath.Clean(e.RootDir)
+	for dir = filepath.Clean(dir); dir != root && filepath.Dir(dir) != dir; dir = filepath.Dir(dir) {
+		if err := os.Remove(dir); err != nil {
+			return
+		}
+	}
 }

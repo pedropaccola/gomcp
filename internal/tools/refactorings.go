@@ -30,7 +30,7 @@ type MoveSymbolInput struct {
 
 func moveSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveSymbolInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in MoveSymbolInput) (*mcp.CallToolResult, WriteOutput, error) {
-		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
+		_, out, err := runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
 			pkg, err := packageArg(tx.View, in.PkgPath)
 			if err != nil {
 				return err
@@ -53,12 +53,17 @@ func moveSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveSymb
 			}
 			return tx.MoveSymbol(pkg, in.SymbolKey, newPkg, newFile, optStr(in.NewSymbolKey))
 		})
+		if err != nil {
+			return nil, out, err
+		}
+		out.Files = pruneVacatedPackages(ctx, eng, out.Files)
+		return nil, out, nil
 	}
 }
 
 func moveFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveFileInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in MoveFileInput) (*mcp.CallToolResult, WriteOutput, error) {
-		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
+		_, out, err := runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
 			pkg, err := packageArg(tx.View, in.PkgPath)
 			if err != nil {
 				return err
@@ -76,12 +81,17 @@ func moveFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveFileIn
 			}
 			return tx.MoveFile(pkg, file, newPkg, optStr(in.NewFileName))
 		})
+		if err != nil {
+			return nil, out, err
+		}
+		out.Files = pruneVacatedPackages(ctx, eng, out.Files)
+		return nil, out, nil
 	}
 }
 
 func movePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MovePackageInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in MovePackageInput) (*mcp.CallToolResult, WriteOutput, error) {
-		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
+		_, out, err := runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
 			pkg, err := packageArg(tx.View, in.PkgPath)
 			if err != nil {
 				return err
@@ -92,5 +102,30 @@ func movePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MovePac
 			}
 			return tx.MovePackage(pkg, newPkg)
 		})
+		if err != nil {
+			return nil, out, err
+		}
+		out.Files = pruneVacatedPackages(ctx, eng, out.Files)
+		return nil, out, nil
 	}
+}
+
+// pruneVacatedPackages drops any bucket in files whose package address no
+// longer resolves to a package once the transaction has committed — a
+// move whose old address is now fully empty, not merely modified, so
+// listing it beside the destination would read as "still lives here"
+// when the package is actually gone.
+func pruneVacatedPackages(ctx context.Context, eng *engine.Engine, files map[string][]string) map[string][]string {
+	if len(files) == 0 {
+		return files
+	}
+	eng.Read(ctx, func(v *engine.View) error {
+		for addr := range files {
+			if _, ok := v.Package(address.PkgPath(addr)); !ok {
+				delete(files, addr)
+			}
+		}
+		return nil
+	})
+	return files
 }

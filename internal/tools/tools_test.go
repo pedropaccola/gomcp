@@ -948,3 +948,65 @@ func TestDescribePackageBatch(t *testing.T) {
 		t.Errorf("expected describes[1] to fail on the missing package, got %v", err)
 	}
 }
+
+func TestMovePackageEchoOmitsVacatedSource(t *testing.T) {
+	eng := sandboxEngine(t)
+	_, out, err := movePackage(eng, testCfg())(context.Background(), nil, MovePackageInput{
+		PkgPath: "shapes", NewPkgPath: "geo",
+	})
+	if err != nil {
+		t.Fatalf("move_package: %v", err)
+	}
+	if _, ok := out.Files["example.com/sandbox/shapes"]; ok {
+		t.Errorf("echo still lists the vacated source package: %+v", out.Files)
+	}
+	if _, ok := out.Files["example.com/sandbox/geo"]; !ok {
+		t.Errorf("echo missing the destination package: %+v", out.Files)
+	}
+}
+
+func TestMoveFileEchoOmitsVacatedSource(t *testing.T) {
+	eng := sandboxEngine(t)
+	_, out, err := moveFile(eng, testCfg())(context.Background(), nil, MoveFileInput{
+		PkgPath: "mvalpha", FileName: "mvalpha.go", NewPkgPath: new("mvbeta"),
+	})
+	if err != nil {
+		t.Fatalf("move_file: %v", err)
+	}
+	if _, ok := out.Files["example.com/sandbox/mvalpha"]; ok {
+		t.Errorf("echo still lists the vacated source package: %+v", out.Files)
+	}
+	if _, ok := out.Files["example.com/sandbox/mvbeta"]; !ok {
+		t.Errorf("echo missing the destination package: %+v", out.Files)
+	}
+}
+
+func TestMoveFileEchoKeepsNonVacatedSource(t *testing.T) {
+	eng := sandboxEngine(t)
+	_, out, err := moveFile(eng, testCfg())(context.Background(), nil, MoveFileInput{
+		PkgPath: "mvsrc", FileName: "standalone.go", NewPkgPath: new("mvdest"),
+	})
+	if err != nil {
+		t.Fatalf("move_file: %v", err)
+	}
+	if _, ok := out.Files["example.com/sandbox/mvsrc"]; !ok {
+		t.Errorf("echo dropped a still-existing source package: %+v", out.Files)
+	}
+	if _, ok := out.Files["example.com/sandbox/mvdest"]; !ok {
+		t.Errorf("echo missing the destination package: %+v", out.Files)
+	}
+}
+
+func TestMoveFileEchoKeepsSamePackageRenameTogether(t *testing.T) {
+	eng := sandboxEngine(t)
+	_, out, err := moveFile(eng, testCfg())(context.Background(), nil, MoveFileInput{
+		PkgPath: "shapes", FileName: "groups.go", NewFileName: new("groups2.go"),
+	})
+	if err != nil {
+		t.Fatalf("move_file: %v", err)
+	}
+	files := out.Files["example.com/sandbox/shapes"]
+	if !slices.Contains(files, "groups.go") || !slices.Contains(files, "groups2.go") {
+		t.Errorf("same-package rename should list both names under one bucket, got %+v", out.Files)
+	}
+}

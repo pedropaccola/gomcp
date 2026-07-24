@@ -1456,3 +1456,40 @@ func TestModelMatchesDiskAfterGroupAndMethodMutations(t *testing.T) {
 	}
 	assertModelEqualsDisk(t, e)
 }
+
+func TestFlushRemovesEmptyDirAfterPackageMove(t *testing.T) {
+	root := copySandbox(t)
+	e := NewEngine(root, nil)
+	if err := e.Bootstrap(context.Background()); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+	mustEdit(t, e, func(tx *Tx) error {
+		return tx.MovePackage(spkg("shapes"), spkg("geo"))
+	})
+	if _, _, err := e.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "shapes")); !os.IsNotExist(err) {
+		t.Errorf("old package directory still on disk: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "geo")); err != nil {
+		t.Errorf("new package directory missing: %v", err)
+	}
+}
+
+func TestFlushKeepsNonEmptySourceDir(t *testing.T) {
+	root := copySandbox(t)
+	e := NewEngine(root, nil)
+	if err := e.Bootstrap(context.Background()); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+	mustEdit(t, e, func(tx *Tx) error {
+		return tx.MoveFile(spkg("mvsrc"), "standalone.go", spkg("mvdest"), "")
+	})
+	if _, _, err := e.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "mvsrc")); err != nil {
+		t.Errorf("source directory with remaining files was removed: %v", err)
+	}
+}
