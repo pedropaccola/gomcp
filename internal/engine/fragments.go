@@ -7,7 +7,7 @@ import (
 	"go/token"
 	"strings"
 
-	"github.com/pedropaccola/gomcp/internal/engine/workspace"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 // fragment is a validated piece of agent-supplied source: the symbol keys

@@ -1,6 +1,6 @@
 package engine
 
-import "github.com/pedropaccola/gomcp/internal/engine/workspace"
+import "github.com/pedropaccola/gomcp/internal/workspace"
 
 // allPackages enumerates every package in the workspace, in the
 // workspace's own model type: addresses in path order, Prod before XTest.

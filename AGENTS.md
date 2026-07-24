@@ -44,13 +44,12 @@ the trade is what's worth recording, not just the outcome.
     internal/address/   shared leaf vocabulary (RelativePath, PkgPath,
                         CleanPath), depended on directly by workspace,
                         engine, and tools
-    internal/engine/    the model's gates: View (reads) and Tx (writes),
-                        each split one semantic category per file, plus
-                        dto.go — engine's own public vocabulary, translated
-                        from workspace's model at the gate
-      workspace/        the trusted core: model vocabulary and the
+    internal/workspace/ the trusted core: model vocabulary and the
                         Workspace, mutable only through its named
                         primitives, one concept per file
+    internal/engine/    the model's gates: View (reads) and Tx (writes),
+                        each split one semantic category per file, plus
+                        dto.go
     internal/tools/     presentation layer: MCP tools, split the same way
                         as engine (read/write handlers, one category per
                         file, a shared.go for helpers called from both)

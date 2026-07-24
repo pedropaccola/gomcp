@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/pedropaccola/gomcp/internal/address"
-	"github.com/pedropaccola/gomcp/internal/engine/workspace"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 // Match is one hit of a workspace-wide scan, engine's own copy of the

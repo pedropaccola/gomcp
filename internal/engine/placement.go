@@ -4,7 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 
-	"github.com/pedropaccola/gomcp/internal/engine/workspace"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 // insertOffset returns the canonical insertion offset for a new declaration

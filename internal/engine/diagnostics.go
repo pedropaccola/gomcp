@@ -5,7 +5,7 @@ import (
 	"slices"
 
 	"github.com/pedropaccola/gomcp/internal/address"
-	"github.com/pedropaccola/gomcp/internal/engine/workspace"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 // Diagnostics aggregates one package address's package- and file-scoped

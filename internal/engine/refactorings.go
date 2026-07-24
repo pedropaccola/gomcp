@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/pedropaccola/gomcp/internal/address"
-	"github.com/pedropaccola/gomcp/internal/engine/workspace"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 // MoveSymbol relocates key to another file — the same package's file when

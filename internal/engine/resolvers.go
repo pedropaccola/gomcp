@@ -2,7 +2,7 @@ package engine
 
 import (
 	"github.com/pedropaccola/gomcp/internal/address"
-	"github.com/pedropaccola/gomcp/internal/engine/workspace"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 // Module is the workspace's module path: the prefix of every workspace

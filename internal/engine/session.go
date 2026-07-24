@@ -7,7 +7,7 @@ import (
 	"slices"
 
 	"github.com/pedropaccola/gomcp/internal/address"
-	"github.com/pedropaccola/gomcp/internal/engine/workspace"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 // Flush writes every dirty file to disk, unlinks tombstoned paths, and

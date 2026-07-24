@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/pedropaccola/gomcp/internal/address"
-	"github.com/pedropaccola/gomcp/internal/engine/workspace"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 // changedSet is the union of dirty files and tombstoned paths.

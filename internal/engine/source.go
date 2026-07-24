@@ -6,7 +6,7 @@ import (
 	"go/token"
 
 	"github.com/pedropaccola/gomcp/internal/address"
-	"github.com/pedropaccola/gomcp/internal/engine/workspace"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 // declSource extracts the exact bytes of the symbol's whole top-level

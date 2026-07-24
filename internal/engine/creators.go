@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/pedropaccola/gomcp/internal/address"
-	"github.com/pedropaccola/gomcp/internal/engine/workspace"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 // CreatePackage creates a new package at a module-prefixed address with one

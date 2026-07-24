@@ -6,7 +6,7 @@ import (
 	"go/token"
 
 	"github.com/pedropaccola/gomcp/internal/address"
-	"github.com/pedropaccola/gomcp/internal/engine/workspace"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 // DeleteSymbol removes key's declaration — its spec alone when it lives in

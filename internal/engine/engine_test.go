@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/pedropaccola/gomcp/internal/address"
-	"github.com/pedropaccola/gomcp/internal/engine/workspace"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 // TestBootstrapLiveRepo self-hosts on this repository — the one test kept

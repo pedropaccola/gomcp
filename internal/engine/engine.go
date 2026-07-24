@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/pedropaccola/gomcp/internal/address"
-	"github.com/pedropaccola/gomcp/internal/engine/workspace"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 	"golang.org/x/tools/go/packages"
 )
 
