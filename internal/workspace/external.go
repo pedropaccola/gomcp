@@ -6,8 +6,8 @@ import (
 	"github.com/pedropaccola/gomcp/internal/address"
 )
 
-// ExternalPackage resolves a dependency resident in the cache.
-func (w *Workspace) ExternalPackage(pkg address.PkgPath) (*Package, bool) {
+// LookupExternal resolves a dependency resident in the cache.
+func (w *Workspace) LookupExternal(pkg address.PkgPath) (*Package, bool) {
 	p, ok := w.external[pkg]
 	return p, ok
 }

@@ -5,6 +5,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pedropaccola/gomcp/internal/engine"
+	"github.com/pedropaccola/gomcp/internal/gate"
 )
 
 type DiagnosticsInput struct{}
@@ -16,7 +17,7 @@ type DiagnosticsOutput struct {
 func diagnostics(eng *engine.Engine) mcp.ToolHandlerFor[DiagnosticsInput, DiagnosticsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, _ DiagnosticsInput) (*mcp.CallToolResult, DiagnosticsOutput, error) {
 		var out DiagnosticsOutput
-		err := eng.Read(ctx, func(v *engine.View) error {
+		err := eng.Read(ctx, func(v *gate.View) error {
 			diags := v.AllDiagnostics()
 			out.Diagnostics = make([]DiagnosticEntry, len(diags))
 			for i, diag := range diags {

@@ -1,8 +1,8 @@
 // Package address is the shared leaf vocabulary for locating things in the
 // workspace: RelativePath (disk-relative file paths) and PkgPath (import
-// paths). It depends on nothing else in this module, so workspace, engine,
-// and tools each depend on it directly instead of re-exporting it for one
-// another.
+// paths). It depends on nothing else in this module, so workspace, dto,
+// gate, engine, and tools each depend on it directly instead of
+// re-exporting it for one another.
 package address
 
 import (
@@ -16,8 +16,8 @@ import (
 // through CleanPath.
 type RelativePath string
 
-// EscapesRoot reports whether the path points outside the workspace root.
-func (p RelativePath) EscapesRoot() bool {
+// IsOutsideRoot reports whether the path points outside the workspace root.
+func (p RelativePath) IsOutsideRoot() bool {
 	return p == ".." || strings.HasPrefix(string(p), ".."+string(filepath.Separator))
 }
 
@@ -59,7 +59,7 @@ func (p PkgPath) String() string { return string(p) }
 // live inside the workspace — absolute paths and paths escaping the root.
 func CleanPath(s string) (RelativePath, bool) {
 	p := RelativePath(filepath.Clean(s))
-	if filepath.IsAbs(string(p)) || p.EscapesRoot() {
+	if filepath.IsAbs(string(p)) || p.IsOutsideRoot() {
 		return "", false
 	}
 	return p, true

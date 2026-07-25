@@ -1,0 +1,31 @@
+package workspace
+
+import (
+	"go/token"
+	"testing"
+
+	"github.com/pedropaccola/gomcp/internal/address"
+)
+
+func TestUnitDirtyCarryAndPrune(t *testing.T) {
+	w := NewWorkspace()
+	w.Reset("example.com/mod", token.NewFileSet(), map[address.PkgPath]*Unit{})
+	w.InstallUnit("example.com/mod/pkg", NewUnit(&Package{Name: "pkg", Path: "pkg", PkgPath: "example.com/mod/pkg"}, nil))
+	if err := w.SwapFile("example.com/mod/pkg", false, "pkg/pkg.go", "pkg/pkg.go", []byte("package pkg\n\nfunc Hello() {}\n")); err != nil {
+		t.Fatal(err)
+	}
+	w.MarkFlushed("example.com/mod/pkg", false, "pkg/pkg.go")
+	unit, _ := w.Unit("example.com/mod/pkg")
+	p := unit.Prod()
+	u := NewUnit(p, nil)
+	u.MarkDirty("pkg/pkg.go")
+	file, _ := p.File("pkg/pkg.go")
+	if !file.IsDirty() {
+		t.Error("MarkDirty did not re-mark the carried-over file")
+	}
+	units := map[address.PkgPath]*Unit{"example.com/mod/pkg": u}
+	PruneFile(units, "example.com/mod/pkg", "pkg/pkg.go")
+	if _, ok := units["example.com/mod/pkg"]; ok {
+		t.Error("unit must be pruned once its last file is gone")
+	}
+}

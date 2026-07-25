@@ -7,6 +7,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/engine"
+	"github.com/pedropaccola/gomcp/internal/gate"
 )
 
 type EditFileEntry struct {
@@ -45,7 +46,7 @@ func editFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[EditFileIn
 			return nil, WriteOutput{}, fmt.Errorf("edits must not be empty")
 		}
 		n := len(in.Edits)
-		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
 			pkgs := make([]address.PkgPath, n)
 			seen := make(map[string]bool, n)
 			for i, entry := range in.Edits {
@@ -76,7 +77,7 @@ func editSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[EditSymb
 			return nil, WriteOutput{}, fmt.Errorf("edits must not be empty")
 		}
 		n := len(in.Edits)
-		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
 			pkgs := make([]address.PkgPath, n)
 			seen := make(map[string]bool, n)
 			for i, entry := range in.Edits {

@@ -1,0 +1,106 @@
+package workspace
+
+import (
+	"fmt"
+	"go/ast"
+	"go/token"
+
+	"github.com/pedropaccola/gomcp/internal/address"
+)
+
+// trimRange reports the byte range removing the idx'th element of a
+// comma-separated list collapses to — from the previous element's end (or
+// this element's own start, when it's first) through this element's end.
+func trimRange[T ast.Node](elems []T, idx int) (token.Pos, token.Pos) {
+	if idx == 0 {
+		return elems[0].Pos(), elems[1].Pos()
+	}
+	return elems[idx-1].End(), elems[idx].End()
+}
+
+// trimSpecName computes the splices removing key from a multi-name
+// ValueSpec (`var a, b int`, `var a, b = f()`), or ok=false when no other
+// name in the spec is real (non-blank) — the caller then falls through to
+// whole-span removal instead, since nothing would be left to preserve.
+// Names with one value each (or none at all) have the targeted name, and
+// its paired value if any, trimmed from their lists; names sharing one
+// multi-valued expression can't shrink the call's arity, so the targeted
+// name blanks to `_` instead — the only transform leaving every other
+// name's behavior unaffected.
+func (w *Workspace) trimSpecName(owner *Package, sym *Symbol, spec *ast.ValueSpec, key string) ([]Splice, bool) {
+	idx := -1
+	for i, n := range spec.Names {
+		if n.Name == key {
+			idx = i
+			break
+		}
+	}
+	real := false
+	for i, n := range spec.Names {
+		if i != idx && n.Name != "_" {
+			real = true
+			break
+		}
+	}
+	if !real {
+		return nil, false
+	}
+	file, ok := owner.File(sym.File)
+	if !ok {
+		return nil, false
+	}
+	if len(spec.Values) > 0 && len(spec.Values) < len(spec.Names) {
+		sp, ok := offsetSpan(w, owner, file, spec.Names[idx].Pos(), spec.Names[idx].End())
+		if !ok {
+			return nil, false
+		}
+		return []Splice{{Path: sym.File, Start: sp.start, End: sp.end, Repl: []byte("_")}}, true
+	}
+	nameStart, nameEnd := trimRange(spec.Names, idx)
+	sp, ok := offsetSpan(w, owner, file, nameStart, nameEnd)
+	if !ok {
+		return nil, false
+	}
+	splices := []Splice{{Path: sym.File, Start: sp.start, End: sp.end}}
+	if len(spec.Values) == len(spec.Names) {
+		valStart, valEnd := trimRange(spec.Values, idx)
+		vsp, ok := offsetSpan(w, owner, file, valStart, valEnd)
+		if !ok {
+			return nil, false
+		}
+		splices = append(splices, Splice{Path: sym.File, Start: vsp.start, End: vsp.end})
+	}
+	return splices, true
+}
+
+// DeletionSplices computes the splices removing key's declaration — its
+// spec alone when it lives in a grouped declaration with siblings,
+// unless its value is derived from its position (iota, or inheriting the
+// previous spec's expression), in which case the whole group is removed
+// together. A name sharing a spec with other real names is trimmed from
+// it instead of taking the others down with it (trimSpecName). found
+// false means key doesn't exist — deletion is idempotent, a caller should
+// treat that as success, not an error. Aggregate-owned analysis, same
+// rationale as MoveConflicts: key is resolved fresh here.
+func (w *Workspace) DeletionSplices(pkg address.PkgPath, key string) (splices []Splice, found bool, err error) {
+	sym, owner, ok := w.resolveSymbol(pkg, key)
+	if !ok {
+		return nil, false, nil
+	}
+	gen, grouped := GroupOf(sym)
+	if !constPositionDependent(gen, grouped, sym) {
+		if spec, ok := sym.Spec().(*ast.ValueSpec); ok && len(spec.Names) > 1 {
+			if sp, ok := w.trimSpecName(owner, sym, spec, key); ok {
+				return sp, true, nil
+			}
+		}
+	}
+	sp, ok := w.declSpan(owner, sym)
+	if !isSoloGroup(gen, grouped) && !constPositionDependent(gen, grouped, sym) {
+		sp, ok = w.specSpan(owner, sym)
+	}
+	if !ok {
+		return nil, true, fmt.Errorf("cannot locate %q in source", key)
+	}
+	return []Splice{{Path: sym.File, Start: sp.start, End: sp.end}}, true, nil
+}

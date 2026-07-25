@@ -6,11 +6,12 @@
 // handlers live one semantic category per file — enumerators.go, describers.go,
 // finders.go, diagnostics.go — with read.go holding the cross-category
 // resolution helpers (readPackage, readSymbol, methodSignatures). Write
-// handlers mirror that: creators.go, editors.go, refactorings.go, session.go,
-// with edit.go holding runEdit, the one relay every mutating handler flows
-// through. shared.go holds helpers genuinely called from both sides. Handlers
-// themselves carry no doc comments by design — they are mechanical relays,
-// documented by their tool descriptions in Register.
+// handlers mirror that: creators.go, deleters.go, editors.go, refactorings.go,
+// disk.go (flush/reload, the disk boundary), with edit.go holding
+// runEdit, the one relay every mutating handler flows through. shared.go
+// holds helpers genuinely called from both sides. Handlers themselves carry
+// no doc comments by design — they are mechanical relays, documented by
+// their tool descriptions in Register.
 // Tool naming convention: list_* enumerate a scope, describe_* render one
 // address, search_* scan the workspace, diagnostics reports problems, every
 // other prefix mirrors its mutation verb, and flush writes to disk.
@@ -349,18 +350,18 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 			"\"Package oldname\" doc-comment opening, when it has one." + echoNote,
 	}, movePackage(eng, cfg))
 
-	// Session
+	// Disk
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "flush",
 		Annotations: mutates("Flush to Disk", true),
-		Description: "[Session] Write every in-memory edit to disk: dirty files are written, deleted and " +
+		Description: "[Disk] Write every in-memory edit to disk: dirty files are written, deleted and " +
 			"renamed-away paths are unlinked. Until flush, the filesystem is untouched.",
 	}, flush(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "reload",
 		Annotations: mutates("Reload from Disk", true),
-		Description: "[Session] Rebuild the in-memory workspace from disk, discarding every unflushed " +
+		Description: "[Disk] Rebuild the in-memory workspace from disk, discarding every unflushed " +
 			"edit and pending deletion — the inverse of flush. The echo reports what was " +
 			"discarded, grouped by package, plus the fresh workspace diagnostics. Use after " +
 			"the filesystem changed behind the server.",

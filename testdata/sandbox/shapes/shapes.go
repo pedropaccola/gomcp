@@ -28,4 +28,13 @@ func (Base) Area() float64 { return 0 }
 // matching cannot see.
 type Embedded struct{ Base }
 
-type NotShape struct{}
+type NotShape struct{ recovered bool }
+
+// Wrapper deliberately names a field the same as the Square type, so
+// refactoring operations on Square must correctly leave Wrapper's field
+// reference alone.
+type Wrapper struct {
+	Square Square
+}
+
+func (w Wrapper) WrapperArea() float64 { return w.Square.Area() }

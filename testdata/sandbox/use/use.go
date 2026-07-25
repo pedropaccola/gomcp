@@ -34,3 +34,13 @@ func TotalArea(ss []shapes.Shape) float64 {
 	}
 	return total
 }
+
+var gauge = mvsrc.Gauge{N: 3}
+
+// UseGaugeValue calls Gauge's method on a package-level value, for testing
+// that a cross-package move of Gauge (and its method) never rewrites this
+// call site: method calls carry no package qualifier the way a bare
+// type/func reference does.
+func UseGaugeValue() int {
+	return gauge.Value()
+}

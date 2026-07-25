@@ -5,7 +5,9 @@ import (
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/pedropaccola/gomcp/internal/dto"
 	"github.com/pedropaccola/gomcp/internal/engine"
+	"github.com/pedropaccola/gomcp/internal/gate"
 )
 
 // DescribeFileInput is one or more files to describe, in one round trip,
@@ -92,7 +94,7 @@ func describePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Des
 		n := len(in.Describes)
 		out := DescribePackageOutput{Results: make([]DescribePackageResult, n)}
 		for i, entry := range in.Describes {
-			err := readPackage(ctx, eng, entry.PkgPath, func(v *engine.View, pkg engine.Package) error {
+			err := readPackage(ctx, eng, entry.PkgPath, func(v *gate.View, pkg dto.Package) error {
 				res := &out.Results[i]
 				if doc := pkg.Doc(); doc != "" {
 					res.Doc = new(string)
@@ -122,12 +124,12 @@ func describeFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Descri
 		n := len(in.Describes)
 		out := DescribeFileOutput{Results: make([]DescribeFileResult, n)}
 		for i, entry := range in.Describes {
-			err := readPackage(ctx, eng, entry.PkgPath, func(v *engine.View, pkg engine.Package) error {
+			err := readPackage(ctx, eng, entry.PkgPath, func(v *gate.View, pkg dto.Package) error {
 				name, err := fileArg(v.Module(), pkg.PkgPath(), entry.FileName)
 				if err != nil {
 					return err
 				}
-				var target *engine.File
+				var target *dto.File
 				for _, f := range pkg.Files() {
 					if f.Path().Base() == name {
 						target = &f
@@ -161,7 +163,7 @@ func describeSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Desc
 		n := len(in.Describes)
 		out := DescribeSymbolOutput{Results: make([]DescribeSymbolResult, n)}
 		for i, entry := range in.Describes {
-			err := readSymbol(ctx, eng, entry.PkgPath, entry.SymbolKey, func(v *engine.View, sym engine.Symbol, owner engine.Package) error {
+			err := readSymbol(ctx, eng, entry.PkgPath, entry.SymbolKey, func(v *gate.View, sym dto.Symbol, owner dto.Package) error {
 				src, ok := v.DeclSource(owner.PkgPath(), sym.Key())
 				if !ok {
 					return fmt.Errorf("source extraction failed for %q", entry.SymbolKey)
@@ -171,7 +173,7 @@ func describeSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Desc
 				res.Source = src
 				res.Kind = sym.Kind().String()
 				diags := v.SymbolDiagnostics(owner.PkgPath(), sym.Key())
-				if sym.Kind() == engine.KindType {
+				if sym.Kind() == dto.KindType {
 					res.Methods = methodSignatures(v, owner, sym.Key())
 					for _, m := range v.Methods(owner, sym.Key()) {
 						diags = append(diags, v.SymbolDiagnostics(owner.PkgPath(), m.Key())...)

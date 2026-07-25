@@ -34,6 +34,14 @@ type Workspace struct {
 	units       map[address.PkgPath]*Unit
 	unitsForked bool
 
+	// narrowlyChecked marks a generation assembled by a dirty-scoped
+	// recheck (SwapLoaded's narrow argument): some packages were carried
+	// forward unchanged from an earlier type-checking session rather than
+	// rebuilt in this one. objKey-based matching tolerates that fine, but
+	// SymbolsImplementing's types.Implements cannot — see its own doc
+	// comment and ErrNarrowlyChecked.
+	narrowlyChecked bool
+
 	// removed maps tombstoned paths (deleted or renamed away in-memory) to
 	// the overlay mask that hides their on-disk content from rechecks;
 	// Flush unlinks them. go/packages overlays cannot remove files, only
@@ -69,11 +77,13 @@ func NewWorkspace() *Workspace {
 
 // Reset replaces the whole model with a fresh load's truth, discarding
 // tombstones and the dependency cache — the bootstrap swap. units come
-// from the loader and are trusted as its output.
+// from the loader and are trusted as its output. Always a full load, so
+// narrowlyChecked clears.
 func (w *Workspace) Reset(module address.PkgPath, fset *token.FileSet, units map[address.PkgPath]*Unit) {
 	w.module = module
 	w.fset = fset
 	w.units = units
+	w.narrowlyChecked = false
 	w.removed = make(map[address.RelativePath][]byte)
 	w.external = make(map[address.PkgPath]*Package)
 	w.externalErr = make(map[address.PkgPath]error)
@@ -82,10 +92,13 @@ func (w *Workspace) Reset(module address.PkgPath, fset *token.FileSet, units map
 
 // SwapLoaded replaces the units and their position table with a recheck's
 // output, keeping tombstones, module identity, and the dependency cache —
-// the post-mutation swap.
-func (w *Workspace) SwapLoaded(fset *token.FileSet, units map[address.PkgPath]*Unit) {
+// the post-mutation swap. narrow marks whether this was a dirty-scoped
+// recheck (some packages carried forward from an earlier session) rather
+// than a full one — see narrowlyChecked.
+func (w *Workspace) SwapLoaded(fset *token.FileSet, units map[address.PkgPath]*Unit, narrow bool) {
 	w.fset = fset
 	w.units = units
+	w.narrowlyChecked = narrow
 }
 
 // Module is the workspace's module path: the prefix of every workspace

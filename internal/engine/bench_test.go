@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/pedropaccola/gomcp/internal/gate"
 )
 
 func BenchmarkBootstrapSandbox(b *testing.B) {
@@ -20,8 +22,11 @@ func BenchmarkBootstrapSandbox(b *testing.B) {
 	}
 }
 
-// BenchmarkEditRoundTrip measures one full mutation transaction: splice,
-// goimports, reparse, full-workspace recheck, delta computation.
+// BenchmarkEditRoundTrip measures one full mutation transaction against
+// the sandbox fixture: splice, goimports, reparse, dirty-scoped recheck,
+// delta computation. See BenchmarkEditRoundTripManyPackages for how this
+// scales with workspace size now that the recheck is dirty-scoped
+// (Recheck v2) rather than whole-module.
 func BenchmarkEditRoundTrip(b *testing.B) {
 	e := sandboxEngine(b)
 	bodies := []string{
@@ -30,7 +35,7 @@ func BenchmarkEditRoundTrip(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := e.Edit(context.Background(), func(tx *Tx) error {
+		_, err := e.Edit(context.Background(), func(tx *gate.Tx) error {
 			return tx.EditSymbol(spkg("shapes"), "NotShape", bodies[i%2])
 		})
 		if err != nil {
@@ -44,7 +49,7 @@ func BenchmarkScans(b *testing.B) {
 	re := regexp.MustCompile(`append\(`)
 	b.Run("SymbolsLike", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			e.Read(context.Background(), func(v *View) error {
+			e.Read(context.Background(), func(v *gate.View) error {
 				if len(v.SymbolsLike("area")) == 0 {
 					b.Fatal("no matches")
 				}
@@ -54,7 +59,7 @@ func BenchmarkScans(b *testing.B) {
 	})
 	b.Run("SymbolsRegexp", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			e.Read(context.Background(), func(v *View) error {
+			e.Read(context.Background(), func(v *gate.View) error {
 				if len(v.SymbolsRegexp(re)) == 0 {
 					b.Fatal("no matches")
 				}
@@ -64,7 +69,7 @@ func BenchmarkScans(b *testing.B) {
 	})
 	b.Run("SymbolsReferencing", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			e.Read(context.Background(), func(v *View) error {
+			e.Read(context.Background(), func(v *gate.View) error {
 				matches, err := v.SymbolsReferencing(spkg("shapes"), "Circle")
 				if err != nil || len(matches) == 0 {
 					b.Fatalf("references: %v %v", matches, err)
@@ -121,4 +126,44 @@ func genWorkspace(tb testing.TB, pkgCount, declsPerPkg int) string {
 		}
 	}
 	return root
+}
+
+// BenchmarkEditRoundTripManyPackages demonstrates Recheck v2's actual
+// payoff: a synthetic workspace of many independent leaf packages (no
+// cross-imports, so editing one never sweeps in the others), timing
+// repeated edits to a single package. Under the old whole-module recheck
+// this cost grew with total package count; under the dirty-scoped recheck
+// it should stay roughly flat as the package count grows, since the
+// closure computed for each edit is always just the one edited package.
+func BenchmarkEditRoundTripManyPackages(b *testing.B) {
+	const n = 100
+	dir := b.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/manypkgs\n\ngo 1.21\n"), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	for i := 0; i < n; i++ {
+		name := fmt.Sprintf("pkg%d", i)
+		if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
+			b.Fatal(err)
+		}
+		src := fmt.Sprintf("package %s\n\nfunc X() int { return %d }\n", name, i)
+		if err := os.WriteFile(filepath.Join(dir, name, name+".go"), []byte(src), 0o644); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	e := NewEngine(dir, nil)
+	if err := e.Bootstrap(context.Background()); err != nil {
+		b.Fatalf("Bootstrap: %v", err)
+	}
+	bodies := []string{"func X() int { return 1 }", "func X() int { return 2 }"}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := e.Edit(context.Background(), func(tx *gate.Tx) error {
+			return tx.EditSymbol("example.com/manypkgs/pkg0", "X", bodies[i%2])
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
 }

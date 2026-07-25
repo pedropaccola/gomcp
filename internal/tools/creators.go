@@ -6,6 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pedropaccola/gomcp/internal/engine"
+	"github.com/pedropaccola/gomcp/internal/gate"
 )
 
 type CreateFileEntry struct {
@@ -52,7 +53,7 @@ func createPackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Creat
 			return nil, WriteOutput{}, fmt.Errorf("creates must not be empty")
 		}
 		n := len(in.Creates)
-		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
 			for i, entry := range in.Creates {
 				pkg, err := packageArg(tx.View, entry.PkgPath)
 				if err != nil {
@@ -73,7 +74,7 @@ func createFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[CreateFi
 			return nil, WriteOutput{}, fmt.Errorf("creates must not be empty")
 		}
 		n := len(in.Creates)
-		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
 			for i, entry := range in.Creates {
 				pkg, err := packageArg(tx.View, entry.PkgPath)
 				if err != nil {
@@ -98,7 +99,7 @@ func createSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Create
 			return nil, WriteOutput{}, fmt.Errorf("creates must not be empty")
 		}
 		n := len(in.Creates)
-		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
 			for i, entry := range in.Creates {
 				pkg, err := packageArg(tx.View, entry.PkgPath)
 				if err != nil {

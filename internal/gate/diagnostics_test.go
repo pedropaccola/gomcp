@@ -1,0 +1,46 @@
+package gate
+
+import (
+	"context"
+	"go/token"
+	"testing"
+
+	"github.com/pedropaccola/gomcp/internal/address"
+	"github.com/pedropaccola/gomcp/internal/workspace"
+)
+
+func TestViewDiagnosticsPackageScoped(t *testing.T) {
+	ws := workspace.NewWorkspace()
+	ws.Reset("test.mod", token.NewFileSet(), map[address.PkgPath]*workspace.Unit{})
+	wp := workspace.NewPackage("pkg", "pkg", "test.mod/pkg", nil, nil, false)
+	wp.Diags = append(wp.Diags, workspace.Diagnostic{Kind: workspace.DiagParse, Msg: "boom"})
+	ws.InstallUnit("test.mod/pkg", workspace.NewUnit(wp, nil))
+	v := NewView(t.TempDir(), ws, context.Background())
+	diags := v.Diagnostics("test.mod/pkg")
+	if len(diags) != 1 || diags[0].Msg != "boom" {
+		t.Errorf("Diagnostics(test.mod/pkg) = %+v, want one boom diagnostic", diags)
+	}
+}
+
+func TestViewAllDiagnosticsAggregatesEveryUnit(t *testing.T) {
+	ws := workspace.NewWorkspace()
+	ws.Reset("test.mod", token.NewFileSet(), map[address.PkgPath]*workspace.Unit{})
+	p1 := workspace.NewPackage("a", "a", "test.mod/a", nil, nil, false)
+	p1.Diags = append(p1.Diags, workspace.Diagnostic{Kind: workspace.DiagParse, Msg: "a-broke"})
+	p2 := workspace.NewPackage("b", "b", "test.mod/b", nil, nil, false)
+	p2.Diags = append(p2.Diags, workspace.Diagnostic{Kind: workspace.DiagParse, Msg: "b-broke"})
+	ws.InstallUnit("test.mod/a", workspace.NewUnit(p1, nil))
+	ws.InstallUnit("test.mod/b", workspace.NewUnit(p2, nil))
+	v := NewView(t.TempDir(), ws, context.Background())
+	diags := v.AllDiagnostics()
+	if len(diags) != 2 {
+		t.Errorf("AllDiagnostics() = %+v, want both units' diagnostics", diags)
+	}
+}
+
+func TestViewSymbolDiagnosticsScopedToSpan(t *testing.T) {
+	v := gateFixture(t, "package pkg\n\nfunc Foo() {}\n\nfunc Bar() {}\n")
+	if diags := v.SymbolDiagnostics("test.mod/pkg", "Foo"); diags != nil {
+		t.Errorf("SymbolDiagnostics(Foo) = %+v, want none on a clean fixture", diags)
+	}
+}

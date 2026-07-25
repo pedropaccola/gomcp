@@ -7,6 +7,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/engine"
+	"github.com/pedropaccola/gomcp/internal/gate"
 )
 
 // WriteOutput is the shared echo of every write tool (creators, editors,
@@ -25,7 +26,7 @@ type WriteOutput struct {
 
 // runEdit is the composite every write handler flows through: one
 // transaction, echoed as files changed plus the diagnostics delta.
-func runEdit(ctx context.Context, eng *engine.Engine, cfg *toolConfig, fn func(*engine.Tx) error) (*mcp.CallToolResult, WriteOutput, error) {
+func runEdit(ctx context.Context, eng *engine.Engine, cfg *toolConfig, fn func(*gate.Tx) error) (*mcp.CallToolResult, WriteOutput, error) {
 	var out WriteOutput
 	report, err := eng.Edit(ctx, fn)
 	if err != nil {
@@ -39,8 +40,8 @@ func runEdit(ctx context.Context, eng *engine.Engine, cfg *toolConfig, fn func(*
 		out.ResolvedDiagnostics = &resolved
 	}
 	out.UnrelatedDiagnosticsCount = new(report.Unrelated)
-	out.DiagnosticsUnavailable = new(report.Stale)
 	if report.Stale {
+		out.DiagnosticsUnavailable = new(report.Stale)
 		out.IntroducedDiagnostics = &DiagnosticsTruncated{Diagnostics: []DiagnosticEntry{{Message: "diagnostics unavailable: " + report.Note}}}
 	}
 	return nil, out, nil
@@ -48,10 +49,10 @@ func runEdit(ctx context.Context, eng *engine.Engine, cfg *toolConfig, fn func(*
 
 // packageArg validates and canonicalizes a package address for the
 // mutation handlers — the write-side gate: dependencies are refused, the
-// workspace is the only mutable world. Takes a *engine.View (never eng
+// workspace is the only mutable world. Takes a *gate.View (never eng
 // *engine.Engine directly) so it's safe to call from inside a Read/Edit
 // closure too — View never acquires the gate lock itself.
-func packageArg(v *engine.View, addr string) (address.PkgPath, error) {
+func packageArg(v *gate.View, addr string) (address.PkgPath, error) {
 	canon, err := canonPkg(v.Module(), addr)
 	if err != nil {
 		return "", err

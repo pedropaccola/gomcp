@@ -125,9 +125,9 @@ func (w *Workspace) ensureRemovedForked() {
 func (w *Workspace) ensurePackageForked(addr address.PkgPath, isXTest bool) *Package {
 	w.ensureUnitsForked()
 	unit := w.units[addr]
-	pkg := unit.Prod
+	pkg := unit.prod
 	if isXTest {
-		pkg = unit.XTest
+		pkg = unit.xtest
 	}
 	if w.forkedPkgs[pkg] {
 		return pkg
@@ -135,9 +135,9 @@ func (w *Workspace) ensurePackageForked(addr address.PkgPath, isXTest bool) *Pac
 	forked := pkg.Clone()
 	next := *unit
 	if isXTest {
-		next.XTest = forked
+		next.xtest = forked
 	} else {
-		next.Prod = forked
+		next.prod = forked
 	}
 	w.units[addr] = &next
 	if w.forkedPkgs == nil {
@@ -164,7 +164,7 @@ func PruneFile(units map[address.PkgPath]*Unit, pkg address.PkgPath, path addres
 	if !ok {
 		return
 	}
-	for _, p := range []*Package{unit.Prod, unit.XTest} {
+	for _, p := range []*Package{unit.prod, unit.xtest} {
 		if p == nil {
 			continue
 		}
@@ -181,13 +181,13 @@ func PruneFile(units map[address.PkgPath]*Unit, pkg address.PkgPath, path addres
 // pruneEmptyUnit (an installed workspace) and PruneFile (a freshly
 // loaded unit map, before installation).
 func pruneIfEmpty(units map[address.PkgPath]*Unit, pkg address.PkgPath, unit *Unit) {
-	if unit.Prod != nil && len(unit.Prod.files) == 0 {
-		unit.Prod = nil
+	if unit.prod != nil && len(unit.prod.files) == 0 {
+		unit.prod = nil
 	}
-	if unit.XTest != nil && len(unit.XTest.files) == 0 {
-		unit.XTest = nil
+	if unit.xtest != nil && len(unit.xtest.files) == 0 {
+		unit.xtest = nil
 	}
-	if unit.Prod == nil && unit.XTest == nil {
+	if unit.prod == nil && unit.xtest == nil {
 		delete(units, pkg)
 	}
 }

@@ -24,8 +24,8 @@ type File struct {
 // Ast returns the parse of exactly Src.
 func (f *File) Ast() *ast.File { return f.ast }
 
-// Dirty reports whether the file's bytes await a flush to disk.
-func (f *File) Dirty() bool { return f.dirty }
+// IsDirty reports whether the file's bytes await a flush to disk.
+func (f *File) IsDirty() bool { return f.dirty }
 
 // Src returns the file's canonical bytes.
 func (f *File) Src() []byte { return f.src }

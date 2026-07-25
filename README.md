@@ -16,7 +16,7 @@ Standard AI development tools treat LLMs like automated text editors. They requi
 
 1. **In-Memory Operations:** The agent reads from and writes to an in-memory representation of the codebase. Changes do not touch the disk while the agent works.
 2. **Declaration Isolation:** Instead of sending an entire file or package context to the LLM, the server isolates and exposes only the specific declaration (such as a single struct, function, or interface) required for the current task.
-3. **Immediate Compiler Feedback:** Every write triggers a full-module re-typecheck in memory, sending compiler diagnostics directly back to the agent.
+3. **Immediate Compiler Feedback:** Every write triggers a scoped re-typecheck in memory, sending compiler diagnostics directly back to the agent.
 
 
 ## Operational Characteristics
@@ -66,7 +66,7 @@ Small set of 25 tools:
 * Editors (fail if the address doesn't exist): `edit_symbol`, `edit_file`
 * Deleters (noop if the address doesn't exist — deletion is idempotent, so a duplicate target across entries is harmless): `delete_symbol`, `delete_file`, `delete_package`
 * Refactorings (structure-preserving transformations; safe by construction — refuse rather than risk breaking the workspace): `move_symbol` (rename, relocate, or both), `move_file`, `move_package`
-* Session (syncs the in-memory state with disk): `flush`, `reload`
+* Disk (syncs the in-memory state with disk): `flush`, `reload`
 
 More on `internal/tools/tools.go`
 

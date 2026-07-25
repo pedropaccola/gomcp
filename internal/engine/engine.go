@@ -1,7 +1,4 @@
-// Package engine is the model's gate: Bootstrap loads the workspace, View
-// and Tx expose reads and writes to it, and dto.go translates workspace's
-// internal vocabulary into engine's own public types at the boundary —
-// nothing from workspace crosses out unaliased.
+// Package engine is the Repository: Bootstrap/Reload/Flush own the go/packages.Load pipeline and the disk boundary, and Engine.Read/Edit are the composition root, constructing internal/gate's View and Tx and scoping them to the concurrency contract (Engine.mu, a plain sync.RWMutex). The model itself — units, tombstones, position tables, the dependency cache — lives behind workspace.Workspace; reads and writes against it flow through gate, never through this package's own types.
 package engine
 
 import (
@@ -13,10 +10,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/pedropaccola/gomcp/internal/address"
+	"github.com/pedropaccola/gomcp/internal/dto"
+	"github.com/pedropaccola/gomcp/internal/gate"
 	"github.com/pedropaccola/gomcp/internal/workspace"
 	"golang.org/x/tools/go/packages"
 )
@@ -26,29 +24,28 @@ import (
 // units, tombstones, position tables, the dependency cache — lives behind
 // the workspace.Workspace and is only reshaped through its primitives.
 //
-// ws is published via atomic.Pointer: Read loads it lock-free, so readers
-// never block on a writer or on each other, and a pointer obtained by one
-// Read stays a complete, consistent snapshot for its whole duration, even
-// while a writer is building the next one. mu serializes writers only
-// (Edit, Flush, Bootstrap, Reload, and LoadExternal's install step) —
-// each builds its change against a private copy and publishes it with one
-// ws.Store, never mutating the published Workspace in place.
+// ws is guarded by mu, a plain sync.RWMutex: Read takes the read lock for
+// its whole call, so any number of Reads run concurrently with each other
+// but wait out an in-flight writer; Edit, Flush, Bootstrap, Reload, and
+// LoadExternal's install step take the write lock and serialize as the
+// sole writer — each builds its change against a private copy and
+// publishes it with one assignment, never mutating the published
+// Workspace in place.
 type Engine struct {
-	mu      sync.Mutex
+	mu      sync.RWMutex
 	RootDir string
-	ws      atomic.Pointer[workspace.Workspace]
+	ws      *workspace.Workspace
 	logf    func(string, ...any)
 }
 
 // NewEngine creates an engine rooted at rootDir. logf enables go/packages
 // loader debug output; nil means silent.
 func NewEngine(rootDir string, logf func(string, ...any)) *Engine {
-	e := &Engine{
+	return &Engine{
 		RootDir: rootDir,
 		logf:    logf,
+		ws:      workspace.NewWorkspace(),
 	}
-	e.ws.Store(workspace.NewWorkspace())
-	return e
 }
 
 // absPath maps a workspace-relative path back to the filesystem.
@@ -56,7 +53,7 @@ func (e *Engine) absPath(p address.RelativePath) string {
 	return filepath.Join(e.RootDir, string(p))
 }
 
-// Bootstrap loads the workspace from scratch and atomically swaps it in,
+// Bootstrap loads the workspace from scratch and installs it wholesale,
 // discarding any in-memory edits, tombstones, and cached dependencies.
 // Broken code is a valid state: per-package load errors become
 // Diagnostics, never a bootstrap failure. Only a driver-level failure
@@ -70,104 +67,27 @@ func (e *Engine) Bootstrap(ctx context.Context) error {
 	defer e.mu.Unlock()
 	ws := workspace.NewWorkspace()
 	ws.Reset(module, fset, units)
-	e.ws.Store(ws)
+	e.ws = ws
 	return nil
 }
 
-// ModulePath returns the workspace's module path — safe to call from
-// anywhere, including from inside a Read or Edit closure, since it only
-// loads the published pointer and never touches e.mu.
+// ModulePath returns the workspace's module path. Takes a brief read
+// lock — safe to call from outside any Read or Edit call, but never from
+// inside one: nesting RLock under Edit's write Lock (or under Read's own
+// RLock, if a writer is queued in between) would deadlock. No current
+// caller does this — each calls ModulePath after its Read/Edit/Flush/
+// Reload call has already returned.
 func (e *Engine) ModulePath() address.PkgPath {
-	return e.ws.Load().Module()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.ws.Module()
 }
 
-// load runs the full pipeline — go/packages load, variant selection, package
-// building — against disk plus an optional overlay of in-memory contents.
-// It is the shared machinery of Bootstrap and the post-mutation recheck.
+// load runs the full pipeline against disk plus an optional overlay of
+// in-memory contents, for the whole module — the shared entry point for
+// Bootstrap and Reload.
 func (e *Engine) load(ctx context.Context, overlay map[string][]byte) (*token.FileSet, address.PkgPath, map[address.PkgPath]*workspace.Unit, error) {
-	fset := token.NewFileSet()
-	loadStart := time.Now()
-	srcPkgs, err := packages.Load(&packages.Config{
-		Mode:    packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
-		Context: ctx,
-		Logf:    e.logf,
-		Dir:     e.RootDir,
-		Fset:    fset,
-		Tests:   true,
-		Overlay: overlay,
-	}, "./...")
-	if err != nil {
-		return nil, "", nil, fmt.Errorf("workspace loading failure: %w", err)
-	}
-	if e.logf != nil {
-		e.logf("load: go/packages took %v for %d package variants (overlay: %d files)",
-			time.Since(loadStart), len(srcPkgs), len(overlay))
-	}
-	buildStart := time.Now()
-
-	var module address.PkgPath
-	for _, srcPkg := range srcPkgs {
-		if srcPkg.Module != nil && srcPkg.Module.Path != "" {
-			module = address.PkgPath(srcPkg.Module.Path)
-			break
-		}
-	}
-
-	// Pass 1: select which load variants to keep, before building anything.
-	type candidates struct {
-		prod, xtest *packages.Package
-	}
-	selected := make(map[string]*candidates) // keyed by srcPkg.Dir
-	for _, srcPkg := range srcPkgs {
-		// Skip the synthesized test binary ("foo.test"): its only syntax is a
-		// generated _testmain.go living outside the workspace.
-		if strings.HasSuffix(srcPkg.ID, ".test") {
-			continue
-		}
-		cand := selected[srcPkg.Dir]
-		if cand == nil {
-			cand = &candidates{}
-			selected[srcPkg.Dir] = cand
-		}
-		switch {
-		case strings.HasSuffix(srcPkg.Name, "_test"):
-			cand.xtest = srcPkg
-		// The test-expanded variant "foo [foo.test]" shares PkgPath with the
-		// plain "foo" but is a superset of its files: prefer the widest.
-		case cand.prod == nil || len(srcPkg.Syntax) > len(cand.prod.Syntax):
-			cand.prod = srcPkg
-		}
-	}
-
-	// Pass 2: build only the winners, keyed by canonical package address —
-	// an external-test-only unit answers to its production sibling's path.
-	units := make(map[address.PkgPath]*workspace.Unit)
-	for _, cand := range selected {
-		if ctx.Err() != nil {
-			return nil, "", nil, fmt.Errorf("workspace load aborted by context cancellation: %w", ctx.Err())
-		}
-		unit := &workspace.Unit{}
-		if cand.prod != nil {
-			if unit.Prod, err = e.buildPackage(cand.prod, fset, overlay); err != nil {
-				return nil, "", nil, err
-			}
-		}
-		if cand.xtest != nil {
-			if unit.XTest, err = e.buildPackage(cand.xtest, fset, overlay); err != nil {
-				return nil, "", nil, err
-			}
-		}
-		switch {
-		case unit.Prod != nil:
-			units[unit.Prod.PkgPath] = unit
-		case unit.XTest != nil:
-			units[address.PkgPath(strings.TrimSuffix(string(unit.XTest.PkgPath), "_test"))] = unit
-		}
-	}
-	if e.logf != nil {
-		e.logf("load: select+build took %v for %d units", time.Since(buildStart), len(units))
-	}
-	return fset, module, units, nil
+	return e.loadInto(ctx, token.NewFileSet(), overlay, "./...")
 }
 
 // buildPackage turns one selected load variant into the engine's Package:
@@ -185,7 +105,7 @@ func (e *Engine) buildPackage(srcPkg *packages.Package, fset *token.FileSet, ove
 	for _, astFile := range srcPkg.Syntax {
 		absFilePath := fset.File(astFile.FileStart).Name()
 		relFilePath, err := e.relativePath(absFilePath)
-		if err != nil || relFilePath.EscapesRoot() {
+		if err != nil || relFilePath.IsOutsideRoot() {
 			// Generated files (e.g. cgo output) live outside the workspace;
 			// record and move on rather than tracking untouchable paths.
 			pkg.Diags = append(pkg.Diags, workspace.Diagnostic{
@@ -221,7 +141,7 @@ func (e *Engine) ingestErrors(pkg *workspace.Package, errs []packages.Error) {
 		}
 		diag := workspace.Diagnostic{Kind: toDiagKind(pkgErr.Kind), Msg: pkgErr.Msg}
 		if absFile, line, col, ok := splitPos(pkgErr.Pos); ok {
-			if relFile, err := e.relativePath(absFile); err == nil && !relFile.EscapesRoot() {
+			if relFile, err := e.relativePath(absFile); err == nil && !relFile.IsOutsideRoot() {
 				diag.File, diag.Line, diag.Col = relFile, line, col
 			}
 		}
@@ -251,15 +171,17 @@ func (e *Engine) relativePath(fullPath string) (address.RelativePath, error) {
 // held, so it never blocks a concurrent Read or Edit; e.mu is only taken
 // briefly, to check the cache first and to fork-then-install the result
 // after — the fork keeps the mutation off the published Workspace's own
-// external map, so a concurrent lock-free Read sharing that generation
-// never races it. If Bootstrap or Reload resets the dependency cache while
-// a load is in flight, the result is discarded and the load retried
-// against the fresh cache instead of installing positions keyed to a
-// FileSet that's no longer current.
+// external map, so a concurrent Read sharing that generation never races
+// it. If Bootstrap or Reload resets the dependency cache while a load is
+// in flight, the result is discarded and the load retried against the
+// fresh cache instead of installing positions keyed to a FileSet that's
+// no longer current.
 func (e *Engine) LoadExternal(ctx context.Context, pkg address.PkgPath) error {
 	for {
-		ws := e.ws.Load()
-		if _, ok := ws.ExternalPackage(pkg); ok {
+		e.mu.RLock()
+		ws := e.ws
+		e.mu.RUnlock()
+		if _, ok := ws.LookupExternal(pkg); ok {
 			return nil
 		}
 		if err, ok := ws.ExternalFailure(pkg); ok {
@@ -270,8 +192,8 @@ func (e *Engine) LoadExternal(ctx context.Context, pkg address.PkgPath) error {
 		built, loadErr := e.fetchExternal(ctx, pkg, fset)
 
 		e.mu.Lock()
-		cur := e.ws.Load()
-		if _, ok := cur.ExternalPackage(pkg); ok {
+		cur := e.ws
+		if _, ok := cur.LookupExternal(pkg); ok {
 			e.mu.Unlock()
 			return nil // installed by a concurrent LoadExternal while we worked
 		}
@@ -288,7 +210,7 @@ func (e *Engine) LoadExternal(ctx context.Context, pkg address.PkgPath) error {
 		} else {
 			next.InstallExternal(pkg, built)
 		}
-		e.ws.Store(next)
+		e.ws = next
 		e.mu.Unlock()
 		return loadErr
 	}
@@ -341,6 +263,178 @@ func (e *Engine) fetchExternal(ctx context.Context, pkg address.PkgPath, fset *t
 		}
 	}
 	return nil, fmt.Errorf("no package at import path %q", pkg)
+}
+
+// Read runs fn against a consistent snapshot of the workspace, held under
+// a read lock for the call's whole duration: any number of Reads run
+// concurrently with each other, but a Read waits out an in-flight writer.
+// ctx reaches fn's own long-running scans (scanners.go) so a caller can
+// cancel or deadline a read; Read itself never blocks on I/O and never
+// consults ctx directly.
+func (e *Engine) Read(ctx context.Context, fn func(*gate.View) error) error {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return fn(gate.NewView(e.RootDir, e.ws, ctx))
+}
+
+// Edit runs fn against a cloned workspace and commits it with a full
+// recheck, mirroring Read. fn returning an error discards every change:
+// error means nothing happened. Post-change problems are never errors —
+// they arrive as the report's diagnostics delta, because broken code is a
+// valid state. If the recheck itself fails, the edit stays applied and the
+// report says diagnostics are stale; a valid edit is never rolled back over
+// a tooling hiccup. The candidate is built and rechecked entirely off to
+// the side, under mu's write lock the whole time, so a concurrent Read
+// never observes a half-applied edit.
+func (e *Engine) Edit(ctx context.Context, fn func(*gate.Tx) error) (*dto.EditReport, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	candidate := e.ws.Clone()
+
+	view := gate.NewView(e.RootDir, candidate, ctx)
+	before := view.AllDiagnostics()
+
+	tx := gate.NewTx(view)
+	if err := fn(tx); err != nil {
+		return nil, err
+	}
+
+	stale := func(err error) *dto.EditReport {
+		e.ws = candidate
+		return &dto.EditReport{Changed: tx.ChangedKeys(), Stale: true, Note: err.Error()}
+	}
+	if err := e.recheckNarrowLocked(ctx, candidate); err != nil {
+		return stale(err), nil
+	}
+	// One bounded self-repair pass for imports goimports cannot see, then
+	// re-check to fold the repairs into the echo. Best-effort: it can never
+	// fail the already-committed edit.
+	if tx.RepairMissingImports() {
+		if err := e.recheckNarrowLocked(ctx, candidate); err != nil {
+			return stale(err), nil
+		}
+	}
+
+	e.ws = candidate
+	report := &dto.EditReport{Changed: tx.ChangedKeys()}
+	report.Delta, report.Resolved, report.Unrelated = diffDiagnostics(before, view.AllDiagnostics())
+	return report, nil
+}
+
+// loadInto runs the full pipeline — go/packages load, variant selection,
+// package building — against disk plus an optional overlay of in-memory
+// contents, restricted to patterns and appending into fset. fset may
+// already hold files carried forward by a dirty-scoped recheck (Recheck
+// v2, recheckScopedLocked): packages.Load always appends new entries via
+// fset.Base(), which is past the end of whatever's already registered, so
+// carried-forward files and freshly parsed ones never collide.
+func (e *Engine) loadInto(ctx context.Context, fset *token.FileSet, overlay map[string][]byte, patterns ...string) (*token.FileSet, address.PkgPath, map[address.PkgPath]*workspace.Unit, error) {
+	loadStart := time.Now()
+	srcPkgs, err := packages.Load(&packages.Config{
+		Mode:    packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
+		Context: ctx,
+		Logf:    e.logf,
+		Dir:     e.RootDir,
+		Fset:    fset,
+		Tests:   true,
+		Overlay: overlay,
+	}, patterns...)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("workspace loading failure: %w", err)
+	}
+	if e.logf != nil {
+		e.logf("load: go/packages took %v for %d package variants (overlay: %d files)",
+			time.Since(loadStart), len(srcPkgs), len(overlay))
+	}
+	buildStart := time.Now()
+
+	var module address.PkgPath
+	for _, srcPkg := range srcPkgs {
+		if srcPkg.Module != nil && srcPkg.Module.Path != "" {
+			module = address.PkgPath(srcPkg.Module.Path)
+			break
+		}
+	}
+
+	// Pass 1: select which load variants to keep, before building anything.
+	type candidates struct {
+		prod, xtest *packages.Package
+	}
+	selected := make(map[string]*candidates) // keyed by srcPkg.Dir
+	for _, srcPkg := range srcPkgs {
+		// Skip the synthesized test binary ("foo.test"): its only syntax is a
+		// generated _testmain.go living outside the workspace.
+		if strings.HasSuffix(srcPkg.ID, ".test") {
+			continue
+		}
+		cand := selected[srcPkg.Dir]
+		if cand == nil {
+			cand = &candidates{}
+			selected[srcPkg.Dir] = cand
+		}
+		switch {
+		case strings.HasSuffix(srcPkg.Name, "_test"):
+			cand.xtest = srcPkg
+		// The test-expanded variant "foo [foo.test]" shares PkgPath with the
+		// plain "foo" but is a superset of its files: prefer the widest.
+		case cand.prod == nil || len(srcPkg.Syntax) > len(cand.prod.Syntax):
+			cand.prod = srcPkg
+		}
+	}
+
+	// Pass 2: build only the winners, keyed by canonical package address —
+	// an external-test-only unit answers to its production sibling's path.
+	// Both halves are built before NewUnit assembles them, so a Unit is
+	// never observed half-built.
+	units := make(map[address.PkgPath]*workspace.Unit)
+	for _, cand := range selected {
+		if ctx.Err() != nil {
+			return nil, "", nil, fmt.Errorf("workspace load aborted by context cancellation: %w", ctx.Err())
+		}
+		var prod, xtest *workspace.Package
+		if cand.prod != nil {
+			if prod, err = e.buildPackage(cand.prod, fset, overlay); err != nil {
+				return nil, "", nil, err
+			}
+		}
+		if cand.xtest != nil {
+			if xtest, err = e.buildPackage(cand.xtest, fset, overlay); err != nil {
+				return nil, "", nil, err
+			}
+		}
+		unit := workspace.NewUnit(prod, xtest)
+		switch {
+		case prod != nil:
+			units[prod.PkgPath] = unit
+		case xtest != nil:
+			units[address.PkgPath(strings.TrimSuffix(string(xtest.PkgPath), "_test"))] = unit
+		}
+	}
+	if e.logf != nil {
+		e.logf("load: select+build took %v for %d units", time.Since(buildStart), len(units))
+	}
+	return fset, module, units, nil
+}
+
+// EnsureFullyChecked forces a full-module recheck and publishes it, but
+// only if the current generation was narrowly checked (Recheck v2) —
+// otherwise a no-op. The one caller that needs this today is
+// search_implementors, ahead of Workspace.SymbolsImplementing: that's the
+// one analysis that can't trust a generation mixing packages from two
+// different type-checking sessions (see workspace.ErrNarrowlyChecked).
+func (e *Engine) EnsureFullyChecked(ctx context.Context) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.ws.NarrowlyChecked() {
+		return nil
+	}
+	candidate := e.ws.Clone()
+	if err := e.recheckFullLocked(ctx, candidate); err != nil {
+		return err
+	}
+	e.ws = candidate
+	return nil
 }
 
 // toDiagKind maps the loader's error classification onto ours.

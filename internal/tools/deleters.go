@@ -6,6 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pedropaccola/gomcp/internal/engine"
+	"github.com/pedropaccola/gomcp/internal/gate"
 )
 
 type DeleteFileEntry struct {
@@ -52,7 +53,7 @@ func deleteSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Delete
 			return nil, WriteOutput{}, fmt.Errorf("deletes must not be empty")
 		}
 		n := len(in.Deletes)
-		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
 			for i, entry := range in.Deletes {
 				pkg, err := packageArg(tx.View, entry.PkgPath)
 				if err != nil {
@@ -73,7 +74,7 @@ func deleteFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[DeleteFi
 			return nil, WriteOutput{}, fmt.Errorf("deletes must not be empty")
 		}
 		n := len(in.Deletes)
-		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
 			for i, entry := range in.Deletes {
 				pkg, err := packageArg(tx.View, entry.PkgPath)
 				if err != nil {
@@ -98,7 +99,7 @@ func deletePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Delet
 			return nil, WriteOutput{}, fmt.Errorf("deletes must not be empty")
 		}
 		n := len(in.Deletes)
-		return runEdit(ctx, eng, cfg, func(tx *engine.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
 			for i, entry := range in.Deletes {
 				pkg, err := packageArg(tx.View, entry.PkgPath)
 				if err != nil {

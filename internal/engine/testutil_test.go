@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -9,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/pedropaccola/gomcp/internal/address"
+	"github.com/pedropaccola/gomcp/internal/dto"
+	"github.com/pedropaccola/gomcp/internal/gate"
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
@@ -72,7 +73,7 @@ func copySandbox(tb testing.TB) string {
 	return dst
 }
 
-func matchKeys(matches []Match) []string {
+func matchKeys(matches []dto.Match) []string {
 	out := make([]string, 0, len(matches))
 	for _, m := range matches {
 		out = append(out, m.Pkg.Path().String()+":"+m.Sym.Key())
@@ -104,8 +105,8 @@ func assertModelEqualsDisk(tb testing.TB, e *Engine) {
 		tb.Fatalf("assertModelEqualsDisk: fresh Bootstrap: %v", err)
 	}
 
-	got, want := e.ws.Load(), fresh.ws.Load()
-	gotView, wantView := &View{eng: e, ws: got}, &View{eng: fresh, ws: want}
+	got, want := e.ws, fresh.ws
+	gotView, wantView := gate.NewView(e.RootDir, got, context.Background()), gate.NewView(fresh.RootDir, want, context.Background())
 
 	gotKeys, wantKeys := got.UnitKeys(), want.UnitKeys()
 	if !slices.Equal(gotKeys, wantKeys) {
@@ -114,8 +115,8 @@ func assertModelEqualsDisk(tb testing.TB, e *Engine) {
 	for _, addr := range wantKeys {
 		gotUnit, _ := got.Unit(addr)
 		wantUnit, _ := want.Unit(addr)
-		diffPackagePair(tb, gotView, wantView, addr, "Prod", gotUnit.Prod, wantUnit.Prod)
-		diffPackagePair(tb, gotView, wantView, addr, "XTest", gotUnit.XTest, wantUnit.XTest)
+		diffPackagePair(tb, gotView, wantView, addr, "Prod", gotUnit.Prod(), wantUnit.Prod())
+		diffPackagePair(tb, gotView, wantView, addr, "XTest", gotUnit.XTest(), wantUnit.XTest())
 	}
 
 	if gotDiags, wantDiags := gotView.AllDiagnostics(), wantView.AllDiagnostics(); !slices.Equal(gotDiags, wantDiags) {
@@ -125,7 +126,7 @@ func assertModelEqualsDisk(tb testing.TB, e *Engine) {
 
 // diffPackagePair compares one Prod or XTest package belonging to the same
 // unit address; either side may be nil.
-func diffPackagePair(tb testing.TB, gotView, wantView *View, addr address.PkgPath, half string, got, want *workspace.Package) {
+func diffPackagePair(tb testing.TB, gotView, wantView *gate.View, addr address.PkgPath, half string, got, want *workspace.Package) {
 	tb.Helper()
 	if (got == nil) != (want == nil) {
 		tb.Errorf("%s (%s): presence diverged: got %v, want %v", addr, half, got != nil, want != nil)
@@ -157,9 +158,10 @@ func diffPackagePair(tb testing.TB, gotView, wantView *View, addr address.PkgPat
 		return
 	}
 	for i, wantSym := range wantSyms {
-		gotSrc, _ := gotView.declSource(gotSyms[i])
-		wantSrc, _ := wantView.declSource(wantSym)
-		if !bytes.Equal(gotSrc, wantSrc) {
+		_ = i
+		gotSrc, _ := gotView.DeclSource(addr, wantSym.Key())
+		wantSrc, _ := wantView.DeclSource(addr, wantSym.Key())
+		if gotSrc != wantSrc {
 			tb.Errorf("%s.%s: declaration source diverged:\ngot:\n%s\nwant:\n%s", addr, wantSym.Key(), gotSrc, wantSrc)
 		}
 	}
@@ -179,4 +181,79 @@ func symbolKeys(symbols []*workspace.Symbol) []string {
 		out[i] = s.Key()
 	}
 	return out
+}
+
+// resolveFile is a test-only reimplementation of gate's private
+// resolveFile, since tests need raw file access gate no longer exposes.
+func resolveFile(e *Engine, path address.RelativePath) (*workspace.File, *workspace.Package, bool) {
+	ws := e.ws
+	path = path.Clean()
+	if unit, ok := ws.Unit(pkgAt(ws, path.Dir())); ok {
+		for _, pkg := range []*workspace.Package{unit.Prod(), unit.XTest()} {
+			if pkg == nil {
+				continue
+			}
+			if file, ok := pkg.File(path); ok {
+				return file, pkg, true
+			}
+		}
+	}
+	return nil, nil, false
+}
+
+// resolvePackage is a test-only reimplementation of gate's private
+// resolvePackage.
+func resolvePackage(e *Engine, pkg address.PkgPath) (*workspace.Package, bool) {
+	unit, ok := e.ws.Unit(pkg)
+	if !ok || unit.Prod() == nil {
+		return nil, false
+	}
+	return unit.Prod(), true
+}
+
+// resolveXTest is a test-only reimplementation of gate's private
+// resolveXTest.
+func resolveXTest(e *Engine, pkg address.PkgPath) (*workspace.Package, bool) {
+	unit, ok := e.ws.Unit(pkg)
+	if !ok || unit.XTest() == nil {
+		return nil, false
+	}
+	return unit.XTest(), true
+}
+
+// resolveSymbol is a test-only reimplementation of gate's private
+// resolveSymbol.
+func resolveSymbol(e *Engine, pkg address.PkgPath, key string) (*workspace.Symbol, *workspace.Package, bool) {
+	ws := e.ws
+	if unit, ok := ws.Unit(pkg); ok {
+		for _, p := range []*workspace.Package{unit.Prod(), unit.XTest()} {
+			if p == nil {
+				continue
+			}
+			if sym, ok := p.Symbol(key); ok {
+				return sym, p, true
+			}
+		}
+	}
+	return nil, nil, false
+}
+
+func deltaStrings(report *dto.EditReport) []string {
+	out := make([]string, 0, len(report.Delta))
+	for _, d := range report.Delta {
+		out = append(out, d.String())
+	}
+	return out
+}
+
+func mustEdit(t *testing.T, e *Engine, fn func(*gate.Tx) error) *dto.EditReport {
+	t.Helper()
+	report, err := e.Edit(context.Background(), fn)
+	if err != nil {
+		t.Fatalf("Edit: %v", err)
+	}
+	if report.Stale {
+		t.Fatalf("recheck unavailable: %s", report.Note)
+	}
+	return report
 }

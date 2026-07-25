@@ -43,29 +43,75 @@ the trade is what's worth recording, not just the outcome.
     cmd/gomcp/          entrypoint: flags, workspace root, MCP stdio server
     internal/address/   shared leaf vocabulary (RelativePath, PkgPath,
                         CleanPath), depended on directly by workspace,
-                        engine, and tools
+                        dto, gate, engine, and tools
     internal/workspace/ the trusted core: model vocabulary and the
                         Workspace, mutable only through its named
                         primitives, one concept per file
-    internal/engine/    the model's gates: View (reads) and Tx (writes),
-                        each split one semantic category per file, plus
-                        dto.go
+    internal/dto/       shared read/write vocabulary (Symbol, Package,
+                        File, Diagnostic, Match, SymbolKind, EditReport):
+                        pure shapes, no logic
+    internal/gate/      the model's gates: View (reads) and Tx (writes),
+                        each split one semantic category per file
+    internal/engine/    the Repository: the go/packages.Load pipeline,
+                        the concurrency contract, the disk boundary, and
+                        the composition root building gate.View/Tx
     internal/tools/     presentation layer: MCP tools, split the same way
-                        as engine (read/write handlers, one category per
+                        as gate (read/write handlers, one category per
                         file, a shared.go for helpers called from both)
     testdata/sandbox/   fixture module for semantic and mutation tests
 
 Every file's own doc comment gives the exact category breakdown for its
 package — start there, not here.
 
+## Package responsibilities
+
+The Layout table names what's where; this names *why*, and which known
+pattern each package's job is an instance of — recognizing the pattern
+matters more than memorizing the mechanism, which is documented on the
+type that actually implements it.
+
+- **`workspace`** is the DDD **Aggregate Root**: the only package that
+  mutates the Entity graph (`Unit`/`Package`/`File`/`Symbol`) directly,
+  and the only one trusted to decide whether a mutation is consistent —
+  `MoveConflicts`, `QualifierFixups`, and its other business-rule methods
+  exist so no client ever re-derives an invariant `workspace` already
+  owns. Its concurrency primitive is **copy-on-write**: `Workspace.
+  Clone()` shares every `Package`/`Unit` until something inside it is
+  actually touched, forking lazily per generation rather than copying
+  eagerly.
+- **`dto`** is the DDD **Value Object** vocabulary crossing every
+  boundary: `Symbol`/`Package`/`File`/`Diagnostic`/`Match`/`EditReport`
+  carry no identity and no logic. It's a leaf on purpose — nothing about
+  its shape can leak `workspace`'s internal representation, since it
+  doesn't import `workspace` at all.
+- **`gate`** is the query/command boundary onto the Aggregate: `View` is
+  a query object (one read snapshot, scoped to a single `Engine.Read`
+  call), `Tx` is a unit of work (one write transaction, scoped to a
+  single `Engine.Edit` call, embedding `View` so writes compose on the
+  same reads). Neither owns a consistency rule itself — each resolves an
+  address, asks `workspace` for the decision, and applies what it
+  returns.
+- **`engine`** is the **Repository** (the seam between the in-memory
+  Aggregate and disk) plus the concurrency contract wrapping it:
+  `Engine.ws` is a plain `*workspace.Workspace` guarded by `Engine.mu`, a
+  `sync.RWMutex`. `Read` holds the read lock for its whole call — any
+  number of Reads run concurrently with each other, but wait out an
+  in-flight writer — while `Edit`/`Flush`/`Bootstrap`/`Reload` hold the
+  write lock and serialize as the sole writer, building the next version
+  off to the side (via `workspace`'s own copy-on-write clone) before
+  installing it with one assignment. A post-edit recheck is scoped to
+  dirty packages and their transitive importers (`Workspace.
+  RecheckScope`), not the whole module. Full mechanism on `Engine`'s own
+  doc comment.
+
 ## Where the invariants live
 
 The load-bearing invariants (canonical bytes, derived state that's rebuilt
 rather than patched, sorted-only enumeration, error ⇒ untouched, pointers
 scoped to their gate) are documented on the types and methods that hold
-them, not here — `workspace.File`, `Package.RebuildIndex`, `View`, `Tx`,
-`Engine.Edit` are the ones worth reading first. Same for the per-layer
-naming grammars: `Tx`'s verb categories and `View`'s
+them, not here — `workspace.File`, `Package.RebuildIndex`, `gate.View`,
+`gate.Tx`, `Engine.Edit` are the ones worth reading first. Same for the
+per-layer naming grammars: `Tx`'s verb categories and `View`'s
 resolver→enumerator→scanner layering are on their own type docs; the
 address conventions (`package` vs `file` arguments, import-path vs
 workspace-relative spelling) are on `canonPkg`/`fileArg`
@@ -73,8 +119,27 @@ workspace-relative spelling) are on `canonPkg`/`fileArg`
 extending it, rather than working from a second-hand summary that can go
 stale on its own.
 
+Doc comments describe what the target does now, not its history — no
+"this used to work differently until a bug was found," no "added for the
+Y flow," no changelog-in-prose. Commit messages and ROADMAP.md's DONE log
+already carry that; a doc comment that accumulates a running history
+rots the moment the history stops being current, and stops answering the
+one question it exists to answer.
+
 ## Testing
 
+- A bare `_test.go` file is a real unit test: no `sandboxEngine`, no
+  `go/packages.Load`, built from a hand-constructed `Workspace` fixture
+  (`internal/workspace/testutil_test.go`'s `simpleFixture` for AST/index-
+  only business rules, `typesFixture` for the handful needing real
+  `go/types` identity — `MoveConflicts`, `QualifierFixups`,
+  `RenameSplices`, `PackageMoveSplices`, `SymbolsImplementing`,
+  `SymbolsReferencing`) — one file per production file, same name. A
+  `_integration_test.go` suffix means it bootstraps a real engine against
+  `testdata/sandbox` and exercises the full `go/packages.Load` pipeline;
+  these are grouped by verb/category (one file per tool/verb family), not
+  by production file, since they exercise the seam between packages
+  rather than one package's own rules.
 - Everything runs against `testdata/sandbox` (bootstrapped in-memory;
   mutations never touch its disk). Tests that Flush must copy the sandbox
   to a temp dir first (`copySandbox`). Shared helpers live in

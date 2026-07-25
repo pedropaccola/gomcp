@@ -27,7 +27,16 @@
       "mcp__gomcp__move_file",
       "mcp__gomcp__move_package",
       "mcp__gomcp__flush",
-      "mcp__gomcp__reload"
+      "mcp__gomcp__reload",
+      "Bash(rtk gofmt *)",
+      "Bash(rtk go *)",
+      "Bash(rtk grep *)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(rtk git *)",
+      "Bash(rtk make *)",
+      "Bash(rtk ls *)",
+      "Bash(cd *)",
+      "Bash(rtk *)"
     ],
     "ask": [
       "Edit(**/*.go)",
