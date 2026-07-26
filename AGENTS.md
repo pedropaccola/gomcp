@@ -1,11 +1,13 @@
 # AGENTS.md
 
-Orientation for agents working on this codebase. The normative documentation
-lives in the source files themselves — package and declaration doc comments,
-never section-banner comments — this file is the map, not the territory,
-and stays short on purpose: when this file and the code disagree, the code
-wins, and anything already stated clearly in a doc comment doesn't get
-repeated here.
+Orientation for agents working on this codebase — the operational
+reference: how to build, test, and work here. The normative
+documentation lives in the source files themselves — package and
+declaration doc comments, never section-banner comments. Design
+rationale (why the packages are split this way, the naming pillars)
+lives in ARCHITECTURE.md, not here — this file stays short on purpose:
+when it and the code disagree, the code wins, and anything already
+stated clearly in a doc comment doesn't get repeated here.
 
 ## What this is
 
@@ -15,28 +17,8 @@ keeps the whole workspace in memory (source bytes + ASTs + type info via
 `go/packages`) and answers every mutation with the diagnostics it caused.
 Dependencies resolve through the same read tools by import path: exported
 API only, lazily cached (`LoadExternal`), never mutable, reset with the
-workspace snapshot. README.md explains the bet; ROADMAP.md tracks
-agreed-but-deferred work.
-
-## Pillars
-
-Three words settle every design disagreement in this codebase, cited by
-name when they do: **Consistency**, **Composition**, **Nomenclature**.
-When a change trades one against another, say which one wins and why —
-the trade is what's worth recording, not just the outcome.
-
-- **Consistency.** The same concept gets the same word, and the same
-  shape, everywhere it appears — even at the cost of an awkward fit in
-  one spot. A field name, a tool description, or a JSON tag that says
-  something the rest of the surface doesn't is a bug, not a style
-  preference.
-- **Composition.** New capability is built by combining already-existing,
-  already-tested primitives, never by duplicating their logic under a new
-  name. `View`'s resolver→enumerator→scanner layering and `Tx`'s verb
-  categories exist so the next verb composes on what's already proven.
-- **Nomenclature.** Names carry meaning before docs do. A symbol that
-  needs its doc comment to be understood is a naming bug: rename it, then
-  let the doc add only what the name genuinely cannot.
+workspace snapshot. README.md explains the bet; ARCHITECTURE.md explains
+the package design; ROADMAP.md tracks agreed-but-deferred work.
 
 ## Layout
 
@@ -61,63 +43,10 @@ the trade is what's worth recording, not just the outcome.
     testdata/sandbox/   fixture module for semantic and mutation tests
 
 Every file's own doc comment gives the exact category breakdown for its
-package — start there, not here.
+package — start there, not here. See ARCHITECTURE.md for why the split
+is shaped this way.
 
-## Package responsibilities
-
-The Layout table names what's where; this names *why*, and which known
-pattern each package's job is an instance of — recognizing the pattern
-matters more than memorizing the mechanism, which is documented on the
-type that actually implements it.
-
-- **`workspace`** is the DDD **Aggregate Root**: the only package that
-  mutates the Entity graph (`Unit`/`Package`/`File`/`Symbol`) directly,
-  and the only one trusted to decide whether a mutation is consistent —
-  `MoveConflicts`, `QualifierFixups`, and its other business-rule methods
-  exist so no client ever re-derives an invariant `workspace` already
-  owns. Its concurrency primitive is **copy-on-write**: `Workspace.
-  Clone()` shares every `Package`/`Unit` until something inside it is
-  actually touched, forking lazily per generation rather than copying
-  eagerly.
-- **`dto`** is the DDD **Value Object** vocabulary crossing every
-  boundary: `Symbol`/`Package`/`File`/`Diagnostic`/`Match`/`EditReport`
-  carry no identity and no logic. It's a leaf on purpose — nothing about
-  its shape can leak `workspace`'s internal representation, since it
-  doesn't import `workspace` at all.
-- **`gate`** is the query/command boundary onto the Aggregate: `View` is
-  a query object (one read snapshot, scoped to a single `Engine.Read`
-  call), `Tx` is a unit of work (one write transaction, scoped to a
-  single `Engine.Edit` call, embedding `View` so writes compose on the
-  same reads). Neither owns a consistency rule itself — each resolves an
-  address, asks `workspace` for the decision, and applies what it
-  returns.
-- **`engine`** is the **Repository** (the seam between the in-memory
-  Aggregate and disk) plus the concurrency contract wrapping it:
-  `Engine.ws` is a plain `*workspace.Workspace` guarded by `Engine.mu`, a
-  `sync.RWMutex`. `Read` holds the read lock for its whole call — any
-  number of Reads run concurrently with each other, but wait out an
-  in-flight writer — while `Edit`/`Flush`/`Bootstrap`/`Reload` hold the
-  write lock and serialize as the sole writer, building the next version
-  off to the side (via `workspace`'s own copy-on-write clone) before
-  installing it with one assignment. A post-edit recheck is scoped to
-  dirty packages and their transitive importers (`Workspace.
-  RecheckScope`), not the whole module. Full mechanism on `Engine`'s own
-  doc comment.
-
-## Where the invariants live
-
-The load-bearing invariants (canonical bytes, derived state that's rebuilt
-rather than patched, sorted-only enumeration, error ⇒ untouched, pointers
-scoped to their gate) are documented on the types and methods that hold
-them, not here — `workspace.File`, `Package.RebuildIndex`, `gate.View`,
-`gate.Tx`, `Engine.Edit` are the ones worth reading first. Same for the
-per-layer naming grammars: `Tx`'s verb categories and `View`'s
-resolver→enumerator→scanner layering are on their own type docs; the
-address conventions (`package` vs `file` arguments, import-path vs
-workspace-relative spelling) are on `canonPkg`/`fileArg`
-(`internal/tools/shared.go`). Read the relevant type's doc comment before
-extending it, rather than working from a second-hand summary that can go
-stale on its own.
+## Code style
 
 Doc comments describe what the target does now, not its history — no
 "this used to work differently until a bug was found," no "added for the
@@ -125,6 +54,15 @@ Y flow," no changelog-in-prose. Commit messages and ROADMAP.md's DONE log
 already carry that; a doc comment that accumulates a running history
 rots the moment the history stops being current, and stops answering the
 one question it exists to answer.
+
+Naming and consistency discipline — the same word for the same concept
+everywhere, argument order matching across functions that share
+parameters, no abstraction introduced without a second real
+implementation to justify it — is covered in ARCHITECTURE.md's Pillars.
+Apply it when writing code; read that file for the reasoning behind it.
+
+Formatting itself is never a judgment call: `make tidy` (gofmt + `go mod
+tidy`) is authoritative.
 
 ## Testing
 
@@ -161,6 +99,29 @@ one question it exists to answer.
   anything done. Tests shell out to `go list` and type-check real
   modules — expect seconds, not milliseconds.
 
+## Security considerations
+
+This is a local, stdio-based dev tool with no network listener of its
+own: the agent's MCP client and the server talk over one process's
+stdin/stdout, and disk access is scoped to `-cwd` (or the
+`CLAUDE_WORKSPACE` environment variable). Dependency resolution
+(`LoadExternal`) goes through the standard `go/packages`/module
+toolchain — the same trust model as running `go build`/`go vet` on the
+code already, no extra sandboxing beyond what the Go toolchain itself
+provides. No credential handling, no outbound calls the server itself
+initiates beyond ordinary module resolution, and no persistence beyond
+the workspace files it's pointed at.
+
+## Commit messages
+
+Conventional-commit style: `type: short imperative subject`, lowercase,
+under ~70 characters — `feat`, `fix`, `refactor`, `perf`, `test`,
+`chore`, and `docs` are the types actually in use in this history. Add a
+body when the change is substantial enough to need one, in prose
+paragraphs explaining *why*, not a bullet changelog — ROADMAP.md's DONE
+log already owns the itemized blow-by-blow, so a commit body shouldn't
+re-derive it.
+
 ## Working on this repo from a connected gomcp session
 
 If the gomcp server is connected, its instructions forbid raw file I/O on
@@ -192,3 +153,10 @@ an unexpected shape, a tool that didn't do what its description implied.
 Report it to the user in the moment it happens, not only when explicitly
 asked to audit for it: this feedback is how the tools surface itself
 improves.
+
+**Check touched code for staleness after every edit** — a rename, a
+moved function, or a consolidated helper leaves doc comments, sibling
+call sites, and now-orphaned symbols behind more often than not. Sweep
+what you just touched (`search_references`, a fresh read of the doc
+comment) before calling a change done, not only when explicitly asked
+to audit for it.

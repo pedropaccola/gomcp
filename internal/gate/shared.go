@@ -19,7 +19,7 @@ import (
 // automate: it only ever matches Go's own doc-comment conventions (a
 // symbol's doc opens with its bare name; a package's doc opens with
 // "Package name"), never prose that merely happens to mention the same
-// word — see AGENTS.md's note on why renames stop at that boundary.
+// word.
 func (tx *Tx) leadingDocWord(file address.RelativePath, doc *ast.CommentGroup, prefix, want string) (span, bool) {
 	if doc == nil || len(doc.List) == 0 {
 		return span{}, false
