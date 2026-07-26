@@ -75,7 +75,7 @@ func (tx *Tx) EditSymbol(pkg address.PkgPath, key, src string) error {
 		return err
 	}
 	if wasPositionDependent && !slices.Contains(frag.keys, key) {
-		return fmt.Errorf("%q is missing from the replacement: a position-dependent group member can't be renamed through edit_symbol, use move_symbol instead", key)
+		return fmt.Errorf("%q is missing from the replacement: a position-dependent group member can't be renamed through edit_symbol, use refactor_move_symbol instead", key)
 	}
 	if collisions := tx.ws.EditCollisions(pkg, key, frag.keys); len(collisions) > 0 {
 		return fmt.Errorf("replacement declares %q, which already exists in %q", collisions[0], pkg)

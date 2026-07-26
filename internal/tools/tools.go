@@ -12,9 +12,10 @@
 // holds helpers genuinely called from both sides. Handlers themselves carry
 // no doc comments by design — they are mechanical relays, documented by
 // their tool descriptions in Register.
-// Tool naming convention: list_* enumerate a scope, describe_* render one
-// address, search_* scan the workspace, diagnostics reports problems, every
-// other prefix mirrors its mutation verb, and flush writes to disk.
+// Tool naming convention: list_*/describe_*/search_* read, diagnostics
+// stands alone as the one full-inventory report, create_*/edit_*/delete_*
+// mirror their mutation verb, refactor_* covers structure-preserving
+// transformations, and disk_* crosses the disk boundary.
 // Tool descriptions earn words only for what changes the agent's input or
 // its reading of the output — server internals stay out of them.
 //
@@ -68,7 +69,7 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_packages",
 		Annotations: reads("List Packages"),
-		Description: "[Enumerator] List every Go package in the workspace by import path — the package " +
+		Description: "List every Go package in the workspace by import path — the package " +
 			"address every other tool expects (workspace-relative directories are accepted " +
 			"too).",
 	}, listPackages(eng, cfg))
@@ -76,14 +77,14 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_files",
 		Annotations: reads("List Files"),
-		Description: "[Enumerator] List the Go files of one package by bare name — combined with the " +
+		Description: "List the Go files of one package by bare name — combined with the " +
 			"package they form the file address every other tool expects." + depNote,
 	}, listFiles(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_symbols",
 		Annotations: reads("List Symbols"),
-		Description: "[Enumerator] List the top-level symbols of one package: key, kind, and a one-line " +
+		Description: "List the top-level symbols of one package: key, kind, and a one-line " +
 			"summary (the signature for funcs and methods, the declaration line for types, " +
 			"vars, and consts). Methods are keyed \"Type.Name\". Pass file_name to restrict to " +
 			"one file." + depNote,
@@ -92,14 +93,14 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_methods",
 		Annotations: reads("List Methods"),
-		Description: "[Enumerator] List the method signatures declared on one type." + keyNote + depNote,
+		Description: "List the method signatures declared on one type." + keyNote + depNote,
 	}, listMethods(eng, cfg))
 
 	// Describers
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "describe_package",
 		Annotations: reads("Describe Package"),
-		Description: "[Describer] Show one or more packages' godoc — every file's doc comment (the " +
+		Description: "Show one or more packages' godoc — every file's doc comment (the " +
 			"comment block directly above \"package X\"), concatenated in file order — plus " +
 			"its file list, in one round trip, resolved in order. If any entry fails, the " +
 			"whole call fails and the error names which entry failed — batch entries that are " +
@@ -110,7 +111,7 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "describe_file",
 		Annotations: reads("Describe File"),
-		Description: "[Describer] Show one or more files' own doc comment alone — the narrower read " +
+		Description: "Show one or more files' own doc comment alone — the narrower read " +
 			"when only a file's contribution to its package doc is needed, in one round trip, " +
 			"resolved in order. If any entry fails, the whole call fails and the error names " +
 			"which entry failed — batch entries that are independent and already known-good; " +
@@ -120,7 +121,7 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "describe_symbol",
 		Annotations: reads("Describe Symbol"),
-		Description: "[Describer] Show one or more symbols' full declaration source (doc comment " +
+		Description: "Show one or more symbols' full declaration source (doc comment " +
 			"included) and kind, whatever each is — func, method, type, var, or const, in one " +
 			"round trip, resolved in order. A type's method signatures are included too. If " +
 			"any entry fails, the whole call fails and the error names which entry failed — " +
@@ -132,14 +133,14 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search_declarations_like",
 		Annotations: reads("Search Declarations Like"),
-		Description: "[Finder] Find top-level declarations across the whole workspace whose key " +
+		Description: "Find top-level declarations across the whole workspace whose key " +
 			"contains the given name, case-insensitively. Methods match as \"Type.Name\".",
 	}, searchDeclarationsLike(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search_source",
 		Annotations: reads("Search Source"),
-		Description: "[Finder] Find top-level declarations across the whole workspace whose source " +
+		Description: "Find top-level declarations across the whole workspace whose source " +
 			"text matches a Go regular expression — bodies, doc comments, and string " +
 			"literals included. The general-purpose finder when no name is known. " +
 			"Text outside declarations (imports, package clauses) is not searched.",
@@ -148,7 +149,7 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search_implementors",
 		Annotations: reads("Search Implementors"),
-		Description: "[Finder] Find every named type in the workspace whose method set satisfies the " +
+		Description: "Find every named type in the workspace whose method set satisfies the " +
 			"given interface, checked with full type information — embedded and promoted " +
 			"methods included. The target must be a non-empty workspace interface; " +
 			"dependencies are outside the search universe." + keyNote,
@@ -157,7 +158,7 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search_references",
 		Annotations: reads("Search References"),
-		Description: "[Finder] Find every top-level declaration in the workspace that references the " +
+		Description: "Find every top-level declaration in the workspace that references the " +
 			"given symbol, resolved with full type information. Results are declaration " +
 			"addresses, not line positions; the definition itself and self-references " +
 			"are excluded. The target must be a workspace symbol." + keyNote,
@@ -167,7 +168,7 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "diagnostics",
 		Annotations: reads("Workspace Diagnostics"),
-		Description: "[Diagnostics] Report every compiler and loader problem in the workspace: parse, load, " +
+		Description: "Report every compiler and loader problem in the workspace: parse, load, " +
 			"and type errors, each positioned as file:line:col.",
 	}, diagnostics(eng))
 
@@ -175,7 +176,7 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_package",
 		Annotations: mutates("Create Package", false),
-		Description: "[Creator] Create one or more new package directories, each with one starter " +
+		Description: "Create one or more new package directories, each with one starter " +
 			"file, in one transaction, one recheck, one echo — resolved in order. The package " +
 			"name defaults to the directory base. If any entry fails (including one entry " +
 			"naming a package an earlier entry in the same batch just created), the whole " +
@@ -187,7 +188,7 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_file",
 		Annotations: mutates("Create File", false),
-		Description: "[Creator] Add one or more empty files to existing packages, each optionally " +
+		Description: "Add one or more empty files to existing packages, each optionally " +
 			"seeded with a package doc comment, in one transaction, one recheck, one echo — " +
 			"resolved in order. Fails if a file already exists. If any entry fails, the whole " +
 			"batch is discarded and the error names which entry failed — batch entries that " +
@@ -198,7 +199,7 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_symbol",
 		Annotations: mutates("Create Symbol", false),
-		Description: "[Creator] Add one or more new top-level symbols (func, method, type, var, or " +
+		Description: "Add one or more new top-level symbols (func, method, type, var, or " +
 			"const), each to a file of an existing package, in one transaction, one recheck, " +
 			"one echo — resolved in order. A file is created if missing; a symbol's name must " +
 			"not exist (including one entry naming a symbol an earlier entry in the same " +
@@ -217,7 +218,7 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "edit_symbol",
 		Annotations: mutates("Edit Symbol", true),
-		Description: "[Editor] Replace one or more symbols' entire declarations (doc comment " +
+		Description: "Replace one or more symbols' entire declarations (doc comment " +
 			"included), in one transaction, one recheck, one echo — resolved in order. Every " +
 			"entry must address a different symbol — two entries targeting the same one, " +
 			"identical source or not, are refused before anything is touched. For a member of " +
@@ -227,7 +228,7 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 			"spec's expression), pass the group's whole intended state — every member, not " +
 			"just the one you're addressing — since anything less silently drops whatever " +
 			"member names aren't mentioned; the symbol you addressed must still be present, " +
-			"or the edit is refused (use move_symbol to rename a group member instead). " +
+			"or the edit is refused (use refactor_move_symbol to rename a group member instead). " +
 			"Introducing iota into a member of a group that doesn't already use it is refused. " +
 			"Imports are managed by the server — just use the identifiers. If any entry fails, " +
 			"the whole batch is discarded and the error names which entry failed — batch " +
@@ -238,7 +239,7 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "edit_file",
 		Annotations: mutates("Edit File", true),
-		Description: "[Editor] Replace or clear one or more files' package doc comments — the " +
+		Description: "Replace or clear one or more files' package doc comments — the " +
 			"comment block directly above \"package X\" — leaving the rest of each file " +
 			"untouched, in one transaction, one recheck, one echo — resolved in order. Empty " +
 			"doc clears it. Every entry must address a different file — two entries targeting " +
@@ -252,7 +253,7 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_symbol",
 		Annotations: mutates("Delete Symbol", true),
-		Description: "[Deleter] Delete one or more symbols in one transaction, one recheck, one echo — " +
+		Description: "Delete one or more symbols in one transaction, one recheck, one echo — " +
 			"resolved in order. A symbol's spec is deleted alone when it lives in a grouped " +
 			"block with siblings, unless its value is derived from its position in the group " +
 			"(iota, or inheriting the previous spec's expression), in which case the whole " +
@@ -273,7 +274,7 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_file",
 		Annotations: mutates("Delete File", true),
-		Description: "[Deleter] Delete one or more files, each with every declaration in it, in one " +
+		Description: "Delete one or more files, each with every declaration in it, in one " +
 			"transaction, one recheck, one echo — resolved in order. Idempotent: a file " +
 			"that's already gone is a noop, not an error, so a duplicate target across " +
 			"entries is harmless. If any entry fails for a reason other than absence, the " +
@@ -283,7 +284,7 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_package",
 		Annotations: mutates("Delete Package", true),
-		Description: "[Deleter] Delete one or more whole package directories in one transaction, one " +
+		Description: "Delete one or more whole package directories in one transaction, one " +
 			"recheck, one echo — resolved in order. Idempotent: a package that's already gone " +
 			"is a noop, not an error, so a duplicate target across entries is harmless. If any " +
 			"entry fails for a reason other than absence, the whole batch is discarded and the " +
@@ -292,9 +293,9 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 
 	// Refactorings
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "move_symbol",
+		Name:        "refactor_move_symbol",
 		Annotations: mutates("Move Symbol", true),
-		Description: "[Refactoring] Rename a symbol, relocate it to another file, or both, in any " +
+		Description: "Rename a symbol, relocate it to another file, or both, in any " +
 			"combination — at least one of new_pkg_path (with new_file_name), new_file_name, " +
 			"or new_symbol_key is required. Give symbol_keys instead of symbol_key to relocate " +
 			"several symbols to the same destination file in one call — a type together with " +
@@ -329,9 +330,9 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 	}, moveSymbol(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "move_file",
+		Name:        "refactor_move_file",
 		Annotations: mutates("Move File", true),
-		Description: "[Refactoring] Rename a file within its package, relocate it to another package, " +
+		Description: "Rename a file within its package, relocate it to another package, " +
 			"or both — at least one of new_pkg_path or new_file_name is required. Declarations " +
 			"travel with the file unchanged. Relocating into a different package is refused " +
 			"when it's provably unsafe: a method and its receiver type ending up split across " +
@@ -342,14 +343,14 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 			"unexported declaration leaving while code left behind still needs it. Otherwise " +
 			"every reference across the move is repointed automatically, both directions: " +
 			"external callers of the file's exported declarations are requalified exactly as " +
-			"move_symbol does, and the file's own references to exported siblings staying " +
+			"refactor_move_symbol does, and the file's own references to exported siblings staying " +
 			"behind gain the original package's qualifier." + echoNote,
 	}, moveFile(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "move_package",
+		Name:        "refactor_move_package",
 		Annotations: mutates("Move Package", true),
-		Description: "[Refactoring] Move a package directory, rewriting its import path in every importer. " +
+		Description: "Move a package directory, rewriting its import path in every importer. " +
 			"When the package name matches the old directory base, the name and every " +
 			"unaliased qualifier are renamed too — as is each file's own leading " +
 			"\"Package oldname\" doc-comment opening, when it has one." + echoNote,
@@ -357,16 +358,16 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 
 	// Disk
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "flush",
+		Name:        "disk_flush",
 		Annotations: mutates("Flush to Disk", true),
-		Description: "[Disk] Write every in-memory edit to disk: dirty files are written, deleted and " +
+		Description: "Write every in-memory edit to disk: dirty files are written, deleted and " +
 			"renamed-away paths are unlinked. Until flush, the filesystem is untouched.",
 	}, flush(eng))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "reload",
+		Name:        "disk_reload",
 		Annotations: mutates("Reload from Disk", true),
-		Description: "[Disk] Rebuild the in-memory workspace from disk, discarding every unflushed " +
+		Description: "Rebuild the in-memory workspace from disk, discarding every unflushed " +
 			"edit and pending deletion — the inverse of flush. The echo reports what was " +
 			"discarded, grouped by package, plus the fresh workspace diagnostics. Use after " +
 			"the filesystem changed behind the server.",

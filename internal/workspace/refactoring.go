@@ -599,7 +599,7 @@ func (w *Workspace) ValidateNewName(pkg address.PkgPath, key, newKey string) (ne
 		return "", fmt.Errorf("%q is a method: newSymbolKey must be %q (its receiver cannot change)", sym.Key(), sym.Recv+".<new name>")
 	}
 	if recv != sym.Recv {
-		return "", fmt.Errorf("cannot change %q's receiver via move_symbol: got %q, want %q", sym.Key(), recv, sym.Recv)
+		return "", fmt.Errorf("cannot change %q's receiver via refactor_move_symbol: got %q, want %q", sym.Key(), recv, sym.Recv)
 	}
 	return name, nil
 }

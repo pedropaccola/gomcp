@@ -48,6 +48,6 @@ func TestAddressForms(t *testing.T) {
 	if _, _, err := moveFile(eng, testCfg())(context.Background(), nil, MoveFileInput{
 		PkgPath: "shapes", FileName: "shapes/groups.go", NewFileName: new("grouped.go"),
 	}); err != nil {
-		t.Errorf("move_file with an agreeing file path: %v", err)
+		t.Errorf("refactor_move_file with an agreeing file path: %v", err)
 	}
 }

@@ -25,8 +25,8 @@ const (
 		"workspace is healthy; call diagnostics for the full inventory. Comments must attach " +
 		"to a declaration or sit directly above a package clause: one floating between " +
 		"declarations is not part of the tracked syntax tree and can silently vanish under a " +
-		"later edit. reload discards every unflushed edit — call flush first if you want to " +
-		"keep them. Prefer move_symbol over edit_symbol when renaming: move_symbol propagates " +
+		"later edit. disk_reload discards every unflushed edit — call disk_flush first if you want to " +
+		"keep them. Prefer refactor_move_symbol over edit_symbol when renaming: refactor_move_symbol propagates " +
 		"the rename to every resolved reference across the workspace automatically; " +
 		"edit_symbol's replacement only changes the declaration itself, leaving every other " +
 		"reference to the old name broken until a diagnostics call happens to catch it."
@@ -86,8 +86,6 @@ func main() {
 					log.Fatalf("[Fatal] Failed to bootstrap: %v", err)
 				}
 			},
-			// SubscribeHandler: func(context.Context, *mcp.SubscribeRequest) error
-			// UnsubscribeHandler: func(context.Context, *mcp.UnsubscribeRequest) error
 		},
 	)
 

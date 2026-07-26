@@ -444,7 +444,7 @@ func (tx *Tx) extractInto(srcPkg, destPkg address.PkgPath, key string, destPath 
 // with.
 func (tx *Tx) MoveSymbolGroup(pkg address.PkgPath, keys []string, newPkgPath address.PkgPath, newFileName string) error {
 	if len(keys) < 2 {
-		return fmt.Errorf("MoveSymbolGroup needs at least two symbol_keys; move_symbol's single-key path already covers one")
+		return fmt.Errorf("MoveSymbolGroup needs at least two symbol_keys; refactor_move_symbol's single-key path already covers one")
 	}
 	destPkg := pkg
 	if newPkgPath != "" {

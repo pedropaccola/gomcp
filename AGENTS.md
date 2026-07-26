@@ -127,7 +127,7 @@ re-derive it.
 If the gomcp server is connected, its instructions forbid raw file I/O on
 .go files — but the server's own state goes stale the moment you edit its
 source with other tools, and it serves the *running* binary's behavior, not
-your working tree. A `reload` call refreshes the server's model after
+your working tree. A `disk_reload` call refreshes the server's model after
 direct edits or git operations; only *behavior and schema* changes to the
 server itself still require a reconnect, since the running binary is the
 running binary.
@@ -141,9 +141,9 @@ consumers, helpers before callers); batch all changes to one declaration
 into a single edit (replacement is whole-declaration); and always end with
 the test suite — echoes referee only what the type system distinguishes.
 
-**Always `flush` at the end of a turn** — this repo's own tools/schema
+**Always `disk_flush` at the end of a turn** — this repo's own tools/schema
 change often and reconnects discard any unflushed edit silently, same as
-`reload`. Two consequences: `make test`/`make tidy`/`make vet` read disk,
+`disk_reload`. Two consequences: `make test`/`make tidy`/`make vet` read disk,
 not the in-memory model — flush before trusting their output. And
 the connected server's tool schema reflects the *running binary*, not
 source you just edited — parameter names can be stale until reconnect.

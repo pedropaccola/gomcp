@@ -93,7 +93,7 @@ func TestTxMoveSymbolGroupRefusesSingleKey(t *testing.T) {
 	tx := NewTx(view)
 	err := tx.MoveSymbolGroup("test.mod/src", []string{"Stack"}, "test.mod/dest", "stack.go")
 	if err == nil || !strings.Contains(err.Error(), "at least two") {
-		t.Errorf("MoveSymbolGroup(single key) = %v, want a refusal pointing at move_symbol's single-key path", err)
+		t.Errorf("MoveSymbolGroup(single key) = %v, want a refusal pointing at refactor_move_symbol's single-key path", err)
 	}
 }
 

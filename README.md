@@ -1,4 +1,4 @@
-# gomcp 🧞‍♂️:
+# gomcp 🧞‍♂️
 
 An experimental, declaration-scoped MCP server that exposes an in-memory Go compilation loop directly to coding agents.
 
@@ -35,6 +35,9 @@ The read tools aren't limited to the agent's own module. Any importable package 
 ### Server-Managed Imports
 The agent writes identifiers, never import blocks. **gomcp** runs `goimports` on every write, and imports of packages that exist only in memory (invisible to disk-scanning tools) self-repair between rechecks. Import management is one thing the agent never has to think about.
 
+### Opinionated Placement
+The agent never specifies a line number or cursor position, only a declaration and its address. Where a *new* declaration lands within its destination file is decided by the server, following one consistent ordering: constants and variables come first, type definitions and their methods follow (methods resolving immediately after their receiver's existing method group or type declaration), and plain functions trail at the bottom of the file. The policy only governs where creations and relocations land, it doesn't alter a file you haven't touched. Adopting **gomcp** on an existing codebase means new growth follows this convention, layered on top of whatever organization was already there.
+
 
 ## Technical Footprint & Independence
 
@@ -44,9 +47,9 @@ The agent writes identifiers, never import blocks. **gomcp** runs `goimports` on
 
 ## The Execution Loop
 
-1. **Fetch:** The agent requests a specific declaration by name. `gomcp` extracts it from the in-memory AST and returns it as a plain text Go snippet.
+1. **Fetch:** The agent requests a specific declaration by name. **gomcp** extracts it from the in-memory AST and returns it as a plain text Go snippet.
 2. **Mutate:** The agent submits a single write or a batch of writes directly to the target declarations.
-3. **Type-Check:** `gomcp` applies the changes to the AST and evaluates the module state using `go/types`.
+3. **Type-Check:** **gomcp** applies the changes to the AST and evaluates the module state using `go/types`.
 4. **Echo:** The server returns any compiler errors or diagnostics (new or resolved) directly to the agent to guide its next iteration.
 
 
@@ -65,8 +68,8 @@ Small set of 25 tools:
 * Creators (fail if the address already exists; cannot destroy code): `create_package`, `create_file`, `create_symbol`
 * Editors (fail if the address doesn't exist): `edit_symbol`, `edit_file`
 * Deleters (noop if the address doesn't exist — deletion is idempotent, so a duplicate target across entries is harmless): `delete_symbol`, `delete_file`, `delete_package`
-* Refactorings (structure-preserving transformations; safe by construction — refuse rather than risk breaking the workspace): `move_symbol` (rename, relocate, or both), `move_file`, `move_package`
-* Disk (syncs the in-memory state with disk): `flush`, `reload`
+* Refactorings (structure-preserving transformations; safe by construction — refuse rather than risk breaking the workspace): `refactor_move_symbol`, `refactor_move_file`, `refactor_move_package`
+* Disk (syncs the in-memory state with disk): `disk_flush`, `disk_reload`
 
 More on `internal/tools/tools.go`
 
@@ -76,7 +79,7 @@ More on `internal/tools/tools.go`
 
 Requires Go 1.26.4 or newer (see `go.mod`). See `Makefile` for the target list
 
-Point your MCP client at the built binary (or at `go run ./cmd/gomcp` directly) over stdio. `.mcp.json` in this repo's own root is a working example, used for gomcp's own self-hosted development:
+Point your MCP client at the built binary (or at `go run ./cmd/gomcp` directly) over stdio. `.mcp.json` in this repo's own root is a working example, used for **gomcp**'s own self-hosted development:
 
 ```json
 {
