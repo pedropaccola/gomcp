@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -44,5 +45,31 @@ func TestExtractDeclGroupedMember(t *testing.T) {
 	}
 	if !strings.Contains(remaining, "B = 2") {
 		t.Errorf("splice removed sibling B: %q", remaining)
+	}
+}
+
+func TestPositionDependentGroupMembersExpandsIotaGroup(t *testing.T) {
+	w := typesFixture(t, map[string]string{
+		"src": "package src\n\nconst (\n\tBase = iota\n\tSibling\n)\n",
+	})
+	got, err := w.PositionDependentGroupMembers("src", "Base")
+	if err != nil {
+		t.Fatalf("PositionDependentGroupMembers: %v", err)
+	}
+	if len(got) != 2 || !slices.Contains(got, "Base") || !slices.Contains(got, "Sibling") {
+		t.Errorf("PositionDependentGroupMembers(Base) = %v, want [Base Sibling]", got)
+	}
+}
+
+func TestPositionDependentGroupMembersLeavesPlainGroupAlone(t *testing.T) {
+	w := typesFixture(t, map[string]string{
+		"src": "package src\n\nconst (\n\tBase = 1\n\tSibling = 2\n)\n",
+	})
+	got, err := w.PositionDependentGroupMembers("src", "Base")
+	if err != nil {
+		t.Fatalf("PositionDependentGroupMembers: %v", err)
+	}
+	if len(got) != 1 || got[0] != "Base" {
+		t.Errorf("PositionDependentGroupMembers(Base) = %v, want just [Base]: a non-position-dependent group is grouped for readability only", got)
 	}
 }

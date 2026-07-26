@@ -296,9 +296,14 @@ func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
 		Annotations: mutates("Move Symbol", true),
 		Description: "[Refactoring] Rename a symbol, relocate it to another file, or both, in any " +
 			"combination — at least one of new_pkg_path (with new_file_name), new_file_name, " +
-			"or new_symbol_key is required. new_symbol_key follows the same grammar as " +
-			"symbol_key: a bare identifier for a non-method, \"Recv.Name\" for a method — and " +
-			"for a method it must be qualified, with Recv matching the symbol's actual " +
+			"or new_symbol_key is required. Give symbol_keys instead of symbol_key to relocate " +
+			"several symbols to the same destination file in one call — a type together with " +
+			"its methods, say — instead of a same-package consolidation move first; " +
+			"symbol_keys only relocates (never combines with new_symbol_key — rename with " +
+			"symbol_key first, then move the group) and needs at least two keys; give " +
+			"symbol_key or symbol_keys, never both. new_symbol_key follows the same grammar " +
+			"as symbol_key: a bare identifier for a non-method, \"Recv.Name\" for a method — " +
+			"and for a method it must be qualified, with Recv matching the symbol's actual " +
 			"receiver exactly, since a rename can never change what a method belongs to. A " +
 			"rename propagates to every resolved reference across the workspace first " +
 			"(renaming an interface method does not chase implementors — broken " +

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pedropaccola/gomcp/internal/address"
@@ -22,11 +23,12 @@ type MovePackageInput struct {
 }
 
 type MoveSymbolInput struct {
-	PkgPath      string  `json:"pkg_path"`
-	SymbolKey    string  `json:"symbol_key"`
-	NewPkgPath   *string `json:"new_pkg_path,omitempty"`
-	NewFileName  *string `json:"new_file_name,omitempty"`
-	NewSymbolKey *string `json:"new_symbol_key,omitempty"`
+	PkgPath      string   `json:"pkg_path"`
+	SymbolKey    string   `json:"symbol_key,omitempty"`
+	SymbolKeys   []string `json:"symbol_keys,omitempty"`
+	NewPkgPath   *string  `json:"new_pkg_path,omitempty"`
+	NewFileName  *string  `json:"new_file_name,omitempty"`
+	NewSymbolKey *string  `json:"new_symbol_key,omitempty"`
 }
 
 func moveSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveSymbolInput, WriteOutput] {
@@ -51,6 +53,18 @@ func moveSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveSymb
 				if err != nil {
 					return err
 				}
+			}
+			if len(in.SymbolKeys) > 0 {
+				if in.SymbolKey != "" {
+					return fmt.Errorf("give symbol_key or symbol_keys, not both")
+				}
+				if optStr(in.NewSymbolKey) != "" {
+					return fmt.Errorf("symbol_keys can't be combined with new_symbol_key: rename one symbol at a time with symbol_key, then move the group")
+				}
+				return tx.MoveSymbolGroup(pkg, in.SymbolKeys, newPkg, newFile)
+			}
+			if in.SymbolKey == "" {
+				return fmt.Errorf("give symbol_key or symbol_keys")
 			}
 			return tx.MoveSymbol(pkg, in.SymbolKey, newPkg, newFile, optStr(in.NewSymbolKey))
 		})

@@ -90,3 +90,20 @@ func TestMoveSymbolInputWiring(t *testing.T) {
 		t.Fatalf("move_symbol qualified method rename: %v", err)
 	}
 }
+
+func TestMoveSymbolInputWiringSymbolKeysBatch(t *testing.T) {
+	eng := sandboxEngine(t)
+
+	if _, _, err := moveSymbol(eng, testCfg())(context.Background(), nil, MoveSymbolInput{
+		PkgPath: "mvsrc", SymbolKeys: []string{"Box", "Box.M", "Box.AreaOfBox"},
+		NewPkgPath: new("mvdest"), NewFileName: new("box.go"),
+	}); err != nil {
+		t.Fatalf("move_symbol symbol_keys batch: %v", err)
+	}
+
+	if _, _, err := moveSymbol(eng, testCfg())(context.Background(), nil, MoveSymbolInput{
+		PkgPath: "shapes", SymbolKey: "NotShape", SymbolKeys: []string{"NotShape"},
+	}); err == nil || !strings.Contains(err.Error(), "not both") {
+		t.Errorf("symbol_key and symbol_keys together must be refused, got %v", err)
+	}
+}

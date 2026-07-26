@@ -132,3 +132,31 @@ func (w *Workspace) ExtractDecl(pkg address.PkgPath, key string) (string, Splice
 	doc := string(file.Src()[sp.start:body.start])
 	return doc + gen.Tok.String() + " " + string(file.Src()[body.start:body.end]), Splice{Path: sym.File, Start: sp.start, End: sp.end}, nil
 }
+
+// PositionDependentGroupMembers returns every key that must move or
+// extract together with key: itself alone, unless key is a member of a
+// grouped const declaration whose meaning is position-dependent (iota,
+// or inheriting the previous spec's expression) — in which case every
+// member of that group is included, since ExtractDecl already promotes
+// such an extraction to the whole group and any safety check must see
+// the same set ExtractDecl is about to act on. Deliberately narrow:
+// var and type groups, and non-position-dependent const groups, are
+// grouped in source for readability only — nothing about them requires
+// moving together, so they are never expanded here.
+func (w *Workspace) PositionDependentGroupMembers(pkg address.PkgPath, key string) ([]string, error) {
+	sym, owner, ok := w.resolveSymbol(pkg, key)
+	if !ok {
+		return nil, fmt.Errorf("no symbol %q in %q", key, pkg)
+	}
+	gen, grouped := GroupOf(sym)
+	if !grouped || (!isSoloGroup(gen, grouped) && !constPositionDependent(gen, grouped, sym)) {
+		return []string{key}, nil
+	}
+	var members []string
+	for _, s := range owner.Symbols() {
+		if g, ok := GroupOf(s); ok && g == gen {
+			members = append(members, s.Key())
+		}
+	}
+	return members, nil
+}

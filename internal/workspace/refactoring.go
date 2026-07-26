@@ -385,8 +385,10 @@ func (w *Workspace) MoveConflicts(srcPkg, destPkg address.PkgPath, movingKeys []
 // identifiers, not through a moving method's call sites.
 //
 // movingKeys is resolved to symbols here, fresh, matching MoveConflicts —
-// see its doc comment for why.
-func (w *Workspace) QualifierFixups(movingKeys []string, srcPkg, destPkg address.PkgPath) ([]Splice, error) {
+// see its doc comment for why. Parameter order matches MoveConflicts'
+// (srcPkg, destPkg, movingKeys), not the reverse — the two are always
+// called back-to-back on the same relocation.
+func (w *Workspace) QualifierFixups(srcPkg, destPkg address.PkgPath, movingKeys []string) ([]Splice, error) {
 	destOwner, ok := w.prodPackage(destPkg)
 	if !ok {
 		return nil, fmt.Errorf("no package at %q", destPkg)

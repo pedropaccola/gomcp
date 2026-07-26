@@ -71,3 +71,22 @@ func TestMergeableGroupInsertOffsetNoneForPositionDependent(t *testing.T) {
 		t.Error("an iota group must never be reported mergeable")
 	}
 }
+
+// TestInsertOffsetMethodAfterTypeWithNoExistingMethods covers the gap
+// found while validating the placement heuristic: a type's first method
+// in a file (no sibling methods yet to anchor to) must still land right
+// after the type's own declaration, not fall to the bottom past an
+// unrelated plain func.
+func TestInsertOffsetMethodAfterTypeWithNoExistingMethods(t *testing.T) {
+	w := simpleFixture(t, "package pkg\n\ntype Box struct{}\n\nfunc Other() {}\n")
+	at, ok := w.InsertOffset("test.mod/pkg", "pkg/pkg.go", KindMethod, "Box")
+	if !ok {
+		t.Fatal("InsertOffset must find a position for Box's first method")
+	}
+	file, _, _ := w.resolveFile("test.mod/pkg", "pkg/pkg.go")
+	src := string(file.Src())
+	boxEnd := strings.Index(src, "type Box struct{}") + len("type Box struct{}")
+	if at != boxEnd {
+		t.Errorf("InsertOffset(Box method, no existing methods) = %d, want right after Box's type decl (%d):\n%s", at, boxEnd, src)
+	}
+}

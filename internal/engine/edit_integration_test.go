@@ -1193,3 +1193,25 @@ func TestMoveFileDoesNotCorruptMethodCallSites(t *testing.T) {
 		t.Errorf("method call site was corrupted by the move:\n%s", useFile.Src())
 	}
 }
+
+// TestMoveSymbolGroupMovesTypeAndMethodsAcrossFiles proves MoveSymbolGroup
+// handles methods spread across multiple source files correctly — Box's
+// M lives in mvsrc.go, AreaOfBox in methodfile.go — each gets its own
+// per-file extraction, and all three land together in the destination.
+func TestMoveSymbolGroupMovesTypeAndMethodsAcrossFiles(t *testing.T) {
+	e := sandboxEngine(t)
+	_, err := e.Edit(context.Background(), func(tx *gate.Tx) error {
+		return tx.MoveSymbolGroup(spkg("mvsrc"), []string{"Box", "Box.M", "Box.AreaOfBox"}, spkg("mvdest"), "box.go")
+	})
+	if err != nil {
+		t.Fatalf("MoveSymbolGroup: %v", err)
+	}
+	for _, key := range []string{"Box", "Box.M", "Box.AreaOfBox"} {
+		if _, _, ok := resolveSymbol(e, spkg("mvsrc"), key); ok {
+			t.Errorf("%q should no longer exist in mvsrc", key)
+		}
+		if _, _, ok := resolveSymbol(e, spkg("mvdest"), key); !ok {
+			t.Errorf("%q missing from mvdest after MoveSymbolGroup", key)
+		}
+	}
+}

@@ -118,7 +118,7 @@ func TestQualifierFixupsInboundRepointsExternalQualifier(t *testing.T) {
 		"dest":  "package dest\n",
 		"use":   "package use\n\nimport \"mvsrc\"\n\nfunc Bar() int { return mvsrc.Foo() }\n",
 	})
-	edits, err := w.QualifierFixups([]string{"Foo"}, "mvsrc", "dest")
+	edits, err := w.QualifierFixups("mvsrc", "dest", []string{"Foo"})
 	if err != nil {
 		t.Fatalf("QualifierFixups: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestQualifierFixupsOutboundQualifiesStayingSibling(t *testing.T) {
 		"mvsrc": "package mvsrc\n\nfunc Stay() int { return 1 }\n\nfunc Moving() int { return Stay() }\n",
 		"dest":  "package dest\n",
 	})
-	edits, err := w.QualifierFixups([]string{"Moving"}, "mvsrc", "dest")
+	edits, err := w.QualifierFixups("mvsrc", "dest", []string{"Moving"})
 	if err != nil {
 		t.Fatalf("QualifierFixups: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestQualifierFixupsOutboundQualifiesStayingSibling(t *testing.T) {
 
 func TestQualifierFixupsErrorsOnMissingPackage(t *testing.T) {
 	w := typesFixture(t, map[string]string{"mvsrc": "package mvsrc\n"})
-	if _, err := w.QualifierFixups([]string{"Foo"}, "mvsrc", "nosuchdest"); err == nil {
+	if _, err := w.QualifierFixups("mvsrc", "nosuchdest", []string{"Foo"}); err == nil {
 		t.Error("QualifierFixups must error when destPkg doesn't exist")
 	}
 }
@@ -197,5 +197,28 @@ func TestPackageMoveSplicesRewritesImportAndQualifier(t *testing.T) {
 	got := string(applyTestSplices(src, edits))
 	if !strings.Contains(got, `import "dest"`) || !strings.Contains(got, "dest.Foo()") {
 		t.Errorf("applied splices = %q, want import path and qualifier both rewritten to dest", got)
+	}
+}
+
+// TestMoveConflictsCatchesGroupSiblingCollision proves the fix: checking
+// MoveConflicts with only the requested key misses a collision caused by
+// a position-dependent group's other members, which move along silently
+// via ExtractDecl — PositionDependentGroupMembers closes that gap by
+// feeding MoveConflicts everything that will actually move.
+func TestMoveConflictsCatchesGroupSiblingCollision(t *testing.T) {
+	w := typesFixture(t, map[string]string{
+		"src":  "package src\n\nconst (\n\tBase = iota\n\tSibling\n)\n",
+		"dest": "package dest\n\nconst Sibling = 42\n",
+	})
+	if got := w.MoveConflicts("src", "dest", []string{"Base"}); len(got) != 0 {
+		t.Fatalf("MoveConflicts(Base alone) = %v, want no conflicts (demonstrating why checking only the named key misses the sibling)", got)
+	}
+	movingKeys, err := w.PositionDependentGroupMembers("src", "Base")
+	if err != nil {
+		t.Fatalf("PositionDependentGroupMembers: %v", err)
+	}
+	got := w.MoveConflicts("src", "dest", movingKeys)
+	if len(got) != 1 || !strings.Contains(got[0], "Sibling") || !strings.Contains(got[0], "already exists") {
+		t.Errorf("MoveConflicts(%v) = %v, want a collision on Sibling", movingKeys, got)
 	}
 }
