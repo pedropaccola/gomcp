@@ -100,9 +100,13 @@ func (p *Package) Files() []*File {
 // RebuildIndex re-derives symbols and every file's Inits from the current
 // ASTs. Call after any file's ast is replaced; nothing is patched in
 // place. For an external (dependency) package, this also strips every
-// unexported symbol and every method with an unexported receiver from
-// the result — a dependency is API surface only, never editable code, so
-// nothing outside its exported surface is indexed at all.
+// symbol from the result that isn't reachable from outside the package:
+// an unexported symbol by its own name, or a method whose name is
+// exported but whose receiver type isn't — the receiver type can't be
+// named from outside the package, so no external caller could ever hold
+// a value to call the method on. A dependency is API surface only, never
+// editable code, so nothing outside that reachable surface is indexed at
+// all.
 func (p *Package) RebuildIndex() {
 	p.symbols = make(map[string]*Symbol)
 	for _, file := range p.files {

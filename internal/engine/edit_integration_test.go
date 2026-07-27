@@ -371,8 +371,8 @@ func TestMoveSymbol(t *testing.T) {
 	if !ok {
 		t.Fatal("NotShape lost by move")
 	}
-	if sym.File != sfile("shapes", "groups.go") {
-		t.Errorf("NotShape lives in %q, want shapes/groups.go", sym.File)
+	if sym.File() != sfile("shapes", "groups.go") {
+		t.Errorf("NotShape lives in %q, want shapes/groups.go", sym.File())
 	}
 	// A method moves too: without its receiver anchor in the destination it
 	// falls to the bottom, and interface satisfaction stays intact.
@@ -396,8 +396,8 @@ func TestMoveGroupedSpec(t *testing.T) {
 	if !ok {
 		t.Fatal("DefaultScale lost by move")
 	}
-	if sym.File != sfile("shapes", "shapes.go") {
-		t.Errorf("DefaultScale lives in %q, want shapes/shapes.go", sym.File)
+	if sym.File() != sfile("shapes", "shapes.go") {
+		t.Errorf("DefaultScale lives in %q, want shapes/shapes.go", sym.File())
 	}
 	if _, _, ok := resolveSymbol(e, spkg("shapes"), "debugMode"); !ok {
 		t.Error("sibling spec destroyed by grouped move")
@@ -443,8 +443,8 @@ func TestMoveToNewFile(t *testing.T) {
 	if !ok {
 		t.Fatal("Doubled lost by move")
 	}
-	if sym.File != sfile("shapes", "moved.go") {
-		t.Errorf("Doubled lives in %q, want shapes/moved.go", sym.File)
+	if sym.File() != sfile("shapes", "moved.go") {
+		t.Errorf("Doubled lives in %q, want shapes/moved.go", sym.File())
 	}
 	file, _, _ := resolveFile(e, sfile("shapes", "moved.go"))
 	if !bytes.Contains(file.Src(), []byte("// Doubled reports twice the default scale.")) {
@@ -707,8 +707,8 @@ func TestMoveWholeIotaGroup(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s lost by group move", key)
 		}
-		if sym.File != sfile("shapes", "kinds.go") {
-			t.Errorf("%s lives in %q, want shapes/kinds.go (only KindSquare was named)", key, sym.File)
+		if sym.File() != sfile("shapes", "kinds.go") {
+			t.Errorf("%s lives in %q, want shapes/kinds.go (only KindSquare was named)", key, sym.File())
 		}
 	}
 	file, _, _ := resolveFile(e, sfile("shapes", "kinds.go"))

@@ -221,21 +221,18 @@ func resolveXTest(e *Engine, pkg address.PkgPath) (*workspace.Package, bool) {
 	return unit.XTest(), true
 }
 
-// resolveSymbol is a test-only reimplementation of gate's private
-// resolveSymbol.
-func resolveSymbol(e *Engine, pkg address.PkgPath, key string) (*workspace.Symbol, *workspace.Package, bool) {
-	ws := e.ws
-	if unit, ok := ws.Unit(pkg); ok {
-		for _, p := range []*workspace.Package{unit.Prod(), unit.XTest()} {
-			if p == nil {
-				continue
-			}
-			if sym, ok := p.Symbol(key); ok {
-				return sym, p, true
-			}
-		}
-	}
-	return nil, nil, false
+// resolveSymbol looks up pkg's key through gate's own public View.Symbol
+// — the same read path production code uses, not a private
+// reimplementation of gate's resolution order kept in sync by hand.
+func resolveSymbol(e *Engine, pkg address.PkgPath, key string) (dto.Symbol, dto.Package, bool) {
+	var sym dto.Symbol
+	var owner dto.Package
+	var found bool
+	_ = e.Read(context.Background(), func(v *gate.View) error {
+		sym, owner, found = v.Symbol(pkg, key)
+		return nil
+	})
+	return sym, owner, found
 }
 
 func deltaStrings(report *dto.EditReport) []string {
