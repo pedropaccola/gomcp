@@ -28,7 +28,7 @@ func (tx *Tx) applyFileSplices(splices map[address.FilePath][]splice) error {
 		slices.SortFunc(batch, func(a, b splice) int { return cmp.Compare(a.start, b.start) })
 		batch = slices.CompactFunc(batch, func(a, b splice) bool { return a.span == b.span })
 		addr := address.PkgPath(filepath.Dir(string(path)))
-		if err := tx.installFile(addr, isXTestOwner(tx.ws, addr, owner), path, applySplices(file.Src(), batch)); err != nil {
+		if err := tx.installFile(addr, tx.isXTestOwner(addr, owner), path, applySplices(file.Src(), batch)); err != nil {
 			return err
 		}
 	}
@@ -122,7 +122,7 @@ func (tx *Tx) RepairMissingImports() bool {
 		}
 		candidate := applySplices(file.Src(), []splice{{span: span{start: sp.end, end: sp.end}, repl: []byte(repl.String())}})
 		addr := address.PkgPath(filepath.Dir(string(filePath)))
-		if err := tx.installFile(addr, isXTestOwner(tx.ws, addr, owner), filePath, candidate); err != nil {
+		if err := tx.installFile(addr, tx.isXTestOwner(addr, owner), filePath, candidate); err != nil {
 			continue // repair is best-effort; the diagnostic stays visible
 		}
 		repaired = true
@@ -158,16 +158,6 @@ func importsPath(astFile *ast.File, path string) bool {
 	return false
 }
 
-// isXTestOwner reports whether owner is pkg's external test package
-// rather than its production one — the Prod/XTest selector every
-// address-based workspace primitive needs alongside an address, for
-// callers (like relocateSymbol) that resolved owner through a path that
-// doesn't already know which half matched.
-func isXTestOwner(ws *workspace.Workspace, pkg address.PkgPath, owner *workspace.Package) bool {
-	unit, ok := ws.Unit(pkg)
-	return ok && owner == unit.XTest()
-}
-
 // renderDocComment formats plain text as a leading Go doc comment, one
 // line comment per line, blank lines kept bare (no trailing space) per
 // gofmt's own convention. Empty input renders to nothing.
@@ -195,4 +185,14 @@ func toSplices(ws []workspace.Splice) map[address.FilePath][]splice {
 		out[s.Path] = append(out[s.Path], splice{span: span{start: s.Start, end: s.End}, repl: s.Repl})
 	}
 	return out
+}
+
+// isXTestOwner reports whether owner is pkg's external test package
+// rather than its production one — the Prod/XTest selector every
+// address-based workspace primitive needs alongside an address, for
+// callers (like relocateSymbol) that resolved owner through a path that
+// doesn't already know which half matched.
+func (v *View) isXTestOwner(pkg address.PkgPath, owner *workspace.Package) bool {
+	unit, ok := v.ws.Unit(pkg)
+	return ok && owner == unit.XTest()
 }

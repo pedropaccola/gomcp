@@ -171,12 +171,12 @@ func (w *Workspace) InsertOffset(pkg address.PkgPath, fileName address.FilePath,
 		}
 	}
 	if anchor == nil {
-		if sp, ok := offsetSpan(w, owner, file, file.Ast().Name.Pos(), file.Ast().Name.End()); ok {
+		if sp, ok := w.offsetSpan(owner, file, file.Ast().Name.Pos(), file.Ast().Name.End()); ok {
 			return sp.end, true
 		}
 		return len(file.Src()), true
 	}
-	if sp, ok := offsetSpan(w, owner, file, anchor.Pos(), anchor.End()); ok {
+	if sp, ok := w.offsetSpan(owner, file, anchor.Pos(), anchor.End()); ok {
 		return sp.end, true
 	}
 	return len(file.Src()), true
@@ -197,7 +197,7 @@ func (w *Workspace) TypeDeclOffset(pkg address.PkgPath, fileName address.FilePat
 		if !ok || gen.Tok != token.TYPE || !declaresType(gen, typeName) {
 			continue
 		}
-		if sp, ok := offsetSpan(w, owner, file, decl.Pos(), decl.End()); ok {
+		if sp, ok := w.offsetSpan(owner, file, decl.Pos(), decl.End()); ok {
 			return sp.end, true
 		}
 	}
@@ -219,7 +219,7 @@ func (w *Workspace) MergeableGroupInsertOffset(pkg address.PkgPath, fileName add
 	if gen == nil {
 		return 0, false
 	}
-	sp, ok := offsetSpan(w, owner, file, gen.Rparen, gen.Rparen)
+	sp, ok := w.offsetSpan(owner, file, gen.Rparen, gen.Rparen)
 	if !ok {
 		return 0, false
 	}

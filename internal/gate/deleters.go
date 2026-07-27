@@ -87,5 +87,5 @@ func (tx *Tx) DeleteSymbol(pkg address.PkgPath, key string) error {
 	for i, s := range splices {
 		esplices[i] = splice{span: span{start: s.Start, end: s.End}, repl: s.Repl}
 	}
-	return tx.installFile(pkg, isXTestOwner(tx.ws, pkg, owner), path, applySplices(file.Src(), esplices))
+	return tx.installFile(pkg, tx.isXTestOwner(pkg, owner), path, applySplices(file.Src(), esplices))
 }

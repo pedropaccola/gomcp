@@ -58,88 +58,6 @@ func recvNameOfType(t types.Type) string {
 	return ""
 }
 
-// DefiningIdent returns the identifier that declares the symbol.
-// Exported so gate's rename verb shares this instead of keeping its own
-// copy — a pure function over Symbol's own already-exported Decl()/
-// Spec(), no workspace-internal state involved.
-func DefiningIdent(sym *Symbol) *ast.Ident {
-	if fn, ok := sym.Decl().(*ast.FuncDecl); ok {
-		return fn.Name
-	}
-	switch spec := sym.Spec().(type) {
-	case *ast.TypeSpec:
-		return spec.Name
-	case *ast.ValueSpec:
-		for _, id := range spec.Names {
-			if id.Name == sym.Name {
-				return id
-			}
-		}
-	}
-	return nil
-}
-
-// objectOf resolves a symbol to its types.Object via its owning package's
-// Defs map; nil when type information is unavailable.
-func objectOf(pkg *Package, sym *Symbol) types.Object {
-	if pkg.TypesInfo() == nil {
-		return nil
-	}
-	ident := DefiningIdent(sym)
-	if ident == nil {
-		return nil
-	}
-	return pkg.TypesInfo().Defs[ident]
-}
-
-// symbolAt finds pkg's top-level declaration enclosing pos. No
-// filesystem-path round trip needed, since every caller here already has
-// pkg in hand from the loop that found pos in the first place —
-// go/token positions never overlap across files in a shared FileSet, so
-// no per-file filter is needed for correctness. In grouped decls it
-// prefers the symbol whose own spec contains the position.
-func symbolAt(pkg *Package, pos token.Pos) (*Symbol, bool) {
-	var groupHit *Symbol
-	for _, sym := range pkg.Symbols() {
-		start := sym.Decl().Pos()
-		if doc := DocOf(sym.Decl()); doc != nil {
-			start = doc.Pos()
-		}
-		if pos < start || pos >= sym.Decl().End() {
-			continue
-		}
-		if sym.Spec() == nil {
-			return sym, true
-		}
-		if pos >= sym.Spec().Pos() && pos < sym.Spec().End() {
-			return sym, true
-		}
-		if groupHit == nil {
-			groupHit = sym
-		}
-	}
-	if groupHit != nil {
-		return groupHit, true
-	}
-	return nil, false
-}
-
-// offsetSpan converts a position range into byte offsets in file's Src —
-// the primitive under QualifierFixups' splice computation. Valid because
-// Ast is by invariant a parse of exactly Src.
-func offsetSpan(w *Workspace, owner *Package, file *File, from, to token.Pos) (span, bool) {
-	if !from.IsValid() || !to.IsValid() {
-		return span{}, false
-	}
-	fset := w.FsetOf(owner)
-	start := fset.Position(from).Offset
-	end := fset.Position(to).Offset
-	if start < 0 || end > len(file.Src()) || start > end {
-		return span{}, false
-	}
-	return span{start: start, end: end}, true
-}
-
 // prodPackage resolves a workspace address to its production package.
 func (w *Workspace) prodPackage(pkg address.PkgPath) (*Package, bool) {
 	unit, ok := w.Unit(pkg)
@@ -212,7 +130,7 @@ func (w *Workspace) referencesTo(target ObjectKey, exclude *Symbol) []symbolRef 
 			if !ok || key != target {
 				continue
 			}
-			encl, ok := symbolAt(p, ident.Pos())
+			encl, ok := p.symbolAt(ident.Pos())
 			if !ok || encl == exclude || seen[encl] {
 				continue
 			}
@@ -272,7 +190,7 @@ func (w *Workspace) DetectMoveConflicts(srcPkg, destPkg address.PkgPath, movingK
 	movingObjKeys := make(map[ObjectKey]bool, len(moving))
 	movingNames := make(map[string]bool, len(moving))
 	for _, m := range moving {
-		if k, ok := keyOf(objectOf(m.owner, m.sym)); ok {
+		if k, ok := keyOf(m.owner.objectOf(m.sym)); ok {
 			movingObjKeys[k] = true
 		}
 		if m.sym.Kind == KindType {
@@ -300,7 +218,7 @@ func (w *Workspace) DetectMoveConflicts(srcPkg, destPkg address.PkgPath, movingK
 	srcOwner, ok := w.prodPackage(srcPkg)
 	if ok {
 		for _, s := range srcOwner.Symbols() {
-			k, _ := keyOf(objectOf(srcOwner, s))
+			k, _ := keyOf(srcOwner.objectOf(s))
 			if s.Kind != KindMethod || movingObjKeys[k] {
 				continue // not a method, or already moving with its receiver
 			}
@@ -340,7 +258,7 @@ func (w *Workspace) DetectMoveConflicts(srcPkg, destPkg address.PkgPath, movingK
 
 	for _, m := range moving {
 		sym, owner := m.sym, m.owner
-		obj := objectOf(owner, sym)
+		obj := owner.objectOf(sym)
 		if obj == nil || obj.Exported() {
 			continue
 		}
@@ -349,7 +267,7 @@ func (w *Workspace) DetectMoveConflicts(srcPkg, destPkg address.PkgPath, movingK
 			continue
 		}
 		for _, ref := range w.referencesTo(target, sym) {
-			k, _ := keyOf(objectOf(ref.Pkg, ref.Sym))
+			k, _ := keyOf(ref.Pkg.objectOf(ref.Sym))
 			if movingObjKeys[k] {
 				continue // also moving, not left behind
 			}
@@ -422,7 +340,7 @@ func (w *Workspace) ComputeQualifierFixups(srcPkg, destPkg address.PkgPath, movi
 	for _, m := range moving {
 		sym, owner := m.sym, m.owner
 		movingSpans[sym.File] = append(movingSpans[sym.File], declSpan{sym.Decl().Pos(), sym.Decl().End()})
-		obj := objectOf(owner, sym)
+		obj := owner.objectOf(sym)
 		if obj == nil {
 			return nil, fmt.Errorf("type information unavailable for %q", sym.Key())
 		}
@@ -456,20 +374,20 @@ func (w *Workspace) ComputeQualifierFixups(srcPkg, destPkg address.PkgPath, movi
 		case inboundTargets[key] && !moving:
 			if pkg.PkgPath == destPkg {
 				if qualifier != nil {
-					if sp, ok := offsetSpan(w, pkg, file, qualifier.Pos(), name.End()); ok {
+					if sp, ok := w.offsetSpan(pkg, file, qualifier.Pos(), name.End()); ok {
 						edits = append(edits, Splice{Path: file.Path, Start: sp.start, End: sp.end, Repl: []byte(name.Name)})
 					}
 				}
 			} else if qualifier != nil {
-				if sp, ok := offsetSpan(w, pkg, file, qualifier.Pos(), qualifier.End()); ok {
+				if sp, ok := w.offsetSpan(pkg, file, qualifier.Pos(), qualifier.End()); ok {
 					edits = append(edits, Splice{Path: file.Path, Start: sp.start, End: sp.end, Repl: []byte(destOwner.Name)})
 				}
-			} else if sp, ok := offsetSpan(w, pkg, file, name.Pos(), name.End()); ok {
+			} else if sp, ok := w.offsetSpan(pkg, file, name.Pos(), name.End()); ok {
 				edits = append(edits, Splice{Path: file.Path, Start: sp.start, End: sp.end, Repl: []byte(destOwner.Name + "." + name.Name)})
 			}
 		case moving && qualifier == nil && obj.Pkg() != nil && obj.Pkg().Path() == string(srcPkg) &&
 			obj.Exported() && !movingObjKeys[key]:
-			if sp, ok := offsetSpan(w, pkg, file, name.Pos(), name.End()); ok {
+			if sp, ok := w.offsetSpan(pkg, file, name.Pos(), name.End()); ok {
 				edits = append(edits, Splice{Path: file.Path, Start: sp.start, End: sp.end, Repl: []byte(srcOwner.Name + "." + name.Name)})
 			}
 		}
@@ -512,7 +430,7 @@ func (w *Workspace) ComputeRenameSplices(pkg address.PkgPath, key, newName strin
 	if !ok {
 		return nil, fmt.Errorf("no symbol %q in %q", key, pkg)
 	}
-	target, ok := keyOf(objectOf(owner, sym))
+	target, ok := keyOf(owner.objectOf(sym))
 	if !ok {
 		return nil, fmt.Errorf("type information unavailable for %q", key)
 	}
@@ -529,11 +447,11 @@ func (w *Workspace) ComputeRenameSplices(pkg address.PkgPath, key, newName strin
 			if !ok || k != target {
 				continue
 			}
-			file, ok := fileContaining(p, ident.Pos())
+			file, ok := p.fileContaining(ident.Pos())
 			if !ok {
 				continue
 			}
-			if sp, ok := offsetSpan(w, p, file, ident.Pos(), ident.End()); ok {
+			if sp, ok := w.offsetSpan(p, file, ident.Pos(), ident.End()); ok {
 				edits = append(edits, Splice{Path: file.Path, Start: sp.start, End: sp.end, Repl: []byte(newName)})
 			}
 		}
@@ -563,7 +481,7 @@ func (w *Workspace) ComputePackageMoveSplices(oldPkg, newPkg address.PkgPath, re
 				if imp.Path.Value != strconv.Quote(oldImport) {
 					continue
 				}
-				if sp, ok := offsetSpan(w, pkg, file, imp.Path.Pos(), imp.Path.End()); ok {
+				if sp, ok := w.offsetSpan(pkg, file, imp.Path.Pos(), imp.Path.End()); ok {
 					edits = append(edits, Splice{Path: file.Path, Start: sp.start, End: sp.end, Repl: []byte(strconv.Quote(newImport))})
 				}
 			}
@@ -577,11 +495,11 @@ func (w *Workspace) ComputePackageMoveSplices(oldPkg, newPkg address.PkgPath, re
 				if ident.Name != oldBase {
 					continue // aliased import: the alias survives the move
 				}
-				file, ok := fileContaining(pkg, ident.Pos())
+				file, ok := pkg.fileContaining(ident.Pos())
 				if !ok {
 					continue
 				}
-				if sp, ok := offsetSpan(w, pkg, file, ident.Pos(), ident.End()); ok {
+				if sp, ok := w.offsetSpan(pkg, file, ident.Pos(), ident.End()); ok {
 					edits = append(edits, Splice{Path: file.Path, Start: sp.start, End: sp.end, Repl: []byte(newBase)})
 				}
 			}
@@ -616,6 +534,22 @@ func (w *Workspace) ValidateNewName(pkg address.PkgPath, key, newKey string) (ne
 	return name, nil
 }
 
+// offsetSpan converts a position range into byte offsets in file's Src —
+// the primitive under QualifierFixups' splice computation. Valid because
+// Ast is by invariant a parse of exactly Src.
+func (w *Workspace) offsetSpan(owner *Package, file *File, from, to token.Pos) (span, bool) {
+	if !from.IsValid() || !to.IsValid() {
+		return span{}, false
+	}
+	fset := w.FsetOf(owner)
+	start := fset.Position(from).Offset
+	end := fset.Position(to).Offset
+	if start < 0 || end > len(file.Src()) || start > end {
+		return span{}, false
+	}
+	return span{start: start, end: end}, true
+}
+
 // symbolRef pairs a referencing symbol with its owning package — the
 // Aggregate-internal shape referencesTo collects, mirroring dto.Match's
 // shape on the other side of the boundary.
@@ -629,18 +563,6 @@ type symbolRef struct {
 // distinct object instances in a package's plain and test-expanded
 // variants.
 type ObjectKey string
-
-// fileContaining finds which of pkg's files owns pos — positions never
-// overlap across files in a shared FileSet, so a range check against
-// each file's own AST span is sufficient, no path translation needed.
-func fileContaining(pkg *Package, pos token.Pos) (*File, bool) {
-	for _, f := range pkg.Files() {
-		if f.Ast().Pos() <= pos && pos < f.Ast().End() {
-			return f, true
-		}
-	}
-	return nil, false
-}
 
 // isPackageLevelUse reports whether obj (typically a TypesInfo.Uses
 // entry) denotes a genuine package-level declaration or a method — never
@@ -661,4 +583,82 @@ func isPackageLevelUse(obj types.Object) bool {
 	}
 	fn, ok := obj.(*types.Func)
 	return ok && fn.Signature().Recv() != nil
+}
+
+// objectOf resolves sym to its types.Object via p's Defs map; nil when
+// type information is unavailable.
+func (p *Package) objectOf(sym *Symbol) types.Object {
+	if p.TypesInfo() == nil {
+		return nil
+	}
+	ident := sym.DefiningIdent()
+	if ident == nil {
+		return nil
+	}
+	return p.TypesInfo().Defs[ident]
+}
+
+// fileContaining finds which of p's files owns pos — positions never
+// overlap across files in a shared FileSet, so a range check against
+// each file's own AST span is sufficient, no path translation needed.
+func (p *Package) fileContaining(pos token.Pos) (*File, bool) {
+	for _, f := range p.Files() {
+		if f.Ast().Pos() <= pos && pos < f.Ast().End() {
+			return f, true
+		}
+	}
+	return nil, false
+}
+
+// symbolAt finds p's top-level declaration enclosing pos. No
+// filesystem-path round trip needed, since every caller here already has
+// p in hand from the loop that found pos in the first place —
+// go/token positions never overlap across files in a shared FileSet, so
+// no per-file filter is needed for correctness. In grouped decls it
+// prefers the symbol whose own spec contains the position.
+func (p *Package) symbolAt(pos token.Pos) (*Symbol, bool) {
+	var groupHit *Symbol
+	for _, sym := range p.Symbols() {
+		start := sym.Decl().Pos()
+		if doc := DocOf(sym.Decl()); doc != nil {
+			start = doc.Pos()
+		}
+		if pos < start || pos >= sym.Decl().End() {
+			continue
+		}
+		if sym.Spec() == nil {
+			return sym, true
+		}
+		if pos >= sym.Spec().Pos() && pos < sym.Spec().End() {
+			return sym, true
+		}
+		if groupHit == nil {
+			groupHit = sym
+		}
+	}
+	if groupHit != nil {
+		return groupHit, true
+	}
+	return nil, false
+}
+
+// DefiningIdent returns the identifier that declares s.
+// Exported so gate's rename verb shares this instead of keeping its own
+// copy — a pure method over Symbol's own already-exported Decl()/
+// Spec(), no workspace-internal state involved.
+func (s *Symbol) DefiningIdent() *ast.Ident {
+	if fn, ok := s.Decl().(*ast.FuncDecl); ok {
+		return fn.Name
+	}
+	switch spec := s.Spec().(type) {
+	case *ast.TypeSpec:
+		return spec.Name
+	case *ast.ValueSpec:
+		for _, id := range spec.Names {
+			if id.Name == s.Name {
+				return id
+			}
+		}
+	}
+	return nil
 }

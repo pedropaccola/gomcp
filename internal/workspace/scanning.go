@@ -65,7 +65,7 @@ func (w *Workspace) SymbolsLike(ctx context.Context, substr string) []SymbolMatc
 func (w *Workspace) scanSource(pkg *Package, sym *Symbol) ([]byte, bool) {
 	var sp span
 	var ok bool
-	if _, grouped := GroupOf(sym); grouped {
+	if _, grouped := sym.GroupOf(); grouped {
 		sp, ok = w.specSpan(pkg, sym)
 	} else {
 		sp, ok = w.declSpan(pkg, sym)
@@ -105,7 +105,7 @@ func (w *Workspace) SymbolsImplementing(ctx context.Context, pkg address.PkgPath
 	if !ok {
 		return nil, fmt.Errorf("no symbol %q in %q", key, pkg)
 	}
-	obj := objectOf(owner, sym)
+	obj := owner.objectOf(sym)
 	if obj == nil {
 		return nil, fmt.Errorf("type information unavailable for %q", sym.Key())
 	}
@@ -120,7 +120,7 @@ func (w *Workspace) SymbolsImplementing(ctx context.Context, pkg address.PkgPath
 		if cand.Kind != KindType || cand == sym {
 			return false
 		}
-		candObj := objectOf(candOwner, cand)
+		candObj := candOwner.objectOf(cand)
 		if candObj == nil {
 			return false
 		}
@@ -149,7 +149,7 @@ func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg address.PkgPath,
 	if !ok {
 		return nil, fmt.Errorf("no symbol %q in %q", key, pkg)
 	}
-	target, ok := keyOf(objectOf(owner, sym))
+	target, ok := keyOf(owner.objectOf(sym))
 	if !ok {
 		return nil, fmt.Errorf("type information unavailable for %q", sym.Key())
 	}
@@ -177,7 +177,7 @@ func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg address.PkgPath,
 				if !ok || k != target {
 					continue
 				}
-				encl, ok := symbolAt(p, ident.Pos())
+				encl, ok := p.symbolAt(ident.Pos())
 				if !ok || encl == sym || seen[encl] {
 					continue
 				}

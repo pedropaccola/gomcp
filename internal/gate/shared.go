@@ -77,7 +77,7 @@ func sortedKeys[K cmp.Ordered, V any](m map[K]V) []K {
 // there — removing the only member removes the whole group either way),
 // but that collapse would look at the wrong CommentGroup here.
 func symbolDoc(sym *workspace.Symbol) *ast.CommentGroup {
-	if _, grouped := workspace.GroupOf(sym); grouped {
+	if _, grouped := sym.GroupOf(); grouped {
 		return workspace.DocOf(sym.Spec())
 	}
 	return workspace.DocOf(sym.Decl())

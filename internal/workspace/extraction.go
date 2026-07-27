@@ -8,16 +8,6 @@ import (
 	"github.com/pedropaccola/gomcp/internal/address"
 )
 
-// GroupOf reports whether sym lives inside a grouped declaration
-// (const/var/type block with parentheses) and returns that declaration.
-// Exported so gate shares this instead of keeping its own copy — a pure
-// function over Symbol's own already-exported Decl(), no
-// workspace-internal state involved.
-func GroupOf(sym *Symbol) (*ast.GenDecl, bool) {
-	gen, ok := sym.Decl().(*ast.GenDecl)
-	return gen, ok && gen.Lparen.IsValid()
-}
-
 // isSoloGroup reports whether sym is ungrouped, or the only member of its
 // parenthesized group.
 func isSoloGroup(gen *ast.GenDecl, grouped bool) bool {
@@ -70,7 +60,7 @@ func (w *Workspace) declSpan(pkg *Package, sym *Symbol) (span, bool) {
 	if doc := DocOf(sym.Decl()); doc != nil {
 		start = doc.Pos()
 	}
-	return offsetSpan(w, pkg, file, start, sym.Decl().End())
+	return w.offsetSpan(pkg, file, start, sym.Decl().End())
 }
 
 // specSpan is the byte span of sym's own spec, doc included.
@@ -86,7 +76,7 @@ func (w *Workspace) specSpan(pkg *Package, sym *Symbol) (span, bool) {
 	if doc := DocOf(sym.Spec()); doc != nil {
 		start = doc.Pos()
 	}
-	return offsetSpan(w, pkg, file, start, sym.Spec().End())
+	return w.offsetSpan(pkg, file, start, sym.Spec().End())
 }
 
 // ExtractDeclaration returns key's declaration as standalone source together
@@ -113,7 +103,7 @@ func (w *Workspace) ExtractDeclaration(pkg address.PkgPath, key string) (string,
 	if !ok {
 		return "", Splice{}, fmt.Errorf("cannot locate %q in source", key)
 	}
-	gen, grouped := GroupOf(sym)
+	gen, grouped := sym.GroupOf()
 	if isSoloGroup(gen, grouped) || constPositionDependent(gen, grouped, sym) {
 		sp, ok := w.declSpan(owner, sym)
 		if !ok {
@@ -125,7 +115,7 @@ func (w *Workspace) ExtractDeclaration(pkg address.PkgPath, key string) (string,
 	if !ok {
 		return "", Splice{}, fmt.Errorf("cannot locate %q in source", key)
 	}
-	body, ok := offsetSpan(w, owner, file, sym.Spec().Pos(), sym.Spec().End())
+	body, ok := w.offsetSpan(owner, file, sym.Spec().Pos(), sym.Spec().End())
 	if !ok {
 		return "", Splice{}, fmt.Errorf("cannot locate %q in source", key)
 	}
@@ -148,15 +138,25 @@ func (w *Workspace) PositionDependentGroupMembers(pkg address.PkgPath, key strin
 	if !ok {
 		return nil, fmt.Errorf("no symbol %q in %q", key, pkg)
 	}
-	gen, grouped := GroupOf(sym)
+	gen, grouped := sym.GroupOf()
 	if !grouped || (!isSoloGroup(gen, grouped) && !constPositionDependent(gen, grouped, sym)) {
 		return []string{key}, nil
 	}
 	var members []string
 	for _, s := range owner.Symbols() {
-		if g, ok := GroupOf(s); ok && g == gen {
+		if g, ok := s.GroupOf(); ok && g == gen {
 			members = append(members, s.Key())
 		}
 	}
 	return members, nil
+}
+
+// GroupOf reports whether s lives inside a grouped declaration
+// (const/var/type block with parentheses) and returns that declaration.
+// Exported so gate shares this instead of keeping its own copy — a pure
+// method over Symbol's own already-exported Decl(), no
+// workspace-internal state involved.
+func (s *Symbol) GroupOf() (*ast.GenDecl, bool) {
+	gen, ok := s.Decl().(*ast.GenDecl)
+	return gen, ok && gen.Lparen.IsValid()
 }

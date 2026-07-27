@@ -60,7 +60,7 @@ func (w *Workspace) Signature(pkg address.PkgPath, key string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	sp, ok := offsetSpan(w, owner, file, fn.Pos(), end)
+	sp, ok := w.offsetSpan(owner, file, fn.Pos(), end)
 	if !ok {
 		return "", false
 	}

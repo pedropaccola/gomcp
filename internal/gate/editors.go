@@ -84,5 +84,5 @@ func (tx *Tx) EditSymbol(pkg address.PkgPath, key, src string) error {
 	if !ok {
 		return fmt.Errorf("internal error: %q vanished while editing %q", target.Path, key)
 	}
-	return tx.installFile(pkg, isXTestOwner(tx.ws, pkg, owner), target.Path, applySplices(file.Src(), []splice{{span: span{start: target.Start, end: target.End}, repl: []byte(replacement)}}))
+	return tx.installFile(pkg, tx.isXTestOwner(pkg, owner), target.Path, applySplices(file.Src(), []splice{{span: span{start: target.Start, end: target.End}, repl: []byte(replacement)}}))
 }

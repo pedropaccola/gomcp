@@ -18,7 +18,7 @@ func (w *Workspace) ComputeEditPlan(pkg address.PkgPath, key string) (wasPositio
 	if !ok {
 		return false, token.ILLEGAL, Splice{}, fmt.Errorf("no symbol %q in %q", key, pkg)
 	}
-	gen, grouped := GroupOf(sym)
+	gen, grouped := sym.GroupOf()
 	wasPositionDependent = constPositionDependent(gen, grouped, sym)
 	var sp span
 	var spanOK bool
@@ -49,7 +49,7 @@ func (w *Workspace) DetectEditCollisions(pkg address.PkgPath, key string, newKey
 	if !ok {
 		return nil
 	}
-	gen, grouped := GroupOf(sym)
+	gen, grouped := sym.GroupOf()
 	wasPositionDependent := constPositionDependent(gen, grouped, sym)
 	var collisions []string
 	for _, newKey := range newKeys {
@@ -61,7 +61,7 @@ func (w *Workspace) DetectEditCollisions(pkg address.PkgPath, key string, newKey
 			continue
 		}
 		if wasPositionDependent {
-			if eGen, eGrouped := GroupOf(existing); eGrouped && eGen == gen {
+			if eGen, eGrouped := existing.GroupOf(); eGrouped && eGen == gen {
 				continue
 			}
 		}

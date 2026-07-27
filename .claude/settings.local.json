@@ -3,6 +3,7 @@
   "permissions": {
     "allow": [
       "Bash(make *)",
+      "Bash(go doc *)",
       "mcp__gomcp__list_packages",
       "mcp__gomcp__list_files",
       "mcp__gomcp__list_methods",
@@ -27,16 +28,7 @@
       "mcp__gomcp__move_file",
       "mcp__gomcp__move_package",
       "mcp__gomcp__flush",
-      "mcp__gomcp__reload",
-      "Bash(rtk gofmt *)",
-      "Bash(rtk go *)",
-      "Bash(rtk grep *)",
-      "Bash(echo \"exit: $?\")",
-      "Bash(rtk git *)",
-      "Bash(rtk make *)",
-      "Bash(rtk ls *)",
-      "Bash(cd *)",
-      "Bash(rtk *)"
+      "mcp__gomcp__reload"
     ],
     "ask": [
       "Edit(**/*.go)",

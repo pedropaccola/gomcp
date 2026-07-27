@@ -50,21 +50,21 @@ func (w *Workspace) trimSpecName(owner *Package, sym *Symbol, spec *ast.ValueSpe
 		return nil, false
 	}
 	if len(spec.Values) > 0 && len(spec.Values) < len(spec.Names) {
-		sp, ok := offsetSpan(w, owner, file, spec.Names[idx].Pos(), spec.Names[idx].End())
+		sp, ok := w.offsetSpan(owner, file, spec.Names[idx].Pos(), spec.Names[idx].End())
 		if !ok {
 			return nil, false
 		}
 		return []Splice{{Path: sym.File, Start: sp.start, End: sp.end, Repl: []byte("_")}}, true
 	}
 	nameStart, nameEnd := trimRange(spec.Names, idx)
-	sp, ok := offsetSpan(w, owner, file, nameStart, nameEnd)
+	sp, ok := w.offsetSpan(owner, file, nameStart, nameEnd)
 	if !ok {
 		return nil, false
 	}
 	splices := []Splice{{Path: sym.File, Start: sp.start, End: sp.end}}
 	if len(spec.Values) == len(spec.Names) {
 		valStart, valEnd := trimRange(spec.Values, idx)
-		vsp, ok := offsetSpan(w, owner, file, valStart, valEnd)
+		vsp, ok := w.offsetSpan(owner, file, valStart, valEnd)
 		if !ok {
 			return nil, false
 		}
@@ -87,7 +87,7 @@ func (w *Workspace) ComputeDeletionSplices(pkg address.PkgPath, key string) (spl
 	if !ok {
 		return nil, false, nil
 	}
-	gen, grouped := GroupOf(sym)
+	gen, grouped := sym.GroupOf()
 	if !constPositionDependent(gen, grouped, sym) {
 		if spec, ok := sym.Spec().(*ast.ValueSpec); ok && len(spec.Names) > 1 {
 			if sp, ok := w.trimSpecName(owner, sym, spec, key); ok {

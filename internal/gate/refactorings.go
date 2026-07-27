@@ -327,7 +327,7 @@ func (tx *Tx) renameSymbol(pkg address.PkgPath, key, newName string) error {
 	}
 
 	edits := make(map[address.FilePath][]splice)
-	def := workspace.DefiningIdent(sym)
+	def := sym.DefiningIdent()
 	if sp, ok := tx.offsetSpan(sym.File, def.Pos(), def.End()); ok {
 		edits[sym.File] = append(edits[sym.File], splice{span: sp, repl: []byte(newName)})
 	}
@@ -391,7 +391,7 @@ func (tx *Tx) relocateDeclaration(srcPkg, destPkg address.PkgPath, key string, d
 	if strings.HasSuffix(destPath.String(), "_test.go") != strings.HasSuffix(sym.File.String(), "_test.go") {
 		return fmt.Errorf("moving %q from %q to %q would cross the test build boundary", key, sym.File, destPath)
 	}
-	srcIsXTest := isXTestOwner(tx.ws, srcPkg, owner)
+	srcIsXTest := tx.isXTestOwner(srcPkg, owner)
 	src, extractSplice, err := tx.ws.ExtractDeclaration(srcPkg, key)
 	if err != nil {
 		return err
