@@ -100,7 +100,11 @@ func (tx *Tx) CreateSymbol(pkg address.PkgPath, fileName, src string) error {
 			if err != nil {
 				return err
 			}
-			return tx.installFile(pkg, false, path, applySplices(file.Src(), []splice{{span: span{start: at, end: at}, repl: []byte("\n" + specs + "\n")}}))
+			sp, ok := tx.ws.NewSpliceAtOffset(p, path, at, at, []byte("\n"+specs+"\n"))
+			if !ok {
+				return fmt.Errorf("cannot locate insertion point in %q", path)
+			}
+			return tx.installFile(pkg, false, path, workspace.ApplySplices(file.Src(), []workspace.Splice{sp}))
 		}
 	}
 
@@ -115,5 +119,9 @@ func (tx *Tx) CreateSymbol(pkg address.PkgPath, fileName, src string) error {
 			}
 		}
 	}
-	return tx.installFile(pkg, false, path, applySplices(file.Src(), []splice{{span: span{start: at, end: at}, repl: []byte("\n\n" + src + "\n")}}))
+	sp, ok := tx.ws.NewSpliceAtOffset(p, path, at, at, []byte("\n\n"+src+"\n"))
+	if !ok {
+		return fmt.Errorf("cannot locate insertion point in %q", path)
+	}
+	return tx.installFile(pkg, false, path, workspace.ApplySplices(file.Src(), []workspace.Splice{sp}))
 }

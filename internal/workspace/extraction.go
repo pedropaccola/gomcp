@@ -109,7 +109,11 @@ func (w *Workspace) ExtractDeclaration(pkg address.PkgPath, key string) (string,
 		if !ok {
 			return "", Splice{}, fmt.Errorf("cannot locate %q in source", key)
 		}
-		return string(file.Src()[sp.start:sp.end]), Splice{Path: sym.File, Start: sp.start, End: sp.end}, nil
+		splice, ok := w.NewSpliceAtOffset(owner, sym.File, sp.start, sp.end, nil)
+		if !ok {
+			return "", Splice{}, fmt.Errorf("cannot locate %q in source", key)
+		}
+		return string(file.Src()[sp.start:sp.end]), splice, nil
 	}
 	sp, ok := w.specSpan(owner, sym)
 	if !ok {
@@ -120,7 +124,11 @@ func (w *Workspace) ExtractDeclaration(pkg address.PkgPath, key string) (string,
 		return "", Splice{}, fmt.Errorf("cannot locate %q in source", key)
 	}
 	doc := string(file.Src()[sp.start:body.start])
-	return doc + gen.Tok.String() + " " + string(file.Src()[body.start:body.end]), Splice{Path: sym.File, Start: sp.start, End: sp.end}, nil
+	splice, ok := w.NewSpliceAtOffset(owner, sym.File, sp.start, sp.end, nil)
+	if !ok {
+		return "", Splice{}, fmt.Errorf("cannot locate %q in source", key)
+	}
+	return doc + gen.Tok.String() + " " + string(file.Src()[body.start:body.end]), splice, nil
 }
 
 // PositionDependentGroupMembers returns every key that must move or

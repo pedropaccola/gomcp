@@ -37,7 +37,11 @@ func (w *Workspace) ComputeEditPlan(pkg address.PkgPath, key string) (wasPositio
 	if grouped {
 		tok = gen.Tok
 	}
-	return wasPositionDependent, tok, Splice{Path: sym.File, Start: sp.start, End: sp.end}, nil
+	target, ok = w.NewSpliceAtOffset(owner, sym.File, sp.start, sp.end, nil)
+	if !ok {
+		return wasPositionDependent, token.ILLEGAL, Splice{}, fmt.Errorf("cannot locate %q in source", key)
+	}
+	return wasPositionDependent, tok, target, nil
 }
 
 // DetectEditCollisions reports which of newKeys already exist elsewhere in

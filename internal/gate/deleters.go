@@ -83,9 +83,5 @@ func (tx *Tx) DeleteSymbol(pkg address.PkgPath, key string) error {
 	if !ok {
 		return fmt.Errorf("internal error: %q vanished while deleting %q", path, key)
 	}
-	esplices := make([]splice, len(splices))
-	for i, s := range splices {
-		esplices[i] = splice{span: span{start: s.Start, end: s.End}, repl: s.Repl}
-	}
-	return tx.installFile(pkg, tx.isXTestOwner(pkg, owner), path, applySplices(file.Src(), esplices))
+	return tx.installFile(pkg, tx.isXTestOwner(pkg, owner), path, workspace.ApplySplices(file.Src(), splices))
 }

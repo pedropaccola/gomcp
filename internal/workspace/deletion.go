@@ -45,30 +45,26 @@ func (w *Workspace) trimSpecName(owner *Package, sym *Symbol, spec *ast.ValueSpe
 	if !real {
 		return nil, false
 	}
-	file, ok := owner.File(sym.File)
-	if !ok {
-		return nil, false
-	}
 	if len(spec.Values) > 0 && len(spec.Values) < len(spec.Names) {
-		sp, ok := w.offsetSpan(owner, file, spec.Names[idx].Pos(), spec.Names[idx].End())
+		splice, ok := w.NewSpliceAtPos(owner, sym.File, spec.Names[idx].Pos(), spec.Names[idx].End(), []byte("_"))
 		if !ok {
 			return nil, false
 		}
-		return []Splice{{Path: sym.File, Start: sp.start, End: sp.end, Repl: []byte("_")}}, true
+		return []Splice{splice}, true
 	}
 	nameStart, nameEnd := trimRange(spec.Names, idx)
-	sp, ok := w.offsetSpan(owner, file, nameStart, nameEnd)
+	nameSplice, ok := w.NewSpliceAtPos(owner, sym.File, nameStart, nameEnd, nil)
 	if !ok {
 		return nil, false
 	}
-	splices := []Splice{{Path: sym.File, Start: sp.start, End: sp.end}}
+	splices := []Splice{nameSplice}
 	if len(spec.Values) == len(spec.Names) {
 		valStart, valEnd := trimRange(spec.Values, idx)
-		vsp, ok := w.offsetSpan(owner, file, valStart, valEnd)
+		valSplice, ok := w.NewSpliceAtPos(owner, sym.File, valStart, valEnd, nil)
 		if !ok {
 			return nil, false
 		}
-		splices = append(splices, Splice{Path: sym.File, Start: vsp.start, End: vsp.end})
+		splices = append(splices, valSplice)
 	}
 	return splices, true
 }
@@ -102,5 +98,9 @@ func (w *Workspace) ComputeDeletionSplices(pkg address.PkgPath, key string) (spl
 	if !ok {
 		return nil, true, fmt.Errorf("cannot locate %q in source", key)
 	}
-	return []Splice{{Path: sym.File, Start: sp.start, End: sp.end}}, true, nil
+	splice, ok := w.NewSpliceAtOffset(owner, sym.File, sp.start, sp.end, nil)
+	if !ok {
+		return nil, true, fmt.Errorf("cannot locate %q in source", key)
+	}
+	return []Splice{splice}, true, nil
 }

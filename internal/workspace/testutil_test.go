@@ -6,8 +6,6 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
-	"slices"
-	"sort"
 	"testing"
 
 	"github.com/pedropaccola/gomcp/internal/address"
@@ -33,18 +31,6 @@ func simpleFixture(tb testing.TB, src string) *Workspace {
 		tb.Fatalf("fixture SwapFile: %v", err)
 	}
 	return w
-}
-
-// applyTestSplices applies Workspace's own Splice value objects to src in
-// descending offset order — the test-only mirror of gate's applySplices,
-// since workspace only computes splices, never applies them itself.
-func applyTestSplices(src []byte, splices []Splice) []byte {
-	sort.Slice(splices, func(i, j int) bool { return splices[i].Start > splices[j].Start })
-	out := slices.Clone(src)
-	for _, s := range splices {
-		out = slices.Concat(out[:s.Start], s.Repl, out[s.End:])
-	}
-	return out
 }
 
 // typesFixture builds a multi-package Workspace with real go/types

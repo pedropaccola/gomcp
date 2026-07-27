@@ -12,7 +12,7 @@ func TestDeletionSplicesSolo(t *testing.T) {
 		t.Fatalf("DeletionSplices(Foo) = %v, %v, %v", splices, found, err)
 	}
 	file, _, _ := w.resolveFile("test.mod/pkg", "test.mod/pkg/pkg.go")
-	out := applyTestSplices(file.Src(), splices)
+	out := ApplySplices(file.Src(), splices)
 	if strings.Contains(string(out), "Foo") {
 		t.Errorf("Foo survived deletion: %s", out)
 	}
@@ -37,7 +37,7 @@ func TestDeletionSplicesTrimsMultiNameSpec(t *testing.T) {
 		t.Fatalf("DeletionSplices(a) = %v, %v, %v", splices, found, err)
 	}
 	file, _, _ := w.resolveFile("test.mod/pkg", "test.mod/pkg/pkg.go")
-	out := string(applyTestSplices(file.Src(), splices))
+	out := string(ApplySplices(file.Src(), splices))
 	if !strings.Contains(out, "var b int") {
 		t.Errorf("a not trimmed to a standalone var b: %s", out)
 	}

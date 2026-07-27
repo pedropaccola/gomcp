@@ -1,10 +1,12 @@
 package workspace
 
 import (
+	"cmp"
 	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -22,10 +24,10 @@ type Splice struct {
 }
 
 // span is a byte-offset range [start, end) into a file's canonical Src —
-// workspace's own version of the same idea gate keeps privately
-// (gate.span), each shaped around what its own package already has in
-// hand (a resolved *Package/*File here, a bare path there) rather than a
-// shared type forced across the boundary for a two-field struct.
+// the internal coordinate offsetSpan produces, immediately turned into
+// either extracted text or a Splice. gate no longer keeps its own copy:
+// View.offsetSpan/Tx.leadingDocWord return the raw (start, end int)
+// pair directly, and every mutation-facing edit is a Splice.
 type span struct{ start, end int }
 
 // keyOf computes obj's ObjectKey, or ok=false when obj carries no
@@ -374,21 +376,21 @@ func (w *Workspace) ComputeQualifierFixups(srcPkg, destPkg address.PkgPath, movi
 		case inboundTargets[key] && !moving:
 			if pkg.PkgPath == destPkg {
 				if qualifier != nil {
-					if sp, ok := w.offsetSpan(pkg, file, qualifier.Pos(), name.End()); ok {
-						edits = append(edits, Splice{Path: file.Path, Start: sp.start, End: sp.end, Repl: []byte(name.Name)})
+					if sp, ok := w.NewSpliceAtPos(pkg, file.Path, qualifier.Pos(), name.End(), []byte(name.Name)); ok {
+						edits = append(edits, sp)
 					}
 				}
 			} else if qualifier != nil {
-				if sp, ok := w.offsetSpan(pkg, file, qualifier.Pos(), qualifier.End()); ok {
-					edits = append(edits, Splice{Path: file.Path, Start: sp.start, End: sp.end, Repl: []byte(destOwner.Name)})
+				if sp, ok := w.NewSpliceAtPos(pkg, file.Path, qualifier.Pos(), qualifier.End(), []byte(destOwner.Name)); ok {
+					edits = append(edits, sp)
 				}
-			} else if sp, ok := w.offsetSpan(pkg, file, name.Pos(), name.End()); ok {
-				edits = append(edits, Splice{Path: file.Path, Start: sp.start, End: sp.end, Repl: []byte(destOwner.Name + "." + name.Name)})
+			} else if sp, ok := w.NewSpliceAtPos(pkg, file.Path, name.Pos(), name.End(), []byte(destOwner.Name+"."+name.Name)); ok {
+				edits = append(edits, sp)
 			}
 		case moving && qualifier == nil && obj.Pkg() != nil && obj.Pkg().Path() == string(srcPkg) &&
 			obj.Exported() && !movingObjKeys[key]:
-			if sp, ok := w.offsetSpan(pkg, file, name.Pos(), name.End()); ok {
-				edits = append(edits, Splice{Path: file.Path, Start: sp.start, End: sp.end, Repl: []byte(srcOwner.Name + "." + name.Name)})
+			if sp, ok := w.NewSpliceAtPos(pkg, file.Path, name.Pos(), name.End(), []byte(srcOwner.Name+"."+name.Name)); ok {
+				edits = append(edits, sp)
 			}
 		}
 	}
@@ -451,8 +453,8 @@ func (w *Workspace) ComputeRenameSplices(pkg address.PkgPath, key, newName strin
 			if !ok {
 				continue
 			}
-			if sp, ok := w.offsetSpan(p, file, ident.Pos(), ident.End()); ok {
-				edits = append(edits, Splice{Path: file.Path, Start: sp.start, End: sp.end, Repl: []byte(newName)})
+			if sp, ok := w.NewSpliceAtPos(p, file.Path, ident.Pos(), ident.End(), []byte(newName)); ok {
+				edits = append(edits, sp)
 			}
 		}
 	}
@@ -481,8 +483,8 @@ func (w *Workspace) ComputePackageMoveSplices(oldPkg, newPkg address.PkgPath, re
 				if imp.Path.Value != strconv.Quote(oldImport) {
 					continue
 				}
-				if sp, ok := w.offsetSpan(pkg, file, imp.Path.Pos(), imp.Path.End()); ok {
-					edits = append(edits, Splice{Path: file.Path, Start: sp.start, End: sp.end, Repl: []byte(strconv.Quote(newImport))})
+				if sp, ok := w.NewSpliceAtPos(pkg, file.Path, imp.Path.Pos(), imp.Path.End(), []byte(strconv.Quote(newImport))); ok {
+					edits = append(edits, sp)
 				}
 			}
 		}
@@ -499,8 +501,8 @@ func (w *Workspace) ComputePackageMoveSplices(oldPkg, newPkg address.PkgPath, re
 				if !ok {
 					continue
 				}
-				if sp, ok := w.offsetSpan(pkg, file, ident.Pos(), ident.End()); ok {
-					edits = append(edits, Splice{Path: file.Path, Start: sp.start, End: sp.end, Repl: []byte(newBase)})
+				if sp, ok := w.NewSpliceAtPos(pkg, file.Path, ident.Pos(), ident.End(), []byte(newBase)); ok {
+					edits = append(edits, sp)
 				}
 			}
 		}
@@ -548,6 +550,41 @@ func (w *Workspace) offsetSpan(owner *Package, file *File, from, to token.Pos) (
 		return span{}, false
 	}
 	return span{start: start, end: end}, true
+}
+
+// NewSpliceAtPos narrows a token.Pos range within pkg's path into a Splice
+// replacing that range with repl, resolving it through NewSpliceAtOffset —
+// ok=false when the range doesn't resolve to a valid, in-bounds byte
+// span.
+func (w *Workspace) NewSpliceAtPos(pkg *Package, path address.FilePath, from, to token.Pos, repl []byte) (Splice, bool) {
+	file, ok := pkg.File(path)
+	if !ok {
+		return Splice{}, false
+	}
+	sp, ok := w.offsetSpan(pkg, file, from, to)
+	if !ok {
+		return Splice{}, false
+	}
+	return w.NewSpliceAtOffset(pkg, path, sp.start, sp.end, repl)
+}
+
+// NewSpliceAtOffset validates a pre-resolved byte range [start, end) against
+// pkg's path and returns the Splice replacing it with repl — ok=false
+// when the range isn't 0 <= start <= end <= len(src). The one place a
+// byte range is checked before becoming an edit: NewSpliceAtPos funnels
+// through this once it has resolved a token.Pos range to offsets, and a
+// caller that already holds a resolved offset (an insertion point from
+// InsertOffset, an extraction span from ExtractDeclaration) uses it
+// directly instead of hand-building a Splice.
+func (w *Workspace) NewSpliceAtOffset(pkg *Package, path address.FilePath, start, end int, repl []byte) (Splice, bool) {
+	file, ok := pkg.File(path)
+	if !ok {
+		return Splice{}, false
+	}
+	if start < 0 || end > len(file.Src()) || start > end {
+		return Splice{}, false
+	}
+	return Splice{Path: path, Start: start, End: end, Repl: repl}, true
 }
 
 // symbolRef pairs a referencing symbol with its owning package — the
@@ -661,4 +698,18 @@ func (s *Symbol) DefiningIdent() *ast.Ident {
 		}
 	}
 	return nil
+}
+
+// ApplySplices applies every splice to src in descending offset order so
+// earlier spans stay valid — workspace's own mutation primitive for byte
+// content, the counterpart to its ComputeXSplices family of pure plans.
+// Path is not consulted: every splice in one call is assumed to target
+// the same src: a caller spanning several files groups by Path first.
+func ApplySplices(src []byte, splices []Splice) []byte {
+	slices.SortFunc(splices, func(a, b Splice) int { return cmp.Compare(b.Start, a.Start) })
+	out := slices.Clone(src)
+	for _, s := range splices {
+		out = slices.Concat(out[:s.Start], s.Repl, out[s.End:])
+	}
+	return out
 }

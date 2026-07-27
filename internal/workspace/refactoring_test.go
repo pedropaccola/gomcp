@@ -129,7 +129,7 @@ func TestQualifierFixupsInboundRepointsExternalQualifier(t *testing.T) {
 		}
 		found = true
 		src := []byte("package use\n\nimport \"mvsrc\"\n\nfunc Bar() int { return mvsrc.Foo() }\n")
-		got := string(applyTestSplices(src, []Splice{e}))
+		got := string(ApplySplices(src, []Splice{e}))
 		if !strings.Contains(got, "dest.Foo()") {
 			t.Errorf("applied splice = %q, want it to repoint the qualifier to dest.Foo()", got)
 		}
@@ -152,7 +152,7 @@ func TestQualifierFixupsOutboundQualifiesStayingSibling(t *testing.T) {
 		t.Fatalf("QualifierFixups = %+v, want exactly one outbound splice", edits)
 	}
 	src := []byte("package mvsrc\n\nfunc Stay() int { return 1 }\n\nfunc Moving() int { return Stay() }\n")
-	got := string(applyTestSplices(src, edits))
+	got := string(ApplySplices(src, edits))
 	if !strings.Contains(got, "mvsrc.Stay()") {
 		t.Errorf("applied splice = %q, want Moving's own reference to Stay qualified as mvsrc.Stay()", got)
 	}
@@ -178,7 +178,7 @@ func TestRenameSplicesRewritesExternalReferences(t *testing.T) {
 		t.Fatalf("RenameSplices = %+v, want exactly one splice in use/file.go", edits)
 	}
 	src := []byte("package use\n\nimport \"mvsrc\"\n\nfunc Bar() int { return mvsrc.Foo() }\n")
-	got := string(applyTestSplices(src, edits))
+	got := string(ApplySplices(src, edits))
 	if !strings.Contains(got, "mvsrc.Baz()") {
 		t.Errorf("applied splice = %q, want mvsrc.Baz()", got)
 	}
@@ -194,7 +194,7 @@ func TestPackageMoveSplicesRewritesImportAndQualifier(t *testing.T) {
 		t.Fatalf("PackageMoveSplices = %+v, want an import-path splice and a qualifier splice", edits)
 	}
 	src := []byte("package use\n\nimport \"mvsrc\"\n\nfunc Bar() int { return mvsrc.Foo() }\n")
-	got := string(applyTestSplices(src, edits))
+	got := string(ApplySplices(src, edits))
 	if !strings.Contains(got, `import "dest"`) || !strings.Contains(got, "dest.Foo()") {
 		t.Errorf("applied splices = %q, want import path and qualifier both rewritten to dest", got)
 	}

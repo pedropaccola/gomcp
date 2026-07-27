@@ -78,7 +78,7 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 			return ferr
 		}
 		if len(fixups) > 0 {
-			if err := tx.applyFileSplices(toSplices(fixups)); err != nil {
+			if err := tx.applyFileSplices(fixups); err != nil {
 				return err
 			}
 			// applyFileSplices may have forked owner's or destOwner's
@@ -100,8 +100,8 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 		}
 		file, _ := owner.File(path)
 		candidate := file.Src()
-		if sp, ok := tx.offsetSpan(path, file.Ast().Name.Pos(), file.Ast().Name.End()); ok {
-			candidate = applySplices(candidate, []splice{{span: sp, repl: []byte(destOwner.Name)}})
+		if sp, ok := tx.ws.NewSpliceAtPos(owner, path, file.Ast().Name.Pos(), file.Ast().Name.End(), []byte(destOwner.Name)); ok {
+			candidate = workspace.ApplySplices(candidate, []workspace.Splice{sp})
 		}
 		tx.ws.DropFile(pkg, isXTest, path)
 		tx.touch(path)
@@ -138,7 +138,7 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 	}
 
 	edits := tx.ws.ComputePackageMoveSplices(oldPkg, newPkg, renameName, oldBase, newBase)
-	if err := tx.applyFileSplices(toSplices(edits)); err != nil {
+	if err := tx.applyFileSplices(edits); err != nil {
 		return err
 	}
 	// applyFileSplices may have forked unit.XTest's package (it imports
@@ -183,16 +183,18 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 			tx.touch(file.Path, newPath)
 			candidate := file.Src()
 			if renameName {
-				var fileSplices []splice
-				if sp, ok := tx.offsetSpan(file.Path, file.Ast().Name.Pos(), file.Ast().Name.End()); ok {
-					fileSplices = append(fileSplices, splice{span: sp, repl: []byte(h.moved.Name)})
+				var fileSplices []workspace.Splice
+				if sp, ok := tx.ws.NewSpliceAtPos(h.orig, file.Path, file.Ast().Name.Pos(), file.Ast().Name.End(), []byte(h.moved.Name)); ok {
+					fileSplices = append(fileSplices, sp)
 				} else {
 					return fmt.Errorf("cannot locate package clause of %q", file.Path)
 				}
-				if sp, ok := tx.leadingDocWord(file.Path, file.Ast().Doc, "Package ", oldBase); ok {
-					fileSplices = append(fileSplices, splice{span: sp, repl: []byte(newBase)})
+				if from, to, ok := leadingDocWord(file.Ast().Doc, "Package ", oldBase); ok {
+					if sp, ok := tx.ws.NewSpliceAtPos(h.orig, file.Path, from, to, []byte(newBase)); ok {
+						fileSplices = append(fileSplices, sp)
+					}
 				}
-				candidate = applySplices(file.Src(), fileSplices)
+				candidate = workspace.ApplySplices(file.Src(), fileSplices)
 			}
 			if err := tx.installFile(newPkg, isXTest, newPath, candidate); err != nil {
 				return err
@@ -326,21 +328,21 @@ func (tx *Tx) renameSymbol(pkg address.PkgPath, key, newName string) error {
 		return fmt.Errorf("symbol %q already exists in %q", newKey, pkg)
 	}
 
-	edits := make(map[address.FilePath][]splice)
+	var edits []workspace.Splice
 	def := sym.DefiningIdent()
-	if sp, ok := tx.offsetSpan(sym.File, def.Pos(), def.End()); ok {
-		edits[sym.File] = append(edits[sym.File], splice{span: sp, repl: []byte(newName)})
+	if sp, ok := tx.ws.NewSpliceAtPos(owner, sym.File, def.Pos(), def.End(), []byte(newName)); ok {
+		edits = append(edits, sp)
 	}
-	if sp, ok := tx.leadingDocWord(sym.File, symbolDoc(sym), "", sym.Name); ok {
-		edits[sym.File] = append(edits[sym.File], splice{span: sp, repl: []byte(newName)})
+	if from, to, ok := leadingDocWord(symbolDoc(sym), "", sym.Name); ok {
+		if sp, ok := tx.ws.NewSpliceAtPos(owner, sym.File, from, to, []byte(newName)); ok {
+			edits = append(edits, sp)
+		}
 	}
 	uses, err := tx.ws.ComputeRenameSplices(pkg, key, newName)
 	if err != nil {
 		return err
 	}
-	for path, splices := range toSplices(uses) {
-		edits[path] = append(edits[path], splices...)
-	}
+	edits = append(edits, uses...)
 	return tx.applyFileSplices(edits)
 }
 
@@ -360,7 +362,7 @@ func (tx *Tx) applyQualifierFixups(srcPkg, destPkg address.PkgPath, movingKeys [
 	if len(fixups) == 0 {
 		return nil
 	}
-	return tx.applyFileSplices(toSplices(fixups))
+	return tx.applyFileSplices(fixups)
 }
 
 // relocateDeclaration extracts key's own declaration from srcPkg and
@@ -405,13 +407,13 @@ func (tx *Tx) relocateDeclaration(srcPkg, destPkg address.PkgPath, key string, d
 		return fmt.Errorf("file %q belongs to another package", destPath)
 	}
 	file, _ := owner.File(sym.File)
-	if err := tx.installFile(srcPkg, srcIsXTest, sym.File, applySplices(file.Src(), []splice{{span: span{start: extractSplice.Start, end: extractSplice.End}}})); err != nil {
+	if err := tx.installFile(srcPkg, srcIsXTest, sym.File, workspace.ApplySplices(file.Src(), []workspace.Splice{extractSplice})); err != nil {
 		return err
 	}
 	if !inDest {
 		return tx.installFile(destPkg, false, destPath, []byte("package "+destOwner.Name+"\n\n"+src+"\n"))
 	}
-	dest, _, ok = tx.resolveFileByPath(destPath)
+	dest, destOwner, ok = tx.resolveFileByPath(destPath)
 	if !ok {
 		return fmt.Errorf("internal error: %q vanished after relocation", destPath)
 	}
@@ -419,7 +421,11 @@ func (tx *Tx) relocateDeclaration(srcPkg, destPkg address.PkgPath, key string, d
 	if !ok {
 		return fmt.Errorf("cannot locate insertion point in %q", destPath)
 	}
-	return tx.installFile(destPkg, false, destPath, applySplices(dest.Src(), []splice{{span: span{start: at, end: at}, repl: []byte("\n\n" + src + "\n")}}))
+	sp, ok := tx.ws.NewSpliceAtOffset(destOwner, destPath, at, at, []byte("\n\n"+src+"\n"))
+	if !ok {
+		return fmt.Errorf("cannot locate insertion point in %q", destPath)
+	}
+	return tx.installFile(destPkg, false, destPath, workspace.ApplySplices(dest.Src(), []workspace.Splice{sp}))
 }
 
 // MoveSymbolGroup relocates several symbols from pkg to the same

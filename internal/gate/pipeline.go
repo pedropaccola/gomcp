@@ -16,19 +16,23 @@ import (
 	"golang.org/x/tools/imports"
 )
 
-// applyFileSplices applies per-file splice batches and reloads each touched
-// file, deduplicating overlapping gathers.
-func (tx *Tx) applyFileSplices(splices map[address.FilePath][]splice) error {
-	for _, path := range sortedKeys(splices) {
+// applyFileSplices groups splices by file and installs each file's result,
+// deduplicating overlapping gathers.
+func (tx *Tx) applyFileSplices(splices []workspace.Splice) error {
+	byPath := make(map[address.FilePath][]workspace.Splice)
+	for _, s := range splices {
+		byPath[s.Path] = append(byPath[s.Path], s)
+	}
+	for _, path := range sortedKeys(byPath) {
 		file, owner, ok := tx.resolveFileByPath(path)
 		if !ok {
 			return fmt.Errorf("cannot resolve %q while applying splices", path)
 		}
-		batch := splices[path]
-		slices.SortFunc(batch, func(a, b splice) int { return cmp.Compare(a.start, b.start) })
-		batch = slices.CompactFunc(batch, func(a, b splice) bool { return a.span == b.span })
+		batch := byPath[path]
+		slices.SortFunc(batch, func(a, b workspace.Splice) int { return cmp.Compare(a.Start, b.Start) })
+		batch = slices.CompactFunc(batch, func(a, b workspace.Splice) bool { return a.Start == b.Start && a.End == b.End })
 		addr := address.PkgPath(filepath.Dir(string(path)))
-		if err := tx.installFile(addr, tx.isXTestOwner(addr, owner), path, applySplices(file.Src(), batch)); err != nil {
+		if err := tx.installFile(addr, tx.isXTestOwner(addr, owner), path, workspace.ApplySplices(file.Src(), batch)); err != nil {
 			return err
 		}
 	}
@@ -112,15 +116,16 @@ func (tx *Tx) RepairMissingImports() bool {
 		if !ok {
 			continue
 		}
-		sp, ok := tx.offsetSpan(filePath, file.Ast().Name.Pos(), file.Ast().Name.End())
-		if !ok {
-			continue
-		}
 		var repl strings.Builder
 		for _, path := range sortedKeys(needed[filePath]) {
 			fmt.Fprintf(&repl, "\n\nimport %q", path)
 		}
-		candidate := applySplices(file.Src(), []splice{{span: span{start: sp.end, end: sp.end}, repl: []byte(repl.String())}})
+		insertAt := file.Ast().Name.End()
+		sp, ok := tx.ws.NewSpliceAtPos(owner, filePath, insertAt, insertAt, []byte(repl.String()))
+		if !ok {
+			continue
+		}
+		candidate := workspace.ApplySplices(file.Src(), []workspace.Splice{sp})
 		addr := address.PkgPath(filepath.Dir(string(filePath)))
 		if err := tx.installFile(addr, tx.isXTestOwner(addr, owner), filePath, candidate); err != nil {
 			continue // repair is best-effort; the diagnostic stays visible
@@ -128,23 +133,6 @@ func (tx *Tx) RepairMissingImports() bool {
 		repaired = true
 	}
 	return repaired
-}
-
-// splice is one byte-span edit: replace span with repl (nil deletes).
-type splice struct {
-	span
-	repl []byte
-}
-
-// applySplices applies every splice to src in descending offset order so
-// earlier spans stay valid.
-func applySplices(src []byte, splices []splice) []byte {
-	slices.SortFunc(splices, func(a, b splice) int { return cmp.Compare(b.start, a.start) })
-	out := slices.Clone(src)
-	for _, s := range splices {
-		out = slices.Concat(out[:s.start], s.repl, out[s.end:])
-	}
-	return out
 }
 
 // importsPath reports whether the file already imports path, so the import
@@ -175,16 +163,6 @@ func renderDocComment(doc string) []byte {
 		}
 	}
 	return []byte(b.String())
-}
-
-// toSplices translates workspace's boundary-safe Splice value objects into
-// gate's own per-file batch shape, the form applyFileSplices expects.
-func toSplices(ws []workspace.Splice) map[address.FilePath][]splice {
-	out := make(map[address.FilePath][]splice, len(ws))
-	for _, s := range ws {
-		out[s.Path] = append(out[s.Path], splice{span: span{start: s.Start, end: s.End}, repl: s.Repl})
-	}
-	return out
 }
 
 // isXTestOwner reports whether owner is pkg's external test package

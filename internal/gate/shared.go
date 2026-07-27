@@ -8,60 +8,39 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 // leadingDocWord locates "prefix"+"want" at the very start of doc's first
-// line (right after the "// " comment marker) and returns the span of
-// just the "want" text, ok=false when the comment doesn't open with
+// line (right after the "// " comment marker) and returns the token.Pos
+// span of just the "want" text, ok=false when the comment doesn't open with
 // exactly that shape. This is what makes a doc-comment rewrite safe to
 // automate: it only ever matches Go's own doc-comment conventions (a
 // symbol's doc opens with its bare name; a package's doc opens with
 // "Package name"), never prose that merely happens to mention the same
-// word.
-func (tx *Tx) leadingDocWord(file address.FilePath, doc *ast.CommentGroup, prefix, want string) (span, bool) {
+// word. Pure AST work — callers turn the returned span into a Splice via
+// Workspace.NewSpliceAtPos.
+func leadingDocWord(doc *ast.CommentGroup, prefix, want string) (from, to token.Pos, ok bool) {
 	if doc == nil || len(doc.List) == 0 {
-		return span{}, false
+		return 0, 0, false
 	}
 	first := doc.List[0]
 	body := strings.TrimPrefix(strings.TrimPrefix(first.Text, "//"), " ")
 	bodyOffset := len(first.Text) - len(body)
 	if !strings.HasPrefix(body, prefix+want) {
-		return span{}, false
+		return 0, 0, false
 	}
 	if rest := body[len(prefix+want):]; rest != "" {
 		switch rest[0] {
 		case ' ', '.', ',', ':', '\'':
 		default:
-			return span{}, false
+			return 0, 0, false
 		}
 	}
-	start := first.Pos() + token.Pos(bodyOffset+len(prefix))
-	end := start + token.Pos(len(want))
-	return tx.offsetSpan(file, start, end)
+	from = first.Pos() + token.Pos(bodyOffset+len(prefix))
+	to = from + token.Pos(len(want))
+	return from, to, true
 }
-
-// offsetSpan converts a position range into byte offsets in the file's Src —
-// the primitive under both source extraction and mutation splicing. Valid
-// because Ast is by invariant a parse of exactly Src. Positions resolve in
-// the owner's FileSet, so dependency files extract like workspace ones.
-func (v *View) offsetSpan(path address.FilePath, from, to token.Pos) (span, bool) {
-	file, owner, ok := v.resolveFileByPath(path)
-	if !ok || !from.IsValid() || !to.IsValid() {
-		return span{}, false
-	}
-	fset := v.fsetOf(owner)
-	start := fset.Position(from).Offset
-	end := fset.Position(to).Offset
-	if start < 0 || end > len(file.Src()) || start > end {
-		return span{}, false
-	}
-	return span{start: start, end: end}, true
-}
-
-// span is a byte-offset range [start, end) into a file's canonical Src.
-type span struct{ start, end int }
 
 // sortedKeys is the deterministic way to walk any map (invariant 6).
 func sortedKeys[K cmp.Ordered, V any](m map[K]V) []K {

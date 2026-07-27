@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/pedropaccola/gomcp/internal/address"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 // EditFile replaces or clears a file's package doc comment — the comment
@@ -30,11 +31,11 @@ func (tx *Tx) EditFile(pkg address.PkgPath, name, doc string) error {
 	if astFile.Doc != nil {
 		docPos = astFile.Doc.Pos()
 	}
-	docSpan, ok := tx.offsetSpan(path, docPos, docEnd)
+	sp, ok := tx.ws.NewSpliceAtPos(p, path, docPos, docEnd, renderDocComment(doc))
 	if !ok {
 		return fmt.Errorf("cannot locate doc comment span in %q", path)
 	}
-	candidate := applySplices(file.Src(), []splice{{span: docSpan, repl: renderDocComment(doc)}})
+	candidate := workspace.ApplySplices(file.Src(), []workspace.Splice{sp})
 	return tx.installFile(pkg, false, path, candidate)
 }
 
@@ -84,5 +85,6 @@ func (tx *Tx) EditSymbol(pkg address.PkgPath, key, src string) error {
 	if !ok {
 		return fmt.Errorf("internal error: %q vanished while editing %q", target.Path, key)
 	}
-	return tx.installFile(pkg, tx.isXTestOwner(pkg, owner), target.Path, applySplices(file.Src(), []splice{{span: span{start: target.Start, end: target.End}, repl: []byte(replacement)}}))
+	target.Repl = []byte(replacement)
+	return tx.installFile(pkg, tx.isXTestOwner(pkg, owner), target.Path, workspace.ApplySplices(file.Src(), []workspace.Splice{target}))
 }
