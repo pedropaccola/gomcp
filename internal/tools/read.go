@@ -21,7 +21,7 @@ func readPackage(ctx context.Context, eng *engine.Engine, addr string, fn func(*
 	attempt := func() (bool, error) {
 		found := false
 		err := eng.Read(ctx, func(v *gate.View) error {
-			canon, err := canonPkg(v.Module(), addr)
+			canon, err := canonicalizePkg(v.Module(), addr)
 			if err != nil {
 				return err
 			}

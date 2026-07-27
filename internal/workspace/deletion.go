@@ -73,7 +73,7 @@ func (w *Workspace) trimSpecName(owner *Package, sym *Symbol, spec *ast.ValueSpe
 	return splices, true
 }
 
-// DeletionSplices computes the splices removing key's declaration — its
+// ComputeDeletionSplices computes the splices removing key's declaration — its
 // spec alone when it lives in a grouped declaration with siblings,
 // unless its value is derived from its position (iota, or inheriting the
 // previous spec's expression), in which case the whole group is removed
@@ -81,8 +81,8 @@ func (w *Workspace) trimSpecName(owner *Package, sym *Symbol, spec *ast.ValueSpe
 // it instead of taking the others down with it (trimSpecName). found
 // false means key doesn't exist — deletion is idempotent, a caller should
 // treat that as success, not an error. Aggregate-owned analysis, same
-// rationale as MoveConflicts: key is resolved fresh here.
-func (w *Workspace) DeletionSplices(pkg address.PkgPath, key string) (splices []Splice, found bool, err error) {
+// rationale as DetectMoveConflicts: key is resolved fresh here.
+func (w *Workspace) ComputeDeletionSplices(pkg address.PkgPath, key string) (splices []Splice, found bool, err error) {
 	sym, owner, ok := w.resolveSymbol(pkg, key)
 	if !ok {
 		return nil, false, nil

@@ -100,8 +100,9 @@ func TestTxMoveSymbolGroupRefusesSingleKey(t *testing.T) {
 // TestTxMoveSymbolGroupCollapsesSameGroupToOneExtraction proves the fix:
 // a batch naming two members of the same position-dependent const group
 // (A and B, not C) must not error trying to re-resolve B after A's own
-// ExtractDecl already pulled the whole group's text — and the unnamed
-// sibling C must still move along, since the group can't be split.
+// ExtractDeclaration already pulled the whole group's text — and the
+// unnamed sibling C must still move along, since the group can't be
+// split.
 func TestTxMoveSymbolGroupCollapsesSameGroupToOneExtraction(t *testing.T) {
 	view := gateTypesFixture(t, map[string]string{
 		"src":  "package src\n\nconst (\n\tA = iota\n\tB\n\tC\n)\n",

@@ -55,7 +55,7 @@ func deleteSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Delete
 		n := len(in.Deletes)
 		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
 			for i, entry := range in.Deletes {
-				pkg, err := packageArg(tx.View, entry.PkgPath)
+				pkg, err := writeWorkspacePkg(tx.View, entry.PkgPath)
 				if err != nil {
 					return batchErr("deletes", i, n, err)
 				}
@@ -76,11 +76,11 @@ func deleteFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[DeleteFi
 		n := len(in.Deletes)
 		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
 			for i, entry := range in.Deletes {
-				pkg, err := packageArg(tx.View, entry.PkgPath)
+				pkg, err := writeWorkspacePkg(tx.View, entry.PkgPath)
 				if err != nil {
 					return batchErr("deletes", i, n, err)
 				}
-				file, err := fileArg(tx.Module(), pkg, entry.FileName)
+				file, err := canonicalizeFile(tx.Module(), pkg, entry.FileName)
 				if err != nil {
 					return batchErr("deletes", i, n, err)
 				}
@@ -101,7 +101,7 @@ func deletePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Delet
 		n := len(in.Deletes)
 		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
 			for i, entry := range in.Deletes {
-				pkg, err := packageArg(tx.View, entry.PkgPath)
+				pkg, err := writeWorkspacePkg(tx.View, entry.PkgPath)
 				if err != nil {
 					return batchErr("deletes", i, n, err)
 				}

@@ -58,11 +58,11 @@ func (v *View) pkgAt(dir address.RelativePath) address.PkgPath {
 	return address.PkgPath(string(v.ws.Module()) + "/" + string(dir))
 }
 
-// resolveFile resolves a file path to the file and its owning package, in
+// resolveFileByPath resolves a file path to the file and its owning package, in
 // the workspace's own model types, checking the production package before
 // the external test package. Dependency files resolve through their
 // import-path-qualified pseudo-paths.
-func (v *View) resolveFile(path address.RelativePath) (*workspace.File, *workspace.Package, bool) {
+func (v *View) resolveFileByPath(path address.RelativePath) (*workspace.File, *workspace.Package, bool) {
 	path = path.Clean()
 	if unit, ok := v.ws.Unit(v.pkgAt(path.Dir())); ok {
 		for _, pkg := range []*workspace.Package{unit.Prod(), unit.XTest()} {

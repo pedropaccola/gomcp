@@ -24,7 +24,7 @@ func TestRecheckScopeIsTransitive(t *testing.T) {
 	mustSwap("test.mod/c", "c", "package c\n\nimport \"test.mod/b\"\n\nvar _ = b.Y\n")
 	mustSwap("test.mod/d", "d", "package d\n") // unrelated
 
-	scope := w.RecheckScope(map[address.PkgPath]bool{"test.mod/a": true})
+	scope := w.ComputeRecheckScope(map[address.PkgPath]bool{"test.mod/a": true})
 	for _, want := range []address.PkgPath{"test.mod/a", "test.mod/b", "test.mod/c"} {
 		if !scope[want] {
 			t.Errorf("scope missing %q, want transitive closure through b->c, got %v", want, scope)
@@ -43,7 +43,7 @@ func TestRecheckScopeIgnoresExternalImports(t *testing.T) {
 		t.Fatalf("SwapFile: %v", err)
 	}
 
-	scope := w.RecheckScope(map[address.PkgPath]bool{"test.mod/a": true})
+	scope := w.ComputeRecheckScope(map[address.PkgPath]bool{"test.mod/a": true})
 	if len(scope) != 1 || !scope["test.mod/a"] {
 		t.Errorf("scope = %v, want exactly {test.mod/a}", scope)
 	}

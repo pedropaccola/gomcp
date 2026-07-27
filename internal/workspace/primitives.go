@@ -155,11 +155,11 @@ func (w *Workspace) MarkFlushed(addr address.PkgPath, isXTest bool, path address
 	w.ensurePackageForked(addr, isXTest).MarkFlushed(path)
 }
 
-// PruneFile removes path from a freshly loaded unit map — the load-path
+// DropTombstonedFile removes path from a freshly loaded unit map — the load-path
 // counterpart of DropFile: overlays can only mask a deleted file as empty,
 // so the mask's residue must not survive as a real file. Emptied packages
 // and units are pruned the way pruneEmptyUnit prunes installed ones.
-func PruneFile(units map[address.PkgPath]*Unit, pkg address.PkgPath, path address.RelativePath) {
+func DropTombstonedFile(units map[address.PkgPath]*Unit, pkg address.PkgPath, path address.RelativePath) {
 	unit, ok := units[pkg]
 	if !ok {
 		return
@@ -178,7 +178,7 @@ func PruneFile(units map[address.PkgPath]*Unit, pkg address.PkgPath, path addres
 
 // pruneIfEmpty drops unit's Prod/XTest once each is out of files, and
 // removes it from units entirely once both are gone. Shared by
-// pruneEmptyUnit (an installed workspace) and PruneFile (a freshly
+// pruneEmptyUnit (an installed workspace) and DropTombstonedFile (a freshly
 // loaded unit map, before installation).
 func pruneIfEmpty(units map[address.PkgPath]*Unit, pkg address.PkgPath, unit *Unit) {
 	if unit.prod != nil && len(unit.prod.files) == 0 {

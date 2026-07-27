@@ -43,7 +43,7 @@ func classifyFragment(astFile *ast.File) fragment {
 	return frag
 }
 
-// constVarSpecs parses src as a const or var declaration and returns each
+// constVarEntries parses src as a const or var declaration and returns each
 // spec's own source text (doc comment included, the group keyword and
 // parens stripped) joined together, plus the first spec's explicit type
 // name if it has one. Used only by CreateSymbol's placement decisions:
@@ -51,7 +51,7 @@ func classifyFragment(astFile *ast.File) fragment {
 // alone, and clustering a typed iota group next to its type needs the
 // type name — both need the parsed declaration itself, not just
 // classifyFragment's summary.
-func constVarSpecs(src string) (specs string, typeName string, err error) {
+func constVarEntries(src string) (specs string, typeName string, err error) {
 	wrapped := "package p\n\n" + src + "\n"
 	fset := token.NewFileSet()
 	astFile, err := parser.ParseFile(fset, "fragment.go", wrapped, parser.ParseComments|parser.SkipObjectResolution)

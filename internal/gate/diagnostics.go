@@ -58,7 +58,7 @@ func (v *View) attributeDiagnostics(ds []workspace.Diagnostic, fallback address.
 		if d.File != "" {
 			if p, k, ok := v.ws.AddressAtLine(d.File, d.Line); ok {
 				pkg, key = p, k
-			} else if _, owner, ok := v.resolveFile(d.File); ok {
+			} else if _, owner, ok := v.resolveFileByPath(d.File); ok {
 				pkg = owner.PkgPath
 			}
 		}

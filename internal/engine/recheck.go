@@ -64,7 +64,7 @@ func (e *Engine) recheckScopedLocked(ctx context.Context, ws *workspace.Workspac
 		}
 	}
 
-	scope := ws.RecheckScope(dirtyPkgs)
+	scope := ws.ComputeRecheckScope(dirtyPkgs)
 	if forceFull {
 		scope = make(map[address.PkgPath]bool, len(ws.UnitKeys()))
 		for _, addr := range ws.UnitKeys() {
@@ -125,7 +125,7 @@ func (e *Engine) recheckScopedLocked(ctx context.Context, ws *workspace.Workspac
 	}
 
 	for _, path := range ws.Tombstones() {
-		workspace.PruneFile(units, pkgAt(ws, path.Dir()), path)
+		workspace.DropTombstonedFile(units, pkgAt(ws, path.Dir()), path)
 	}
 	for path := range dirty {
 		if unit, ok := units[pkgAt(ws, path.Dir())]; ok {

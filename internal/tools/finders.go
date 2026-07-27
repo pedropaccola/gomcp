@@ -121,7 +121,7 @@ func searchReferences(eng *engine.Engine) mcp.ToolHandlerFor[SearchReferencesInp
 // the semantic finders' gate: dependencies are excluded, since their type
 // universe cannot be matched exactly against the workspace's.
 func resolveAnySymbol(v *gate.View, addr, key string) (dto.Symbol, dto.Package, error) {
-	pkg, err := canonPkg(v.Module(), addr)
+	pkg, err := canonicalizePkg(v.Module(), addr)
 	if err != nil {
 		return dto.Symbol{}, dto.Package{}, err
 	}

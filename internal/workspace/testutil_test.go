@@ -49,12 +49,13 @@ func applyTestSplices(src []byte, splices []Splice) []byte {
 
 // typesFixture builds a multi-package Workspace with real go/types
 // information — the fixture for business rules that inspect type
-// identity (MoveConflicts, QualifierFixups, RenameSplices,
-// PackageMoveSplices, SymbolsImplementing, SymbolsReferencing). Each
-// entry in srcs is one package's single file, keyed by its import path;
-// packages may reference each other by that same import path, type-
-// checked in dependency order as each is first imported, falling back to
-// the standard importer for anything not in srcs.
+// identity (DetectMoveConflicts, ComputeQualifierFixups,
+// ComputeRenameSplices, ComputePackageMoveSplices, SymbolsImplementing,
+// SymbolsReferencing). Each entry in srcs is one package's single file,
+// keyed by its import path; packages may reference each other by that
+// same import path, type-checked in dependency order as each is first
+// imported, falling back to the standard importer for anything not in
+// srcs.
 func typesFixture(tb testing.TB, srcs map[string]string) *Workspace {
 	tb.Helper()
 	fset := token.NewFileSet()
@@ -102,7 +103,7 @@ func typesFixture(tb testing.TB, srcs map[string]string) *Workspace {
 	for path, src := range srcs {
 		name := files[path].Name.Name
 		wp := NewPackage(name, address.RelativePath(name), address.PkgPath(path), checked[path], infos[path], false)
-		wp.AddLoadedFile(address.RelativePath(name+"/file.go"), []byte(src), files[path])
+		wp.LoadFile(address.RelativePath(name+"/file.go"), []byte(src), files[path])
 		wp.RebuildIndex()
 		w.InstallUnit(address.PkgPath(path), NewUnit(wp, nil))
 	}

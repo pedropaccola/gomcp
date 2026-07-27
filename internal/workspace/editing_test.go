@@ -9,7 +9,7 @@ import (
 
 func TestEditPlanUngrouped(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\nfunc Foo() {}\n")
-	wasPositionDependent, groupTok, target, err := w.EditPlan("test.mod/pkg", "Foo")
+	wasPositionDependent, groupTok, target, err := w.ComputeEditPlan("test.mod/pkg", "Foo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestEditPlanUngrouped(t *testing.T) {
 
 func TestEditPlanGroupedNonPositionDependent(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\nconst (\n\tA = 1\n\tB = 2\n)\n")
-	wasPositionDependent, groupTok, target, err := w.EditPlan("test.mod/pkg", "A")
+	wasPositionDependent, groupTok, target, err := w.ComputeEditPlan("test.mod/pkg", "A")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestEditPlanPositionDependent(t *testing.T) {
 	// An iota group's target is the whole group: a single member can't be
 	// replaced without breaking the positions of the rest.
 	w := simpleFixture(t, "package pkg\n\nconst (\n\tA = iota\n\tB\n)\n")
-	wasPositionDependent, groupTok, target, err := w.EditPlan("test.mod/pkg", "A")
+	wasPositionDependent, groupTok, target, err := w.ComputeEditPlan("test.mod/pkg", "A")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,16 +65,16 @@ func TestEditPlanPositionDependent(t *testing.T) {
 	}
 }
 
-func TestEditCollisions(t *testing.T) {
+func TestDetectEditCollisions(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\nfunc Foo() {}\n\nfunc Bar() {}\n")
-	if got := w.EditCollisions("test.mod/pkg", "Foo", []string{"Bar"}); !slices.Contains(got, "Bar") {
-		t.Errorf("EditCollisions(Foo, [Bar]) = %v, want it to name the collision", got)
+	if got := w.DetectEditCollisions("test.mod/pkg", "Foo", []string{"Bar"}); !slices.Contains(got, "Bar") {
+		t.Errorf("DetectEditCollisions(Foo, [Bar]) = %v, want it to name the collision", got)
 	}
-	if got := w.EditCollisions("test.mod/pkg", "Foo", []string{"Baz"}); len(got) != 0 {
-		t.Errorf("EditCollisions(Foo, [Baz]) = %v, want none", got)
+	if got := w.DetectEditCollisions("test.mod/pkg", "Foo", []string{"Baz"}); len(got) != 0 {
+		t.Errorf("DetectEditCollisions(Foo, [Baz]) = %v, want none", got)
 	}
 	// A replacement is always allowed to keep declaring its own current name.
-	if got := w.EditCollisions("test.mod/pkg", "Foo", []string{"Foo"}); len(got) != 0 {
-		t.Errorf("EditCollisions(Foo, [Foo]) = %v, want the symbol's own name excused", got)
+	if got := w.DetectEditCollisions("test.mod/pkg", "Foo", []string{"Foo"}); len(got) != 0 {
+		t.Errorf("DetectEditCollisions(Foo, [Foo]) = %v, want the symbol's own name excused", got)
 	}
 }

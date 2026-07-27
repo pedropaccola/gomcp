@@ -149,8 +149,8 @@ func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg address.PkgPath,
 	if !ok {
 		return nil, fmt.Errorf("no symbol %q in %q", key, pkg)
 	}
-	target := objKey(objectOf(owner, sym))
-	if target == "" {
+	target, ok := keyOf(objectOf(owner, sym))
+	if !ok {
 		return nil, fmt.Errorf("type information unavailable for %q", sym.Key())
 	}
 	type addrRef struct {
@@ -173,7 +173,8 @@ func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg address.PkgPath,
 				if !isPackageLevelUse(obj) {
 					continue
 				}
-				if objKey(obj) != target {
+				k, ok := keyOf(obj)
+				if !ok || k != target {
 					continue
 				}
 				encl, ok := symbolAt(p, ident.Pos())

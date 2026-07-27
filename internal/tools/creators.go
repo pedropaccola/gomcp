@@ -55,7 +55,7 @@ func createPackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Creat
 		n := len(in.Creates)
 		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
 			for i, entry := range in.Creates {
-				pkg, err := packageArg(tx.View, entry.PkgPath)
+				pkg, err := writeWorkspacePkg(tx.View, entry.PkgPath)
 				if err != nil {
 					return batchErr("creates", i, n, err)
 				}
@@ -76,11 +76,11 @@ func createFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[CreateFi
 		n := len(in.Creates)
 		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
 			for i, entry := range in.Creates {
-				pkg, err := packageArg(tx.View, entry.PkgPath)
+				pkg, err := writeWorkspacePkg(tx.View, entry.PkgPath)
 				if err != nil {
 					return batchErr("creates", i, n, err)
 				}
-				file, err := fileArg(tx.Module(), pkg, entry.FileName)
+				file, err := canonicalizeFile(tx.Module(), pkg, entry.FileName)
 				if err != nil {
 					return batchErr("creates", i, n, err)
 				}
@@ -101,11 +101,11 @@ func createSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Create
 		n := len(in.Creates)
 		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
 			for i, entry := range in.Creates {
-				pkg, err := packageArg(tx.View, entry.PkgPath)
+				pkg, err := writeWorkspacePkg(tx.View, entry.PkgPath)
 				if err != nil {
 					return batchErr("creates", i, n, err)
 				}
-				file, err := fileArg(tx.Module(), pkg, entry.FileName)
+				file, err := canonicalizeFile(tx.Module(), pkg, entry.FileName)
 				if err != nil {
 					return batchErr("creates", i, n, err)
 				}

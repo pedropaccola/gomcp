@@ -24,7 +24,7 @@ func TestUnitDirtyCarryAndPrune(t *testing.T) {
 		t.Error("MarkDirty did not re-mark the carried-over file")
 	}
 	units := map[address.PkgPath]*Unit{"example.com/mod/pkg": u}
-	PruneFile(units, "example.com/mod/pkg", "pkg/pkg.go")
+	DropTombstonedFile(units, "example.com/mod/pkg", "pkg/pkg.go")
 	if _, ok := units["example.com/mod/pkg"]; ok {
 		t.Error("unit must be pruned once its last file is gone")
 	}

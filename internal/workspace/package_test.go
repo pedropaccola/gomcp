@@ -40,7 +40,7 @@ func TestLoadPathAndExternalIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := &Package{Name: "dep", PkgPath: "example.com/dep", External: true}
-	p.AddLoadedFile("example.com/dep/dep.go", src, astFile)
+	p.LoadFile("example.com/dep/dep.go", src, astFile)
 	file, ok := p.File("example.com/dep/dep.go")
 	if !ok || file.IsDirty() {
 		t.Fatal("loaded file missing or dirty — the load path must install clean files")

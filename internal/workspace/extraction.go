@@ -89,7 +89,7 @@ func (w *Workspace) specSpan(pkg *Package, sym *Symbol) (span, bool) {
 	return offsetSpan(w, pkg, file, start, sym.Spec().End())
 }
 
-// ExtractDecl returns key's declaration as standalone source together
+// ExtractDeclaration returns key's declaration as standalone source together
 // with the Splice its removal applies, doc comment included in both. A
 // member of a grouped declaration with siblings is rebuilt ungrouped —
 // doc first, then the group's keyword before the spec. Extraction refuses
@@ -98,10 +98,10 @@ func (w *Workspace) specSpan(pkg *Package, sym *Symbol) (span, bool) {
 // inheriting the previous spec's expression) is extracted as the *whole*
 // group instead — the same declSpan path a solo-member group already
 // uses — since pulling just one member out would break the positions of
-// the rest. Aggregate-owned analysis, same rationale as MoveConflicts:
-// key is resolved fresh here, not accepted as a pointer a caller might
-// already be holding.
-func (w *Workspace) ExtractDecl(pkg address.PkgPath, key string) (string, Splice, error) {
+// the rest. Aggregate-owned analysis, same rationale as
+// DetectMoveConflicts: key is resolved fresh here, not accepted as a
+// pointer a caller might already be holding.
+func (w *Workspace) ExtractDeclaration(pkg address.PkgPath, key string) (string, Splice, error) {
 	sym, owner, ok := w.resolveSymbol(pkg, key)
 	if !ok {
 		return "", Splice{}, fmt.Errorf("no symbol %q in %q", key, pkg)
@@ -137,12 +137,12 @@ func (w *Workspace) ExtractDecl(pkg address.PkgPath, key string) (string, Splice
 // extract together with key: itself alone, unless key is a member of a
 // grouped const declaration whose meaning is position-dependent (iota,
 // or inheriting the previous spec's expression) — in which case every
-// member of that group is included, since ExtractDecl already promotes
-// such an extraction to the whole group and any safety check must see
-// the same set ExtractDecl is about to act on. Deliberately narrow:
-// var and type groups, and non-position-dependent const groups, are
-// grouped in source for readability only — nothing about them requires
-// moving together, so they are never expanded here.
+// member of that group is included, since ExtractDeclaration already
+// promotes such an extraction to the whole group and any safety check
+// must see the same set ExtractDeclaration is about to act on.
+// Deliberately narrow: var and type groups, and non-position-dependent
+// const groups, are grouped in source for readability only — nothing
+// about them requires moving together, so they are never expanded here.
 func (w *Workspace) PositionDependentGroupMembers(pkg address.PkgPath, key string) ([]string, error) {
 	sym, owner, ok := w.resolveSymbol(pkg, key)
 	if !ok {

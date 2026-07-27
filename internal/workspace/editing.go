@@ -7,13 +7,13 @@ import (
 	"github.com/pedropaccola/gomcp/internal/address"
 )
 
-// EditPlan reports the facts EditSymbol needs about key's current
+// ComputeEditPlan reports the facts EditSymbol needs about key's current
 // declaration: whether it's part of a position-dependent group (in which
 // case a replacement must resubmit the whole group), the group's token
 // kind when grouped (token.ILLEGAL otherwise), and the Splice the
 // replacement itself lands in. Aggregate-owned analysis, same rationale
-// as MoveConflicts: key is resolved fresh here.
-func (w *Workspace) EditPlan(pkg address.PkgPath, key string) (wasPositionDependent bool, groupTok token.Token, target Splice, err error) {
+// as DetectMoveConflicts: key is resolved fresh here.
+func (w *Workspace) ComputeEditPlan(pkg address.PkgPath, key string) (wasPositionDependent bool, groupTok token.Token, target Splice, err error) {
 	sym, owner, ok := w.resolveSymbol(pkg, key)
 	if !ok {
 		return false, token.ILLEGAL, Splice{}, fmt.Errorf("no symbol %q in %q", key, pkg)
@@ -40,11 +40,11 @@ func (w *Workspace) EditPlan(pkg address.PkgPath, key string) (wasPositionDepend
 	return wasPositionDependent, tok, Splice{Path: sym.File, Start: sp.start, End: sp.end}, nil
 }
 
-// EditCollisions reports which of newKeys already exist elsewhere in
+// DetectEditCollisions reports which of newKeys already exist elsewhere in
 // pkg, blocking a replacement of key — a same-group sibling doesn't
 // count when key is itself position-dependent, since resubmitting the
 // whole group necessarily re-mentions every member.
-func (w *Workspace) EditCollisions(pkg address.PkgPath, key string, newKeys []string) []string {
+func (w *Workspace) DetectEditCollisions(pkg address.PkgPath, key string, newKeys []string) []string {
 	sym, owner, ok := w.resolveSymbol(pkg, key)
 	if !ok {
 		return nil

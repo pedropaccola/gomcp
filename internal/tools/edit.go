@@ -47,13 +47,13 @@ func runEdit(ctx context.Context, eng *engine.Engine, cfg *toolConfig, fn func(*
 	return nil, out, nil
 }
 
-// packageArg validates and canonicalizes a package address for the
+// writeWorkspacePkg validates and canonicalizes a package address for the
 // mutation handlers — the write-side gate: dependencies are refused, the
 // workspace is the only mutable world. Takes a *gate.View (never eng
 // *engine.Engine directly) so it's safe to call from inside a Read/Edit
 // closure too — View never acquires the gate lock itself.
-func packageArg(v *gate.View, addr string) (address.PkgPath, error) {
-	canon, err := canonPkg(v.Module(), addr)
+func writeWorkspacePkg(v *gate.View, addr string) (address.PkgPath, error) {
+	canon, err := canonicalizePkg(v.Module(), addr)
 	if err != nil {
 		return "", err
 	}
@@ -74,7 +74,7 @@ func filesByPackage(module address.PkgPath, paths []address.RelativePath) map[st
 	}
 	out := make(map[string][]string)
 	for _, p := range paths {
-		key := pkgAddr(module, p.Dir())
+		key := pkgAddress(module, p.Dir())
 		out[key] = append(out[key], p.Base())
 	}
 	return out

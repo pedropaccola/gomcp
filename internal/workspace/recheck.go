@@ -11,12 +11,12 @@ import (
 // generation was assembled by a dirty-scoped recheck: some packages were
 // carried forward from an earlier type-checking session rather than
 // rebuilt in this one, so types.Implements can't be trusted across that
-// boundary the way objKey-based matching can (see objKey's own doc
+// boundary the way ObjectKey-based matching can (see ObjectKey's own doc
 // comment). Callers should force a full recheck and retry — in
 // internal/engine, Engine.EnsureFullyChecked does this.
 var ErrNarrowlyChecked = errors.New("workspace was narrowly rechecked: SymbolsImplementing needs a full recheck first")
 
-// RecheckScope computes the set of packages a recheck must re-type-check
+// ComputeRecheckScope computes the set of packages a recheck must re-type-check
 // after dirty changed: dirty itself, plus every workspace package that
 // (transitively) imports one of them — a change inside a package can
 // surface as a new diagnostic anywhere that depends on it, directly or
@@ -27,7 +27,7 @@ var ErrNarrowlyChecked = errors.New("workspace was narrowly rechecked: SymbolsIm
 // imports — anything outside w.UnitKeys() — are dead ends: they can't
 // import a workspace package back. Aggregate-owned analysis, since it's
 // pure Entity-graph traversal with no engine-specific knowledge.
-func (w *Workspace) RecheckScope(dirty map[address.PkgPath]bool) map[address.PkgPath]bool {
+func (w *Workspace) ComputeRecheckScope(dirty map[address.PkgPath]bool) map[address.PkgPath]bool {
 	importedBy := make(map[address.PkgPath][]address.PkgPath) // imported -> importing unit addresses
 	for _, addr := range w.UnitKeys() {
 		unit, _ := w.Unit(addr)

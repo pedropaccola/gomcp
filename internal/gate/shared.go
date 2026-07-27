@@ -47,7 +47,7 @@ func (tx *Tx) leadingDocWord(file address.RelativePath, doc *ast.CommentGroup, p
 // because Ast is by invariant a parse of exactly Src. Positions resolve in
 // the owner's FileSet, so dependency files extract like workspace ones.
 func (v *View) offsetSpan(path address.RelativePath, from, to token.Pos) (span, bool) {
-	file, owner, ok := v.resolveFile(path)
+	file, owner, ok := v.resolveFileByPath(path)
 	if !ok || !from.IsValid() || !to.IsValid() {
 		return span{}, false
 	}

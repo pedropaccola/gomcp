@@ -20,7 +20,7 @@ func (tx *Tx) DeleteFile(pkg address.PkgPath, name string) error {
 		if owner == nil {
 			continue
 		}
-		path, err := fileAddress(owner, name)
+		path, err := packageFilePath(owner, name)
 		if err != nil {
 			return err
 		}
@@ -71,7 +71,7 @@ func (tx *Tx) DeletePackage(pkg address.PkgPath) error {
 //
 // Deletion is idempotent: a missing symbol is a noop, not a failure.
 func (tx *Tx) DeleteSymbol(pkg address.PkgPath, key string) error {
-	splices, found, err := tx.ws.DeletionSplices(pkg, key)
+	splices, found, err := tx.ws.ComputeDeletionSplices(pkg, key)
 	if err != nil {
 		return err
 	}
@@ -79,7 +79,7 @@ func (tx *Tx) DeleteSymbol(pkg address.PkgPath, key string) error {
 		return nil
 	}
 	path := splices[0].Path
-	file, owner, ok := tx.resolveFile(path)
+	file, owner, ok := tx.resolveFileByPath(path)
 	if !ok {
 		return fmt.Errorf("internal error: %q vanished while deleting %q", path, key)
 	}
@@ -87,5 +87,5 @@ func (tx *Tx) DeleteSymbol(pkg address.PkgPath, key string) error {
 	for i, s := range splices {
 		esplices[i] = splice{span: span{start: s.Start, end: s.End}, repl: s.Repl}
 	}
-	return tx.reloadFile(pkg, isXTestOwner(tx.ws, pkg, owner), path, applySplices(file.Src(), esplices))
+	return tx.installFile(pkg, isXTestOwner(tx.ws, pkg, owner), path, applySplices(file.Src(), esplices))
 }

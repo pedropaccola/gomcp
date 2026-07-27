@@ -25,7 +25,7 @@ func (f funcImporter) Import(path string) (*types.Package, error) { return f(pat
 // wrapped in a View backed by a real (empty) temp directory — the
 // unit-test fixture for gate's read pass-throughs and Tx's pipeline
 // mechanics (goimports formatting, SwapFile, touch-tracking), with no
-// real go/packages.Load. tb.TempDir gives reloadFile's goimports pass a
+// real go/packages.Load. tb.TempDir gives installFile's goimports pass a
 // genuine, existing directory to resolve against without needing a real
 // module on disk.
 func gateFixture(tb testing.TB, src string) *View {
@@ -101,7 +101,7 @@ func gateTypesFixture(tb testing.TB, srcs map[string]string) *View {
 		fullPath := "test.mod/" + dir
 		name := files[dir].Name.Name
 		wp := workspace.NewPackage(name, address.RelativePath(dir), address.PkgPath(fullPath), checked[fullPath], infos[fullPath], false)
-		wp.AddLoadedFile(address.RelativePath(dir+"/file.go"), []byte(src), files[dir])
+		wp.LoadFile(address.RelativePath(dir+"/file.go"), []byte(src), files[dir])
 		wp.RebuildIndex()
 		ws.InstallUnit(address.PkgPath(fullPath), workspace.NewUnit(wp, nil))
 	}

@@ -49,66 +49,66 @@ func TestValidateNewNameUnknownSymbol(t *testing.T) {
 	}
 }
 
-func TestMoveConflictsSafeMove(t *testing.T) {
+func TestDetectMoveConflictsSafeMove(t *testing.T) {
 	w := typesFixture(t, map[string]string{
 		"src":  "package src\n\ntype Box struct{}\n\nfunc (b Box) M() {}\n",
 		"dest": "package dest\n",
 	})
-	if got := w.MoveConflicts("src", "dest", []string{"Box", "Box.M"}); got != nil {
-		t.Errorf("MoveConflicts(Box, Box.M) = %v, want none", got)
+	if got := w.DetectMoveConflicts("src", "dest", []string{"Box", "Box.M"}); got != nil {
+		t.Errorf("DetectMoveConflicts(Box, Box.M) = %v, want none", got)
 	}
 }
 
-func TestMoveConflictsMethodWithoutReceiver(t *testing.T) {
+func TestDetectMoveConflictsMethodWithoutReceiver(t *testing.T) {
 	w := typesFixture(t, map[string]string{
 		"src":  "package src\n\ntype Box struct{}\n\nfunc (b Box) M() {}\n",
 		"dest": "package dest\n",
 	})
-	got := w.MoveConflicts("src", "dest", []string{"Box.M"})
+	got := w.DetectMoveConflicts("src", "dest", []string{"Box.M"})
 	if len(got) != 1 || !strings.Contains(got[0], "Box") {
-		t.Errorf("MoveConflicts(Box.M) = %v, want one conflict naming receiver Box", got)
+		t.Errorf("DetectMoveConflicts(Box.M) = %v, want one conflict naming receiver Box", got)
 	}
 }
 
-func TestMoveConflictsCollision(t *testing.T) {
+func TestDetectMoveConflictsCollision(t *testing.T) {
 	w := typesFixture(t, map[string]string{
 		"src":  "package src\n\nfunc Helper() int { return 1 }\n",
 		"dest": "package dest\n\nfunc Helper() int { return 2 }\n",
 	})
-	got := w.MoveConflicts("src", "dest", []string{"Helper"})
+	got := w.DetectMoveConflicts("src", "dest", []string{"Helper"})
 	if len(got) != 1 || !strings.Contains(got[0], "already exists") {
-		t.Errorf("MoveConflicts(Helper) = %v, want a collision conflict", got)
+		t.Errorf("DetectMoveConflicts(Helper) = %v, want a collision conflict", got)
 	}
 }
 
-func TestMoveConflictsDependencyOnUnexportedSibling(t *testing.T) {
+func TestDetectMoveConflictsDependencyOnUnexportedSibling(t *testing.T) {
 	w := typesFixture(t, map[string]string{
 		"src":  "package src\n\nvar helper = 1\n\nfunc UsesHelper() int { return helper }\n",
 		"dest": "package dest\n",
 	})
-	got := w.MoveConflicts("src", "dest", []string{"UsesHelper"})
+	got := w.DetectMoveConflicts("src", "dest", []string{"UsesHelper"})
 	if len(got) != 1 || !strings.Contains(got[0], "unexported") {
-		t.Errorf("MoveConflicts(UsesHelper) = %v, want a dependency-on-unexported conflict", got)
+		t.Errorf("DetectMoveConflicts(UsesHelper) = %v, want a dependency-on-unexported conflict", got)
 	}
 }
 
-func TestMoveConflictsBlockingReferrer(t *testing.T) {
+func TestDetectMoveConflictsBlockingReferrer(t *testing.T) {
 	w := typesFixture(t, map[string]string{
 		"src":  "package src\n\nfunc leaving() int { return 1 }\n\nfunc Stays() int { return leaving() }\n",
 		"dest": "package dest\n",
 	})
-	got := w.MoveConflicts("src", "dest", []string{"leaving"})
+	got := w.DetectMoveConflicts("src", "dest", []string{"leaving"})
 	if len(got) != 1 || !strings.Contains(got[0], "still references unexported") {
-		t.Errorf("MoveConflicts(leaving) = %v, want a blocking-referrer conflict", got)
+		t.Errorf("DetectMoveConflicts(leaving) = %v, want a blocking-referrer conflict", got)
 	}
 }
 
-func TestMoveConflictsSamePackageAlwaysSafe(t *testing.T) {
+func TestDetectMoveConflictsSamePackageAlwaysSafe(t *testing.T) {
 	w := typesFixture(t, map[string]string{
 		"src": "package src\n\nfunc leaving() int { return 1 }\n\nfunc Stays() int { return leaving() }\n",
 	})
-	if got := w.MoveConflicts("src", "src", []string{"leaving"}); got != nil {
-		t.Errorf("MoveConflicts within the same package = %v, want none", got)
+	if got := w.DetectMoveConflicts("src", "src", []string{"leaving"}); got != nil {
+		t.Errorf("DetectMoveConflicts within the same package = %v, want none", got)
 	}
 }
 
@@ -118,7 +118,7 @@ func TestQualifierFixupsInboundRepointsExternalQualifier(t *testing.T) {
 		"dest":  "package dest\n",
 		"use":   "package use\n\nimport \"mvsrc\"\n\nfunc Bar() int { return mvsrc.Foo() }\n",
 	})
-	edits, err := w.QualifierFixups("mvsrc", "dest", []string{"Foo"})
+	edits, err := w.ComputeQualifierFixups("mvsrc", "dest", []string{"Foo"})
 	if err != nil {
 		t.Fatalf("QualifierFixups: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestQualifierFixupsOutboundQualifiesStayingSibling(t *testing.T) {
 		"mvsrc": "package mvsrc\n\nfunc Stay() int { return 1 }\n\nfunc Moving() int { return Stay() }\n",
 		"dest":  "package dest\n",
 	})
-	edits, err := w.QualifierFixups("mvsrc", "dest", []string{"Moving"})
+	edits, err := w.ComputeQualifierFixups("mvsrc", "dest", []string{"Moving"})
 	if err != nil {
 		t.Fatalf("QualifierFixups: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestQualifierFixupsOutboundQualifiesStayingSibling(t *testing.T) {
 
 func TestQualifierFixupsErrorsOnMissingPackage(t *testing.T) {
 	w := typesFixture(t, map[string]string{"mvsrc": "package mvsrc\n"})
-	if _, err := w.QualifierFixups("mvsrc", "nosuchdest", []string{"Foo"}); err == nil {
+	if _, err := w.ComputeQualifierFixups("mvsrc", "nosuchdest", []string{"Foo"}); err == nil {
 		t.Error("QualifierFixups must error when destPkg doesn't exist")
 	}
 }
@@ -170,7 +170,7 @@ func TestRenameSplicesRewritesExternalReferences(t *testing.T) {
 		"mvsrc": "package mvsrc\n\nfunc Foo() int { return 1 }\n",
 		"use":   "package use\n\nimport \"mvsrc\"\n\nfunc Bar() int { return mvsrc.Foo() }\n",
 	})
-	edits, err := w.RenameSplices("mvsrc", "Foo", "Baz")
+	edits, err := w.ComputeRenameSplices("mvsrc", "Foo", "Baz")
 	if err != nil {
 		t.Fatalf("RenameSplices: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestPackageMoveSplicesRewritesImportAndQualifier(t *testing.T) {
 		"mvsrc": "package mvsrc\n\nfunc Foo() int { return 1 }\n",
 		"use":   "package use\n\nimport \"mvsrc\"\n\nfunc Bar() int { return mvsrc.Foo() }\n",
 	})
-	edits := w.PackageMoveSplices("mvsrc", "dest", true, "mvsrc", "dest")
+	edits := w.ComputePackageMoveSplices("mvsrc", "dest", true, "mvsrc", "dest")
 	if len(edits) != 2 {
 		t.Fatalf("PackageMoveSplices = %+v, want an import-path splice and a qualifier splice", edits)
 	}
@@ -200,25 +200,26 @@ func TestPackageMoveSplicesRewritesImportAndQualifier(t *testing.T) {
 	}
 }
 
-// TestMoveConflictsCatchesGroupSiblingCollision proves the fix: checking
-// MoveConflicts with only the requested key misses a collision caused by
-// a position-dependent group's other members, which move along silently
-// via ExtractDecl — PositionDependentGroupMembers closes that gap by
-// feeding MoveConflicts everything that will actually move.
-func TestMoveConflictsCatchesGroupSiblingCollision(t *testing.T) {
+// TestDetectMoveConflictsCatchesGroupSiblingCollision proves the fix:
+// checking DetectMoveConflicts with only the requested key misses a
+// collision caused by a position-dependent group's other members, which
+// move along silently via ExtractDeclaration — PositionDependentGroupMembers
+// closes that gap by feeding DetectMoveConflicts everything that will
+// actually move.
+func TestDetectMoveConflictsCatchesGroupSiblingCollision(t *testing.T) {
 	w := typesFixture(t, map[string]string{
 		"src":  "package src\n\nconst (\n\tBase = iota\n\tSibling\n)\n",
 		"dest": "package dest\n\nconst Sibling = 42\n",
 	})
-	if got := w.MoveConflicts("src", "dest", []string{"Base"}); len(got) != 0 {
-		t.Fatalf("MoveConflicts(Base alone) = %v, want no conflicts (demonstrating why checking only the named key misses the sibling)", got)
+	if got := w.DetectMoveConflicts("src", "dest", []string{"Base"}); len(got) != 0 {
+		t.Fatalf("DetectMoveConflicts(Base alone) = %v, want no conflicts (demonstrating why checking only the named key misses the sibling)", got)
 	}
 	movingKeys, err := w.PositionDependentGroupMembers("src", "Base")
 	if err != nil {
 		t.Fatalf("PositionDependentGroupMembers: %v", err)
 	}
-	got := w.MoveConflicts("src", "dest", movingKeys)
+	got := w.DetectMoveConflicts("src", "dest", movingKeys)
 	if len(got) != 1 || !strings.Contains(got[0], "Sibling") || !strings.Contains(got[0], "already exists") {
-		t.Errorf("MoveConflicts(%v) = %v, want a collision on Sibling", movingKeys, got)
+		t.Errorf("DetectMoveConflicts(%v) = %v, want a collision on Sibling", movingKeys, got)
 	}
 }

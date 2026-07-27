@@ -40,11 +40,11 @@ func newDiagnosticEntry(d dto.Diagnostic) DiagnosticEntry {
 	return e
 }
 
-// canonPkg canonicalizes an agent-supplied package address against the
+// canonicalizePkg canonicalizes an agent-supplied package address against the
 // workspace module: module-prefixed addresses pass through, bare workspace
 // directories gain the prefix. File names are refused — packages are
 // directories, always spelled alone.
-func canonPkg(module address.PkgPath, addr string) (address.PkgPath, error) {
+func canonicalizePkg(module address.PkgPath, addr string) (address.PkgPath, error) {
 	path, ok := address.CleanPath(addr)
 	if !ok {
 		return "", fmt.Errorf("invalid package path %q", addr)
@@ -61,18 +61,18 @@ func canonPkg(module address.PkgPath, addr string) (address.PkgPath, error) {
 	return address.PkgPath(module.String() + "/" + path.String()), nil
 }
 
-// fileArg normalizes an agent-supplied file address inside pkg: a bare
+// canonicalizeFile normalizes an agent-supplied file address inside pkg: a bare
 // *.go name, or a path accepted when its package agrees — spelled raw
 // (dependency and canonical workspace addresses) or workspace-relative.
 // Contradictions are refused, never guessed.
-func fileArg(module, pkg address.PkgPath, file string) (string, error) {
+func canonicalizeFile(module, pkg address.PkgPath, file string) (string, error) {
 	if strings.Contains(file, "/") {
 		fpath, ok := address.CleanPath(file)
 		if !ok {
 			return "", fmt.Errorf("invalid file path %q", file)
 		}
 		if address.PkgPath(fpath.Dir()) != pkg {
-			canon, err := canonPkg(module, fpath.Dir().String())
+			canon, err := canonicalizePkg(module, fpath.Dir().String())
 			if err != nil || canon != pkg {
 				return "", fmt.Errorf("file %q does not live in package %q", file, pkg)
 			}
@@ -85,8 +85,8 @@ func fileArg(module, pkg address.PkgPath, file string) (string, error) {
 	return file, nil
 }
 
-// pkgAddr composes the canonical address of a workspace directory.
-func pkgAddr(module address.PkgPath, dir address.RelativePath) string {
+// pkgAddress composes the canonical address of a workspace directory.
+func pkgAddress(module address.PkgPath, dir address.RelativePath) string {
 	if dir == "." {
 		return module.String()
 	}

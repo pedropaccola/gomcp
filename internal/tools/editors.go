@@ -50,7 +50,7 @@ func editFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[EditFileIn
 			pkgs := make([]address.PkgPath, n)
 			seen := make(map[string]bool, n)
 			for i, entry := range in.Edits {
-				pkg, err := packageArg(tx.View, entry.PkgPath)
+				pkg, err := writeWorkspacePkg(tx.View, entry.PkgPath)
 				if err != nil {
 					return batchErr("edits", i, n, err)
 				}
@@ -81,7 +81,7 @@ func editSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[EditSymb
 			pkgs := make([]address.PkgPath, n)
 			seen := make(map[string]bool, n)
 			for i, entry := range in.Edits {
-				pkg, err := packageArg(tx.View, entry.PkgPath)
+				pkg, err := writeWorkspacePkg(tx.View, entry.PkgPath)
 				if err != nil {
 					return batchErr("edits", i, n, err)
 				}

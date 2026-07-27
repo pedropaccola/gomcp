@@ -121,7 +121,7 @@ func (e *Engine) buildPackage(srcPkg *packages.Package, fset *token.FileSet, ove
 				return nil, fmt.Errorf("failed to read source of %s: %w", relFilePath, err)
 			}
 		}
-		pkg.AddLoadedFile(relFilePath, src, astFile)
+		pkg.LoadFile(relFilePath, src, astFile)
 	}
 	pkg.RebuildIndex()
 	e.ingestErrors(pkg, srcPkg.Errors)
@@ -231,7 +231,7 @@ func (e *Engine) buildExternal(srcPkg *packages.Package, fset *token.FileSet) (*
 			return nil, fmt.Errorf("failed to read dependency source %s: %w", abs, err)
 		}
 		path := address.RelativePath(srcPkg.PkgPath).Join(filepath.Base(abs))
-		pkg.AddLoadedFile(path, src, astFile)
+		pkg.LoadFile(path, src, astFile)
 	}
 	pkg.RebuildIndex()
 	return pkg, nil

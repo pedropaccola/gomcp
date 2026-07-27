@@ -60,7 +60,7 @@ func listPackages(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListPa
 			out.Packages = make([]string, 0, len(pkgs))
 			last := ""
 			for _, pkg := range pkgs {
-				if addr := pkgAddr(v.Module(), pkg.Path()); addr != last {
+				if addr := pkgAddress(v.Module(), pkg.Path()); addr != last {
 					out.Packages = append(out.Packages, addr)
 					last = addr
 				}
@@ -93,7 +93,7 @@ func listSymbols(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListSym
 		err := readPackage(ctx, eng, in.PkgPath, func(v *gate.View, pkg dto.Package) error {
 			var target *dto.File
 			if fileName := optStr(in.FileName); fileName != "" {
-				name, err := fileArg(v.Module(), pkg.PkgPath(), fileName)
+				name, err := canonicalizeFile(v.Module(), pkg.PkgPath(), fileName)
 				if err != nil {
 					return err
 				}

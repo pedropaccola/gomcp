@@ -17,15 +17,15 @@ func (tx *Tx) CreateFile(pkg address.PkgPath, name, doc string) error {
 	if !ok {
 		return fmt.Errorf("no package at %q: create_package first", pkg)
 	}
-	path, err := fileAddress(p, name)
+	path, err := packageFilePath(p, name)
 	if err != nil {
 		return err
 	}
-	if _, _, exists := tx.resolveFile(path); exists {
+	if _, _, exists := tx.resolveFileByPath(path); exists {
 		return fmt.Errorf("file %q already exists", path)
 	}
 	content := string(renderDocComment(doc)) + "package " + p.Name + "\n"
-	return tx.reloadFile(pkg, false, path, []byte(content))
+	return tx.installFile(pkg, false, path, []byte(content))
 }
 
 // CreatePackage creates a new package at a module-prefixed address with one
@@ -46,7 +46,7 @@ func (tx *Tx) CreatePackage(pkg address.PkgPath, name string) error {
 		return fmt.Errorf("%q is not a valid package name", name)
 	}
 	tx.ws.InstallUnit(pkg, workspace.NewUnit(workspace.NewPackage(name, dir, pkg, nil, nil, false), nil))
-	return tx.reloadFile(pkg, false, dir.Join(name+".go"), []byte("package "+name+"\n"))
+	return tx.installFile(pkg, false, dir.Join(name+".go"), []byte("package "+name+"\n"))
 }
 
 // CreateSymbol adds one new top-level declaration to a file of an existing
@@ -80,14 +80,14 @@ func (tx *Tx) CreateSymbol(pkg address.PkgPath, fileName, src string) error {
 			return fmt.Errorf("symbol %q already exists in %q: use EditSymbol", key, pkg)
 		}
 	}
-	path, err := fileAddress(p, fileName)
+	path, err := packageFilePath(p, fileName)
 	if err != nil {
 		return err
 	}
 	file, ok := p.File(path)
 	if !ok {
 		candidate := []byte("package " + p.Name + "\n\n" + src + "\n")
-		return tx.reloadFile(pkg, false, path, candidate)
+		return tx.installFile(pkg, false, path, candidate)
 	}
 
 	if (frag.kind == dto.KindConst || frag.kind == dto.KindVar) && !frag.usesIota {
@@ -96,11 +96,11 @@ func (tx *Tx) CreateSymbol(pkg address.PkgPath, fileName, src string) error {
 			tok = token.VAR
 		}
 		if at, ok := tx.ws.MergeableGroupInsertOffset(pkg, path, tok); ok {
-			specs, _, err := constVarSpecs(src)
+			specs, _, err := constVarEntries(src)
 			if err != nil {
 				return err
 			}
-			return tx.reloadFile(pkg, false, path, applySplices(file.Src(), []splice{{span: span{start: at, end: at}, repl: []byte("\n" + specs + "\n")}}))
+			return tx.installFile(pkg, false, path, applySplices(file.Src(), []splice{{span: span{start: at, end: at}, repl: []byte("\n" + specs + "\n")}}))
 		}
 	}
 
@@ -109,11 +109,11 @@ func (tx *Tx) CreateSymbol(pkg address.PkgPath, fileName, src string) error {
 		return fmt.Errorf("cannot locate insertion point in %q", path)
 	}
 	if frag.kind == dto.KindConst && frag.usesIota {
-		if _, typeName, terr := constVarSpecs(src); terr == nil && typeName != "" {
+		if _, typeName, terr := constVarEntries(src); terr == nil && typeName != "" {
 			if anchor, ok := tx.ws.TypeDeclOffset(pkg, path, typeName); ok {
 				at = anchor
 			}
 		}
 	}
-	return tx.reloadFile(pkg, false, path, applySplices(file.Src(), []splice{{span: span{start: at, end: at}, repl: []byte("\n\n" + src + "\n")}}))
+	return tx.installFile(pkg, false, path, applySplices(file.Src(), []splice{{span: span{start: at, end: at}, repl: []byte("\n\n" + src + "\n")}}))
 }

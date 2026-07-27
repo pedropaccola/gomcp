@@ -13,14 +13,14 @@ import (
 // MoveFile relocates a file to another package (newPkgPath) and/or gives
 // it a new bare name (newName), any combination — at least one must be
 // given. Moving into a different package is refused when it would break
-// something Workspace.MoveConflicts can prove in advance — a method left
-// without its receiver type, a name collision at the destination, the
-// moved code depending on an unexported sibling staying behind, or code
-// staying behind depending on an unexported declaration that's leaving.
-// Otherwise every surviving reference across the move boundary has its
-// qualifier fixed up first (Workspace.QualifierFixups) — external callers
-// of the file's exported declarations, and the file's own outbound
-// references to exported siblings staying behind, alike.
+// something Workspace.DetectMoveConflicts can prove in advance — a method
+// left without its receiver type, a name collision at the destination,
+// the moved code depending on an unexported sibling staying behind, or
+// code staying behind depending on an unexported declaration that's
+// leaving. Otherwise every surviving reference across the move boundary
+// has its qualifier fixed up first (Workspace.ComputeQualifierFixups) —
+// external callers of the file's exported declarations, and the file's
+// own outbound references to exported siblings staying behind, alike.
 func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.PkgPath, newName string) error {
 	if newPkgPath == "" && newName == "" {
 		return fmt.Errorf("nothing to do for %q: give newPkgPath and/or newName", fileName)
@@ -34,7 +34,7 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 			continue
 		}
 		isXTest := i == 1
-		path, err := fileAddress(owner, fileName)
+		path, err := packageFilePath(owner, fileName)
 		if err != nil {
 			return err
 		}
@@ -52,11 +52,11 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 		if newName != "" {
 			baseName = newName
 		}
-		newPath, err := fileAddress(destOwner, baseName)
+		newPath, err := packageFilePath(destOwner, baseName)
 		if err != nil {
 			return err
 		}
-		if _, _, exists := tx.resolveFile(newPath); exists {
+		if _, _, exists := tx.resolveFileByPath(newPath); exists {
 			return fmt.Errorf("file %q already exists", newPath)
 		}
 		if destOwner == owner {
@@ -70,10 +70,10 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 				movingKeys = append(movingKeys, sym.Key())
 			}
 		}
-		if conflicts := tx.ws.MoveConflicts(pkg, newPkgPath, movingKeys); len(conflicts) > 0 {
+		if conflicts := tx.ws.DetectMoveConflicts(pkg, newPkgPath, movingKeys); len(conflicts) > 0 {
 			return fmt.Errorf("moving %q to %q would break the workspace: %s", fileName, newPkgPath, strings.Join(conflicts, "; "))
 		}
-		fixups, ferr := tx.ws.QualifierFixups(pkg, newPkgPath, movingKeys)
+		fixups, ferr := tx.ws.ComputeQualifierFixups(pkg, newPkgPath, movingKeys)
 		if ferr != nil {
 			return ferr
 		}
@@ -105,7 +105,7 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 		}
 		tx.ws.DropFile(pkg, isXTest, path)
 		tx.touch(path)
-		return tx.reloadFile(newPkgPath, false, newPath, candidate)
+		return tx.installFile(newPkgPath, false, newPath, candidate)
 	}
 	return fmt.Errorf("no file %q in %q", fileName, pkg)
 }
@@ -137,7 +137,7 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 		return fmt.Errorf("%q is not a valid package name", newBase)
 	}
 
-	edits := tx.ws.PackageMoveSplices(oldPkg, newPkg, renameName, oldBase, newBase)
+	edits := tx.ws.ComputePackageMoveSplices(oldPkg, newPkg, renameName, oldBase, newBase)
 	if err := tx.applyFileSplices(toSplices(edits)); err != nil {
 		return err
 	}
@@ -196,7 +196,7 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 				}
 				candidate = applySplices(file.Src(), fileSplices)
 			}
-			if err := tx.reloadFile(newPkg, isXTest, newPath, candidate); err != nil {
+			if err := tx.installFile(newPkg, isXTest, newPath, candidate); err != nil {
 				return err
 			}
 		}
@@ -221,13 +221,13 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 // inherited const values) moves the *whole* group together instead of
 // just that member, since extracting it alone would break the positions
 // of the rest — Workspace.PositionDependentGroupMembers computes that set
-// and MoveConflicts is checked against all of it, not just the named key.
-// Cross-package relocation rewrites qualifiers at every surviving use
-// site (Workspace.QualifierFixups): a same-package reference gains the
-// destination's qualifier, one already qualified toward the destination
-// loses it, and any other qualifier is repointed — see relocateSymbol.
-// Moves never cross the test build boundary, and the destination file is
-// created when missing.
+// and DetectMoveConflicts is checked against all of it, not just the
+// named key. Cross-package relocation rewrites qualifiers at every
+// surviving use site (Workspace.ComputeQualifierFixups): a same-package
+// reference gains the destination's qualifier, one already qualified
+// toward the destination loses it, and any other qualifier is repointed
+// — see relocateSymbol. Moves never cross the test build boundary, and
+// the destination file is created when missing.
 func (tx *Tx) MoveSymbol(pkg address.PkgPath, key string, newPkgPath address.PkgPath, newFileName, newSymbolKey string) error {
 	if newPkgPath != "" && newFileName == "" {
 		return fmt.Errorf("newPkgPath given without newFileName: a cross-package move must name the destination file")
@@ -271,24 +271,24 @@ func (tx *Tx) MoveSymbol(pkg address.PkgPath, key string, newPkgPath address.Pkg
 // relocateSymbol is MoveSymbol's file-relocation half: extract key's
 // declaration from srcPkg and splice it into a file of destPkg (destPkg
 // equals srcPkg for a same-package move). destPkg must already exist.
-// Cross-package relocation is refused when Workspace.MoveConflicts can
-// prove in advance it would break the workspace — checked against every
-// key Workspace.PositionDependentGroupMembers says will actually move,
-// not just the one named, since a position-dependent const group moves
-// as a whole and the safety check must see exactly what ExtractDecl is
-// about to act on. Otherwise every surviving reference across the move
-// boundary has its qualifier fixed up first (Workspace.QualifierFixups),
-// so both the declaration's callers and the declaration's own outbound
-// references keep resolving from their new vantage point — see
-// applyQualifierFixups and extractInto for the shared mechanics
-// MoveSymbolGroup also composes on. Private: composed by MoveSymbol,
-// never called standalone.
+// Cross-package relocation is refused when Workspace.DetectMoveConflicts
+// can prove in advance it would break the workspace — checked against
+// every key Workspace.PositionDependentGroupMembers says will actually
+// move, not just the one named, since a position-dependent const group
+// moves as a whole and the safety check must see exactly what
+// relocateDeclaration is about to act on. Otherwise every surviving
+// reference across the move boundary has its qualifier fixed up first
+// (Workspace.ComputeQualifierFixups), so both the declaration's callers
+// and the declaration's own outbound references keep resolving from
+// their new vantage point — see applyQualifierFixups and
+// relocateDeclaration for the shared mechanics MoveSymbolGroup also
+// composes on. Private: composed by MoveSymbol, never called standalone.
 func (tx *Tx) relocateSymbol(srcPkg, destPkg address.PkgPath, key, fileName string) error {
 	destOwner, ok := tx.resolvePackage(destPkg)
 	if !ok {
 		return fmt.Errorf("no package at %q: create_package first", destPkg)
 	}
-	destPath, err := fileAddress(destOwner, fileName)
+	destPath, err := packageFilePath(destOwner, fileName)
 	if err != nil {
 		return err
 	}
@@ -296,13 +296,13 @@ func (tx *Tx) relocateSymbol(srcPkg, destPkg address.PkgPath, key, fileName stri
 	if err != nil {
 		return err
 	}
-	if conflicts := tx.ws.MoveConflicts(srcPkg, destPkg, movingKeys); len(conflicts) > 0 {
+	if conflicts := tx.ws.DetectMoveConflicts(srcPkg, destPkg, movingKeys); len(conflicts) > 0 {
 		return fmt.Errorf("moving %q to %q would break the workspace: %s", key, destPkg, strings.Join(conflicts, "; "))
 	}
 	if err := tx.applyQualifierFixups(srcPkg, destPkg, movingKeys); err != nil {
 		return err
 	}
-	return tx.extractInto(srcPkg, destPkg, key, destPath)
+	return tx.relocateDeclaration(srcPkg, destPkg, key, destPath)
 }
 
 // renameSymbol renames key to newName everywhere: the defining identifier,
@@ -336,7 +336,7 @@ func (tx *Tx) renameSymbol(pkg address.PkgPath, key, newName string) error {
 	if sp, ok := tx.leadingDocWord(sym.File, symbolDoc(sym), "", sym.Name); ok {
 		edits[sym.File] = append(edits[sym.File], splice{span: sp, repl: []byte(newName)})
 	}
-	uses, err := tx.ws.RenameSplices(pkg, key, newName)
+	uses, err := tx.ws.ComputeRenameSplices(pkg, key, newName)
 	if err != nil {
 		return err
 	}
@@ -355,7 +355,7 @@ func (tx *Tx) applyQualifierFixups(srcPkg, destPkg address.PkgPath, movingKeys [
 	if srcPkg == destPkg {
 		return nil
 	}
-	fixups, err := tx.ws.QualifierFixups(srcPkg, destPkg, movingKeys)
+	fixups, err := tx.ws.ComputeQualifierFixups(srcPkg, destPkg, movingKeys)
 	if err != nil {
 		return err
 	}
@@ -365,18 +365,20 @@ func (tx *Tx) applyQualifierFixups(srcPkg, destPkg address.PkgPath, movingKeys [
 	return tx.applyFileSplices(toSplices(fixups))
 }
 
-// extractInto extracts key's own declaration from srcPkg and splices it
-// into destPath (already resolved, already confirmed to belong to
-// destPkg) — the mechanical half of a relocation, with no safety checks
-// of its own beyond the two structural guards every relocation needs
-// regardless of scope (already-there, test-boundary crossing): callers
-// (relocateSymbol, MoveSymbolGroup) are responsible for MoveConflicts
-// and QualifierFixups first, since a batch of several keys must be
-// checked together, not once per key. Always resolves srcPkg/key and
-// destPkg fresh from tx.ws — never a pointer a caller might be holding
-// from before an earlier key's own reloadFile in the same batch forked
-// the package out from under it.
-func (tx *Tx) extractInto(srcPkg, destPkg address.PkgPath, key string, destPath address.RelativePath) error {
+// relocateDeclaration extracts key's own declaration from srcPkg and
+// splices it into destPath (already resolved, already confirmed to
+// belong to destPkg) — the mechanical half of a relocation, with no
+// safety checks of its own beyond the two structural guards every
+// relocation needs regardless of scope (already-there, test-boundary
+// crossing): callers (relocateSymbol, MoveSymbolGroup) are responsible
+// for DetectMoveConflicts and applyQualifierFixups first, and only once,
+// up front — not here, since a batch relocates several keys one at a
+// time and an already-relocated key no longer resolves from srcPkg, so a
+// conflict check repeated mid-batch would incorrectly see it as left
+// behind. Always resolves srcPkg/key and destPkg fresh from tx.ws — never
+// a pointer a caller might be holding from before an earlier key's own
+// installFile in the same batch forked the package out from under it.
+func (tx *Tx) relocateDeclaration(srcPkg, destPkg address.PkgPath, key string, destPath address.RelativePath) error {
 	sym, owner, ok := tx.resolveSymbol(srcPkg, key)
 	if !ok {
 		return fmt.Errorf("no symbol %q in %q", key, srcPkg)
@@ -392,7 +394,7 @@ func (tx *Tx) extractInto(srcPkg, destPkg address.PkgPath, key string, destPath 
 		return fmt.Errorf("moving %q from %q to %q would cross the test build boundary", key, sym.File, destPath)
 	}
 	srcIsXTest := isXTestOwner(tx.ws, srcPkg, owner)
-	src, extractSplice, err := tx.ws.ExtractDecl(srcPkg, key)
+	src, extractSplice, err := tx.ws.ExtractDeclaration(srcPkg, key)
 	if err != nil {
 		return err
 	}
@@ -401,17 +403,17 @@ func (tx *Tx) extractInto(srcPkg, destPkg address.PkgPath, key string, destPath 
 		return err
 	}
 	dest, inDest := destOwner.File(destPath)
-	if _, _, exists := tx.resolveFile(destPath); exists && !inDest {
+	if _, _, exists := tx.resolveFileByPath(destPath); exists && !inDest {
 		return fmt.Errorf("file %q belongs to another package", destPath)
 	}
 	file, _ := owner.File(sym.File)
-	if err := tx.reloadFile(srcPkg, srcIsXTest, sym.File, applySplices(file.Src(), []splice{{span: span{start: extractSplice.Start, end: extractSplice.End}}})); err != nil {
+	if err := tx.installFile(srcPkg, srcIsXTest, sym.File, applySplices(file.Src(), []splice{{span: span{start: extractSplice.Start, end: extractSplice.End}}})); err != nil {
 		return err
 	}
 	if !inDest {
-		return tx.reloadFile(destPkg, false, destPath, []byte("package "+destOwner.Name+"\n\n"+src+"\n"))
+		return tx.installFile(destPkg, false, destPath, []byte("package "+destOwner.Name+"\n\n"+src+"\n"))
 	}
-	dest, _, ok = tx.resolveFile(destPath)
+	dest, _, ok = tx.resolveFileByPath(destPath)
 	if !ok {
 		return fmt.Errorf("internal error: %q vanished after relocation", destPath)
 	}
@@ -419,7 +421,7 @@ func (tx *Tx) extractInto(srcPkg, destPkg address.PkgPath, key string, destPath 
 	if !ok {
 		return fmt.Errorf("cannot locate insertion point in %q", destPath)
 	}
-	return tx.reloadFile(destPkg, false, destPath, applySplices(dest.Src(), []splice{{span: span{start: at, end: at}, repl: []byte("\n\n" + src + "\n")}}))
+	return tx.installFile(destPkg, false, destPath, applySplices(dest.Src(), []splice{{span: span{start: at, end: at}, repl: []byte("\n\n" + src + "\n")}}))
 }
 
 // MoveSymbolGroup relocates several symbols from pkg to the same
@@ -432,16 +434,16 @@ func (tx *Tx) extractInto(srcPkg, destPkg address.PkgPath, key string, destPath 
 // nobody's asked for — rename first with MoveSymbol, then move. Every
 // key's own position-dependent group (Workspace.
 // PositionDependentGroupMembers) is unioned into the moving set before
-// MoveConflicts sees any of it, so a batch that happens to include an
-// iota member is exactly as safe as the single-key path. Extraction then
-// collapses to one representative key per position-dependent group —
-// ExtractDecl already pulls a whole such group's text from any one
-// member, so calling extractInto for every member of the same group
-// would try to re-resolve siblings the first call already spliced away.
-// Types are placed before their own methods regardless of input order,
-// so InsertOffset's "attach to your receiver" placement resolves
-// correctly for a method landing right after the type it just moved in
-// with.
+// DetectMoveConflicts sees any of it, so a batch that happens to include
+// an iota member is exactly as safe as the single-key path. Extraction
+// then collapses to one representative key per position-dependent group
+// — ExtractDeclaration already pulls a whole such group's text from any
+// one member, so calling relocateDeclaration for every member of the
+// same group would try to re-resolve siblings the first call already
+// spliced away. Types are placed before their own methods regardless of
+// input order, so InsertOffset's "attach to your receiver" placement
+// resolves correctly for a method landing right after the type it just
+// moved in with.
 func (tx *Tx) MoveSymbolGroup(pkg address.PkgPath, keys []string, newPkgPath address.PkgPath, newFileName string) error {
 	if len(keys) < 2 {
 		return fmt.Errorf("MoveSymbolGroup needs at least two symbol_keys; refactor_move_symbol's single-key path already covers one")
@@ -454,7 +456,7 @@ func (tx *Tx) MoveSymbolGroup(pkg address.PkgPath, keys []string, newPkgPath add
 	if !ok {
 		return fmt.Errorf("no package at %q: create_package first", destPkg)
 	}
-	destPath, err := fileAddress(destOwner, newFileName)
+	destPath, err := packageFilePath(destOwner, newFileName)
 	if err != nil {
 		return err
 	}
@@ -473,7 +475,7 @@ func (tx *Tx) MoveSymbolGroup(pkg address.PkgPath, keys []string, newPkgPath add
 			}
 		}
 	}
-	if conflicts := tx.ws.MoveConflicts(pkg, destPkg, movingKeys); len(conflicts) > 0 {
+	if conflicts := tx.ws.DetectMoveConflicts(pkg, destPkg, movingKeys); len(conflicts) > 0 {
 		return fmt.Errorf("moving %v to %q would break the workspace: %s", keys, destPkg, strings.Join(conflicts, "; "))
 	}
 	if err := tx.applyQualifierFixups(pkg, destPkg, movingKeys); err != nil {
@@ -508,7 +510,7 @@ func (tx *Tx) MoveSymbolGroup(pkg address.PkgPath, keys []string, newPkgPath add
 		}
 	}
 	for _, key := range ordered {
-		if err := tx.extractInto(pkg, destPkg, key, destPath); err != nil {
+		if err := tx.relocateDeclaration(pkg, destPkg, key, destPath); err != nil {
 			return err
 		}
 	}

@@ -39,7 +39,7 @@ type Package struct {
 }
 
 // NewPackage constructs a package with its type-checker output, the load
-// path's other door for the fields NewPackage/AddLoadedFile own — direct
+// path's other door for the fields NewPackage/LoadFile own — direct
 // struct literals from outside this package can no longer set typesPkg/
 // typesInfo now that they're sealed.
 func NewPackage(name string, path address.RelativePath, pkgPath address.PkgPath, typesPkg *types.Package, typesInfo *types.Info, external bool) *Package {
@@ -53,10 +53,10 @@ func NewPackage(name string, path address.RelativePath, pkgPath address.PkgPath,
 	}
 }
 
-// AddLoadedFile installs bytes with the loader's AST as a clean file — the
+// LoadFile installs bytes with the loader's AST as a clean file — the
 // load path's door for content, where the AST is the one the type checker
 // saw and is stored as-is; SwapFile is the mutation path's door.
-func (p *Package) AddLoadedFile(path address.RelativePath, src []byte, astFile *ast.File) {
+func (p *Package) LoadFile(path address.RelativePath, src []byte, astFile *ast.File) {
 	if p.files == nil {
 		p.files = make(map[address.RelativePath]*File)
 	}

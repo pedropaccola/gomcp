@@ -28,13 +28,11 @@ type Splice struct {
 // shared type forced across the boundary for a two-field struct.
 type span struct{ start, end int }
 
-// objKey identifies a types.Object semantically as "importpath:Recv.Name".
-// Pointer identity is deliberately avoided: the same declaration yields
-// distinct object instances in a package's plain and test-expanded
-// variants.
-func objKey(obj types.Object) string {
+// keyOf computes obj's ObjectKey, or ok=false when obj carries no
+// resolvable identity (nil, or missing its package).
+func keyOf(obj types.Object) (ObjectKey, bool) {
 	if obj == nil || obj.Pkg() == nil {
-		return ""
+		return "", false
 	}
 	name := obj.Name()
 	if fn, ok := obj.(*types.Func); ok {
@@ -44,7 +42,7 @@ func objKey(obj types.Object) string {
 			}
 		}
 	}
-	return obj.Pkg().Path() + ":" + name
+	return ObjectKey(obj.Pkg().Path() + ":" + name), true
 }
 
 // recvNameOfType unwraps a receiver's types.Type down to its base type
@@ -192,14 +190,14 @@ func (w *Workspace) allPackages() []*Package {
 }
 
 // referencesTo finds every symbol, across every workspace package, whose
-// declaration resolves a reference to target (an objKey identity) —
+// declaration resolves a reference to target (an ObjectKey identity) —
 // excluding exclude and any symbol already collected (self-references,
 // recursion). Only matches package-level declarations and methods — see
 // isPackageLevelUse's doc comment for why that guard matters. The same
 // identity-not-pointer matching SymbolsReferencing (scanning.go) uses,
-// here scoped to one call site's own MoveConflicts check instead of a
-// public, address-resolved scan.
-func (w *Workspace) referencesTo(target string, exclude *Symbol) []symbolRef {
+// here scoped to one call site's own DetectMoveConflicts check instead of
+// a public, address-resolved scan.
+func (w *Workspace) referencesTo(target ObjectKey, exclude *Symbol) []symbolRef {
 	seen := make(map[*Symbol]bool)
 	var out []symbolRef
 	for _, p := range w.allPackages() {
@@ -210,7 +208,8 @@ func (w *Workspace) referencesTo(target string, exclude *Symbol) []symbolRef {
 			if !isPackageLevelUse(obj) {
 				continue
 			}
-			if objKey(obj) != target {
+			key, ok := keyOf(obj)
+			if !ok || key != target {
 				continue
 			}
 			encl, ok := symbolAt(p, ident.Pos())
@@ -224,7 +223,7 @@ func (w *Workspace) referencesTo(target string, exclude *Symbol) []symbolRef {
 	return out
 }
 
-// MoveConflicts reports every reason relocating movingKeys (all currently
+// DetectMoveConflicts reports every reason relocating movingKeys (all currently
 // declared in srcPkg) to destPkg would break something — nil means the
 // move is safe. Same-package moves are always safe: nothing about
 // visibility or receiver locality changes when the package doesn't.
@@ -255,8 +254,8 @@ func (w *Workspace) referencesTo(target string, exclude *Symbol) []symbolRef {
 //     scope itself, not some inner function/block scope.)
 //  4. Blocking referrer: does code staying behind in srcPkg reference an
 //     unexported symbol that's leaving? (An exported one leaving is a
-//     fixup, not a conflict — see QualifierFixups.)
-func (w *Workspace) MoveConflicts(srcPkg, destPkg address.PkgPath, movingKeys []string) []string {
+//     fixup, not a conflict — see ComputeQualifierFixups.)
+func (w *Workspace) DetectMoveConflicts(srcPkg, destPkg address.PkgPath, movingKeys []string) []string {
 	if srcPkg == destPkg {
 		return nil
 	}
@@ -270,10 +269,12 @@ func (w *Workspace) MoveConflicts(srcPkg, destPkg address.PkgPath, movingKeys []
 			moving = append(moving, resolved{sym, owner})
 		}
 	}
-	movingObjKeys := make(map[string]bool, len(moving))
+	movingObjKeys := make(map[ObjectKey]bool, len(moving))
 	movingNames := make(map[string]bool, len(moving))
 	for _, m := range moving {
-		movingObjKeys[objKey(objectOf(m.owner, m.sym))] = true
+		if k, ok := keyOf(objectOf(m.owner, m.sym)); ok {
+			movingObjKeys[k] = true
+		}
 		if m.sym.Kind == KindType {
 			movingNames[m.sym.Name] = true
 		}
@@ -299,7 +300,8 @@ func (w *Workspace) MoveConflicts(srcPkg, destPkg address.PkgPath, movingKeys []
 	srcOwner, ok := w.prodPackage(srcPkg)
 	if ok {
 		for _, s := range srcOwner.Symbols() {
-			if s.Kind != KindMethod || movingObjKeys[objKey(objectOf(srcOwner, s))] {
+			k, _ := keyOf(objectOf(srcOwner, s))
+			if s.Kind != KindMethod || movingObjKeys[k] {
 				continue // not a method, or already moving with its receiver
 			}
 			if movingNames[s.Recv] {
@@ -323,10 +325,13 @@ func (w *Workspace) MoveConflicts(srcPkg, destPkg address.PkgPath, movingKeys []
 				if obj == nil || obj.Pkg() == nil || obj.Parent() != pkgScope {
 					return true
 				}
-				if obj.Pkg().Path() == string(srcPkg) && !obj.Exported() && !movingObjKeys[objKey(obj)] {
-					conflicts = append(conflicts, fmt.Sprintf(
-						"%q depends on unexported %q, which stays in %q",
-						sym.Key(), obj.Name(), srcPkg))
+				if obj.Pkg().Path() == string(srcPkg) && !obj.Exported() {
+					k, _ := keyOf(obj)
+					if !movingObjKeys[k] {
+						conflicts = append(conflicts, fmt.Sprintf(
+							"%q depends on unexported %q, which stays in %q",
+							sym.Key(), obj.Name(), srcPkg))
+					}
 				}
 				return true
 			})
@@ -339,12 +344,13 @@ func (w *Workspace) MoveConflicts(srcPkg, destPkg address.PkgPath, movingKeys []
 		if obj == nil || obj.Exported() {
 			continue
 		}
-		target := objKey(obj)
-		if target == "" {
+		target, ok := keyOf(obj)
+		if !ok {
 			continue
 		}
 		for _, ref := range w.referencesTo(target, sym) {
-			if movingObjKeys[objKey(objectOf(ref.Pkg, ref.Sym))] {
+			k, _ := keyOf(objectOf(ref.Pkg, ref.Sym))
+			if movingObjKeys[k] {
 				continue // also moving, not left behind
 			}
 			conflicts = append(conflicts, fmt.Sprintf(
@@ -356,7 +362,7 @@ func (w *Workspace) MoveConflicts(srcPkg, destPkg address.PkgPath, movingKeys []
 	return conflicts
 }
 
-// QualifierFixups computes the splices needed so every surviving reference
+// ComputeQualifierFixups computes the splices needed so every surviving reference
 // across the moving/srcPkg boundary still resolves once moving relocates
 // from srcPkg to destPkg, in both directions:
 //   - Inbound: an external reference to an exported moving symbol. A
@@ -365,7 +371,7 @@ func (w *Workspace) MoveConflicts(srcPkg, destPkg address.PkgPath, movingKeys []
 //     qualifier, and one qualified toward any other package gets it
 //     repointed.
 //   - Outbound: a moving declaration's own reference to an exported
-//     symbol staying behind in srcPkg (MoveConflicts only refuses an
+//     symbol staying behind in srcPkg (DetectMoveConflicts only refuses an
 //     *unexported* one; an exported one isn't a conflict, but the
 //     reference still needs to gain srcPkg's qualifier once the
 //     referencing code itself relocates).
@@ -373,7 +379,7 @@ func (w *Workspace) MoveConflicts(srcPkg, destPkg address.PkgPath, movingKeys []
 // A reference between two symbols that are both moving is left untouched
 // either way — both land in destPkg together, unqualified is still
 // correct on the other side. Only ever reached for a cross-package move —
-// MoveConflicts already refused every case this can't repair.
+// DetectMoveConflicts already refused every case this can't repair.
 //
 // Only a genuine package-level declaration (type, func, var, const) is
 // ever a qualifier-fixup target — never a method: a method call's own
@@ -384,11 +390,12 @@ func (w *Workspace) MoveConflicts(srcPkg, destPkg address.PkgPath, movingKeys []
 // qualifier to fix up, and those reach this function as plain
 // identifiers, not through a moving method's call sites.
 //
-// movingKeys is resolved to symbols here, fresh, matching MoveConflicts —
-// see its doc comment for why. Parameter order matches MoveConflicts'
-// (srcPkg, destPkg, movingKeys), not the reverse — the two are always
-// called back-to-back on the same relocation.
-func (w *Workspace) QualifierFixups(srcPkg, destPkg address.PkgPath, movingKeys []string) ([]Splice, error) {
+// movingKeys is resolved to symbols here, fresh, matching
+// DetectMoveConflicts — see its doc comment for why. Parameter order
+// matches DetectMoveConflicts' (srcPkg, destPkg, movingKeys), not the
+// reverse — the two are always called back-to-back on the same
+// relocation.
+func (w *Workspace) ComputeQualifierFixups(srcPkg, destPkg address.PkgPath, movingKeys []string) ([]Splice, error) {
 	destOwner, ok := w.prodPackage(destPkg)
 	if !ok {
 		return nil, fmt.Errorf("no package at %q", destPkg)
@@ -410,8 +417,8 @@ func (w *Workspace) QualifierFixups(srcPkg, destPkg address.PkgPath, movingKeys 
 
 	type declSpan struct{ start, end token.Pos }
 	movingSpans := make(map[address.RelativePath][]declSpan, len(moving))
-	movingObjKeys := make(map[string]bool, len(moving))
-	inboundTargets := make(map[string]bool, len(moving))
+	movingObjKeys := make(map[ObjectKey]bool, len(moving))
+	inboundTargets := make(map[ObjectKey]bool, len(moving))
 	for _, m := range moving {
 		sym, owner := m.sym, m.owner
 		movingSpans[sym.File] = append(movingSpans[sym.File], declSpan{sym.Decl().Pos(), sym.Decl().End()})
@@ -419,9 +426,13 @@ func (w *Workspace) QualifierFixups(srcPkg, destPkg address.PkgPath, movingKeys 
 		if obj == nil {
 			return nil, fmt.Errorf("type information unavailable for %q", sym.Key())
 		}
-		movingObjKeys[objKey(obj)] = true
+		k, ok := keyOf(obj)
+		if !ok {
+			return nil, fmt.Errorf("type information unavailable for %q", sym.Key())
+		}
+		movingObjKeys[k] = true
 		if obj.Exported() {
-			inboundTargets[objKey(obj)] = true
+			inboundTargets[k] = true
 		}
 	}
 	fromMoving := func(file address.RelativePath, pos token.Pos) bool {
@@ -439,7 +450,7 @@ func (w *Workspace) QualifierFixups(srcPkg, destPkg address.PkgPath, movingKeys 
 		if obj == nil || obj.Pkg() == nil || obj.Parent() != obj.Pkg().Scope() {
 			return
 		}
-		key := objKey(obj)
+		key, _ := keyOf(obj)
 		moving := fromMoving(file.Path, name.Pos())
 		switch {
 		case inboundTargets[key] && !moving:
@@ -484,7 +495,7 @@ func (w *Workspace) QualifierFixups(srcPkg, destPkg address.PkgPath, movingKeys 
 	return edits, nil
 }
 
-// RenameSplices computes the splices renaming every resolved reference to
+// ComputeRenameSplices computes the splices renaming every resolved reference to
 // pkg's key (matched by qualified name, not pointer identity — a
 // declaration's plain and test-expanded variants yield distinct
 // *types.Func instances for the same object) to newName, across the
@@ -493,16 +504,16 @@ func (w *Workspace) QualifierFixups(srcPkg, destPkg address.PkgPath, movingKeys 
 // resolved Symbol itself, which the caller already has in hand before
 // reaching this. Only matches package-level declarations and methods —
 // see isPackageLevelUse's doc comment for why that guard matters.
-// Aggregate-owned analysis, same rationale as MoveConflicts: key is
+// Aggregate-owned analysis, same rationale as DetectMoveConflicts: key is
 // resolved fresh here, not accepted as a pointer a caller might already
 // be holding.
-func (w *Workspace) RenameSplices(pkg address.PkgPath, key, newName string) ([]Splice, error) {
+func (w *Workspace) ComputeRenameSplices(pkg address.PkgPath, key, newName string) ([]Splice, error) {
 	sym, owner, ok := w.resolveSymbol(pkg, key)
 	if !ok {
 		return nil, fmt.Errorf("no symbol %q in %q", key, pkg)
 	}
-	target := objKey(objectOf(owner, sym))
-	if target == "" {
+	target, ok := keyOf(objectOf(owner, sym))
+	if !ok {
 		return nil, fmt.Errorf("type information unavailable for %q", key)
 	}
 	var edits []Splice
@@ -514,7 +525,8 @@ func (w *Workspace) RenameSplices(pkg address.PkgPath, key, newName string) ([]S
 			if !isPackageLevelUse(obj) {
 				continue
 			}
-			if objKey(obj) != target {
+			k, ok := keyOf(obj)
+			if !ok || k != target {
 				continue
 			}
 			file, ok := fileContaining(p, ident.Pos())
@@ -529,7 +541,7 @@ func (w *Workspace) RenameSplices(pkg address.PkgPath, key, newName string) ([]S
 	return edits, nil
 }
 
-// PackageMoveSplices computes the import-path and (when renameName)
+// ComputePackageMoveSplices computes the import-path and (when renameName)
 // qualifier-rename splices every importer of oldPkg needs once it moves
 // to newPkg — oldBase/newBase are the package's bare name before and
 // after, only consulted when renameName is true (the package's name
@@ -537,8 +549,8 @@ func (w *Workspace) RenameSplices(pkg address.PkgPath, key, newName string) ([]S
 // base). The moving package's own production half is never a target
 // (its files are disjoint from what needs to change); its XTest half is,
 // since it imports its own Prod sibling. Aggregate-owned analysis, same
-// rationale as MoveConflicts.
-func (w *Workspace) PackageMoveSplices(oldPkg, newPkg address.PkgPath, renameName bool, oldBase, newBase string) []Splice {
+// rationale as DetectMoveConflicts.
+func (w *Workspace) ComputePackageMoveSplices(oldPkg, newPkg address.PkgPath, renameName bool, oldBase, newBase string) []Splice {
 	prodOwner, _ := w.prodPackage(oldPkg)
 	oldImport, newImport := string(oldPkg), string(newPkg)
 	var edits []Splice
@@ -612,6 +624,12 @@ type symbolRef struct {
 	Sym *Symbol
 }
 
+// ObjectKey identifies a types.Object semantically as "importpath:Recv.Name".
+// Pointer identity is deliberately avoided: the same declaration yields
+// distinct object instances in a package's plain and test-expanded
+// variants.
+type ObjectKey string
+
 // fileContaining finds which of pkg's files owns pos — positions never
 // overlap across files in a shared FileSet, so a range check against
 // each file's own AST span is sufficient, no path translation needed.
@@ -626,14 +644,14 @@ func fileContaining(pkg *Package, pos token.Pos) (*File, bool) {
 
 // isPackageLevelUse reports whether obj (typically a TypesInfo.Uses
 // entry) denotes a genuine package-level declaration or a method — never
-// a struct field, local variable, or parameter. objKey's (package path,
+// a struct field, local variable, or parameter. ObjectKey's (package path,
 // name) identity can't safely distinguish those from an unrelated
 // top-level declaration sharing that bare name in the same package (a
 // struct field colliding with a moving type of the same name is the
 // case that actually broke this once); Parent() is the package scope for
 // ordinary top-level declarations, and nil for a method's receiver-bound
 // Func alongside fields/locals/params — methods are told apart by having
-// a receiver, which is what objKey's own compound key already keys on.
+// a receiver, which is what ObjectKey's own compound key already keys on.
 func isPackageLevelUse(obj types.Object) bool {
 	if obj == nil || obj.Pkg() == nil {
 		return false

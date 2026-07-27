@@ -17,11 +17,11 @@ func (tx *Tx) EditFile(pkg address.PkgPath, name, doc string) error {
 	if !ok {
 		return fmt.Errorf("no package at %q", pkg)
 	}
-	path, err := fileAddress(p, name)
+	path, err := packageFilePath(p, name)
 	if err != nil {
 		return err
 	}
-	file, _, ok := tx.resolveFile(path)
+	file, _, ok := tx.resolveFileByPath(path)
 	if !ok {
 		return fmt.Errorf("no file %q in %q", name, pkg)
 	}
@@ -35,7 +35,7 @@ func (tx *Tx) EditFile(pkg address.PkgPath, name, doc string) error {
 		return fmt.Errorf("cannot locate doc comment span in %q", path)
 	}
 	candidate := applySplices(file.Src(), []splice{{span: docSpan, repl: renderDocComment(doc)}})
-	return tx.reloadFile(pkg, false, path, candidate)
+	return tx.installFile(pkg, false, path, candidate)
 }
 
 // EditSymbol replaces key's whole declaration with src — for members of
@@ -53,7 +53,7 @@ func (tx *Tx) EditFile(pkg address.PkgPath, name, doc string) error {
 // that converts the group's structure, not just one value, and isn't
 // supported through a single member's replacement.
 func (tx *Tx) EditSymbol(pkg address.PkgPath, key, src string) error {
-	wasPositionDependent, groupTok, target, err := tx.ws.EditPlan(pkg, key)
+	wasPositionDependent, groupTok, target, err := tx.ws.ComputeEditPlan(pkg, key)
 	if err != nil {
 		return err
 	}
@@ -77,12 +77,12 @@ func (tx *Tx) EditSymbol(pkg address.PkgPath, key, src string) error {
 	if wasPositionDependent && !slices.Contains(frag.keys, key) {
 		return fmt.Errorf("%q is missing from the replacement: a position-dependent group member can't be renamed through edit_symbol, use refactor_move_symbol instead", key)
 	}
-	if collisions := tx.ws.EditCollisions(pkg, key, frag.keys); len(collisions) > 0 {
+	if collisions := tx.ws.DetectEditCollisions(pkg, key, frag.keys); len(collisions) > 0 {
 		return fmt.Errorf("replacement declares %q, which already exists in %q", collisions[0], pkg)
 	}
-	file, owner, ok := tx.resolveFile(target.Path)
+	file, owner, ok := tx.resolveFileByPath(target.Path)
 	if !ok {
 		return fmt.Errorf("internal error: %q vanished while editing %q", target.Path, key)
 	}
-	return tx.reloadFile(pkg, isXTestOwner(tx.ws, pkg, owner), target.Path, applySplices(file.Src(), []splice{{span: span{start: target.Start, end: target.End}, repl: []byte(replacement)}}))
+	return tx.installFile(pkg, isXTestOwner(tx.ws, pkg, owner), target.Path, applySplices(file.Src(), []splice{{span: span{start: target.Start, end: target.End}, repl: []byte(replacement)}}))
 }

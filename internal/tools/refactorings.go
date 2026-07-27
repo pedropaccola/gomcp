@@ -34,14 +34,14 @@ type MoveSymbolInput struct {
 func moveSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveSymbolInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in MoveSymbolInput) (*mcp.CallToolResult, WriteOutput, error) {
 		_, out, err := runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
-			pkg, err := packageArg(tx.View, in.PkgPath)
+			pkg, err := writeWorkspacePkg(tx.View, in.PkgPath)
 			if err != nil {
 				return err
 			}
 			var newPkg address.PkgPath
 			destPkg := pkg
 			if newPkgPath := optStr(in.NewPkgPath); newPkgPath != "" {
-				newPkg, err = packageArg(tx.View, newPkgPath)
+				newPkg, err = writeWorkspacePkg(tx.View, newPkgPath)
 				if err != nil {
 					return err
 				}
@@ -49,7 +49,7 @@ func moveSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveSymb
 			}
 			var newFile string
 			if newFileName := optStr(in.NewFileName); newFileName != "" {
-				newFile, err = fileArg(tx.Module(), destPkg, newFileName)
+				newFile, err = canonicalizeFile(tx.Module(), destPkg, newFileName)
 				if err != nil {
 					return err
 				}
@@ -79,17 +79,17 @@ func moveSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveSymb
 func moveFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveFileInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in MoveFileInput) (*mcp.CallToolResult, WriteOutput, error) {
 		_, out, err := runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
-			pkg, err := packageArg(tx.View, in.PkgPath)
+			pkg, err := writeWorkspacePkg(tx.View, in.PkgPath)
 			if err != nil {
 				return err
 			}
-			file, err := fileArg(tx.Module(), pkg, in.FileName)
+			file, err := canonicalizeFile(tx.Module(), pkg, in.FileName)
 			if err != nil {
 				return err
 			}
 			var newPkg address.PkgPath
 			if newPkgPath := optStr(in.NewPkgPath); newPkgPath != "" {
-				newPkg, err = packageArg(tx.View, newPkgPath)
+				newPkg, err = writeWorkspacePkg(tx.View, newPkgPath)
 				if err != nil {
 					return err
 				}
@@ -107,11 +107,11 @@ func moveFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveFileIn
 func movePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MovePackageInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in MovePackageInput) (*mcp.CallToolResult, WriteOutput, error) {
 		_, out, err := runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
-			pkg, err := packageArg(tx.View, in.PkgPath)
+			pkg, err := writeWorkspacePkg(tx.View, in.PkgPath)
 			if err != nil {
 				return err
 			}
-			newPkg, err := packageArg(tx.View, in.NewPkgPath)
+			newPkg, err := writeWorkspacePkg(tx.View, in.NewPkgPath)
 			if err != nil {
 				return err
 			}

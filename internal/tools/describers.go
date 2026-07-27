@@ -125,7 +125,7 @@ func describeFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Descri
 		out := DescribeFileOutput{Results: make([]DescribeFileResult, n)}
 		for i, entry := range in.Describes {
 			err := readPackage(ctx, eng, entry.PkgPath, func(v *gate.View, pkg dto.Package) error {
-				name, err := fileArg(v.Module(), pkg.PkgPath(), entry.FileName)
+				name, err := canonicalizeFile(v.Module(), pkg.PkgPath(), entry.FileName)
 				if err != nil {
 					return err
 				}

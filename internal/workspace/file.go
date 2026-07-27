@@ -10,7 +10,7 @@ import (
 // File invariant: src is the canonical bytes and ast is always a parse of
 // exactly src. Both are unexported so the compiler enforces it: content
 // enters through Workspace.SwapFile (mutation path, parse-enforcing) or
-// Package.AddLoadedFile (load path, the type checker's own AST) — never by
+// Package.LoadFile (load path, the type checker's own AST) — never by
 // assignment.
 type File struct {
 	Path  address.RelativePath
@@ -41,7 +41,7 @@ func (f *File) Doc() string {
 
 // newFile builds a File from already-parsed content — the one construction
 // point behind File's two legitimate doors, Workspace.SwapFile and
-// Package.AddLoadedFile, so a future field never has to be kept in sync by
+// Package.LoadFile, so a future field never has to be kept in sync by
 // hand between them.
 func newFile(path address.RelativePath, src []byte, astFile *ast.File, dirty bool) *File {
 	return &File{Path: path, src: src, ast: astFile, dirty: dirty}

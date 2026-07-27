@@ -37,7 +37,7 @@ type Workspace struct {
 	// narrowlyChecked marks a generation assembled by a dirty-scoped
 	// recheck (SwapLoaded's narrow argument): some packages were carried
 	// forward unchanged from an earlier type-checking session rather than
-	// rebuilt in this one. objKey-based matching tolerates that fine, but
+	// rebuilt in this one. ObjectKey-based matching tolerates that fine, but
 	// SymbolsImplementing's types.Implements cannot — see its own doc
 	// comment and ErrNarrowlyChecked.
 	narrowlyChecked bool

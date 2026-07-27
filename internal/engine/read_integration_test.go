@@ -61,7 +61,7 @@ func TestLookupNavigation(t *testing.T) {
 	}
 
 	// Package addresses are canonical at the engine level — spelling
-	// tolerance lives in the tools gate (canonPkg).
+	// tolerance lives in the tools gate (canonicalizePkg).
 	if _, ok := ws.Unit("shapes"); ok {
 		t.Error("bare directory must not resolve at the engine level")
 	}
