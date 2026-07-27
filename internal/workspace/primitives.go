@@ -28,14 +28,14 @@ func (w *Workspace) Clone() *Workspace {
 // a fresh dirty File, clear any tombstone at the path, and rebuild the
 // owner's index. Every fallible step precedes the swap — an error means the
 // model is untouched.
-func (w *Workspace) SwapFile(addr address.PkgPath, isXTest bool, path address.RelativePath, filename string, src []byte) error {
+func (w *Workspace) SwapFile(addr address.PkgPath, isXTest bool, path address.FilePath, filename string, src []byte) error {
 	astFile, err := parser.ParseFile(w.fset, filename, src, parser.ParseComments|parser.SkipObjectResolution)
 	if err != nil {
 		return fmt.Errorf("%s does not parse: %w", path, err)
 	}
 	pkg := w.ensurePackageForked(addr, isXTest)
 	if pkg.files == nil {
-		pkg.files = make(map[address.RelativePath]*File)
+		pkg.files = make(map[address.FilePath]*File)
 	}
 	pkg.files[path] = newFile(path, src, astFile, true)
 	w.ensureRemovedForked()
@@ -47,19 +47,19 @@ func (w *Workspace) SwapFile(addr address.PkgPath, isXTest bool, path address.Re
 // DropFile removes one file from its owner: tombstoned for the disk
 // boundary, index rebuilt, and the unit pruned once its last file is gone
 // — an address with no files is no address.
-func (w *Workspace) DropFile(addr address.PkgPath, isXTest bool, path address.RelativePath) {
+func (w *Workspace) DropFile(addr address.PkgPath, isXTest bool, path address.FilePath) {
 	owner := w.ensurePackageForked(addr, isXTest)
 	delete(owner.files, path)
 	owner.RebuildIndex()
 	w.ensureRemovedForked()
-	w.removed[path] = tombstoneMask(owner.Name)
+	w.removed[path] = tombstoneEntry{pkg: addr, mask: tombstoneMask(owner.Name)}
 	w.pruneEmptyUnit(addr)
 }
 
 // MoveFile relocates a file within its owner — semantically free in Go,
 // files are storage. The old path is tombstoned, the new one untombstoned,
 // and the moved copy marked dirty for the next flush.
-func (w *Workspace) MoveFile(addr address.PkgPath, isXTest bool, oldPath, newPath address.RelativePath) {
+func (w *Workspace) MoveFile(addr address.PkgPath, isXTest bool, oldPath, newPath address.FilePath) {
 	owner := w.ensurePackageForked(addr, isXTest)
 	file := owner.files[oldPath]
 	moved := *file
@@ -68,7 +68,7 @@ func (w *Workspace) MoveFile(addr address.PkgPath, isXTest bool, oldPath, newPat
 	delete(owner.files, oldPath)
 	owner.files[newPath] = &moved
 	w.ensureRemovedForked()
-	w.removed[oldPath] = tombstoneMask(owner.Name)
+	w.removed[oldPath] = tombstoneEntry{pkg: addr, mask: tombstoneMask(owner.Name)}
 	delete(w.removed, newPath)
 	owner.RebuildIndex()
 }
@@ -151,7 +151,7 @@ func (w *Workspace) ensurePackageForked(addr address.PkgPath, isXTest bool) *Pac
 // half of the dirty lifecycle; SwapFile and MoveFile set the mark. Forks
 // the package first if this generation hasn't already, same as every
 // other mutating primitive.
-func (w *Workspace) MarkFlushed(addr address.PkgPath, isXTest bool, path address.RelativePath) {
+func (w *Workspace) MarkFlushed(addr address.PkgPath, isXTest bool, path address.FilePath) {
 	w.ensurePackageForked(addr, isXTest).MarkFlushed(path)
 }
 
@@ -159,7 +159,7 @@ func (w *Workspace) MarkFlushed(addr address.PkgPath, isXTest bool, path address
 // counterpart of DropFile: overlays can only mask a deleted file as empty,
 // so the mask's residue must not survive as a real file. Emptied packages
 // and units are pruned the way pruneEmptyUnit prunes installed ones.
-func DropTombstonedFile(units map[address.PkgPath]*Unit, pkg address.PkgPath, path address.RelativePath) {
+func DropTombstonedFile(units map[address.PkgPath]*Unit, pkg address.PkgPath, path address.FilePath) {
 	unit, ok := units[pkg]
 	if !ok {
 		return

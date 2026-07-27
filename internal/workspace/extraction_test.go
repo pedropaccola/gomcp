@@ -15,7 +15,7 @@ func TestExtractDeclaration(t *testing.T) {
 	if !strings.Contains(extracted, "// Foo does foo.") || !strings.Contains(extracted, "func Foo() {}") {
 		t.Errorf("ExtractDeclaration = %q, want doc comment and declaration", extracted)
 	}
-	file, _, _ := w.resolveFile("test.mod/pkg", "pkg/pkg.go")
+	file, _, _ := w.resolveFile("test.mod/pkg", "test.mod/pkg/pkg.go")
 	src := file.Src()
 	remaining := string(src[:splice.Start]) + string(src[splice.End:])
 	if strings.Contains(remaining, "Foo") {
@@ -37,7 +37,7 @@ func TestExtractDeclarationGroupedMember(t *testing.T) {
 	if !strings.Contains(extracted, "// A is first.") || !strings.Contains(extracted, "A = 1") || strings.Contains(extracted, "B") {
 		t.Errorf("ExtractDeclaration(A) = %q, want just A's own spec", extracted)
 	}
-	file, _, _ := w.resolveFile("test.mod/pkg", "pkg/pkg.go")
+	file, _, _ := w.resolveFile("test.mod/pkg", "test.mod/pkg/pkg.go")
 	src := file.Src()
 	remaining := string(src[:splice.Start]) + string(src[splice.End:])
 	if strings.Contains(remaining, "A = 1") {

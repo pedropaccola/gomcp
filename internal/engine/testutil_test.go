@@ -76,7 +76,7 @@ func copySandbox(tb testing.TB) string {
 func matchKeys(matches []dto.Match) []string {
 	out := make([]string, 0, len(matches))
 	for _, m := range matches {
-		out = append(out, m.Pkg.Path().String()+":"+m.Sym.Key())
+		out = append(out, m.Pkg.Path()+":"+m.Sym.Key())
 	}
 	return out
 }
@@ -167,8 +167,8 @@ func diffPackagePair(tb testing.TB, gotView, wantView *gate.View, addr address.P
 	}
 }
 
-func filePaths(files []*workspace.File) []address.RelativePath {
-	out := make([]address.RelativePath, len(files))
+func filePaths(files []*workspace.File) []address.FilePath {
+	out := make([]address.FilePath, len(files))
 	for i, f := range files {
 		out[i] = f.Path
 	}
@@ -185,10 +185,10 @@ func symbolKeys(symbols []*workspace.Symbol) []string {
 
 // resolveFile is a test-only reimplementation of gate's private
 // resolveFile, since tests need raw file access gate no longer exposes.
-func resolveFile(e *Engine, path address.RelativePath) (*workspace.File, *workspace.Package, bool) {
+func resolveFile(e *Engine, path address.FilePath) (*workspace.File, *workspace.Package, bool) {
 	ws := e.ws
-	path = path.Clean()
-	if unit, ok := ws.Unit(pkgAt(ws, path.Dir())); ok {
+	pkgPath := address.PkgPath(filepath.Dir(string(path)))
+	if unit, ok := ws.Unit(pkgPath); ok {
 		for _, pkg := range []*workspace.Package{unit.Prod(), unit.XTest()} {
 			if pkg == nil {
 				continue
@@ -256,4 +256,10 @@ func mustEdit(t *testing.T, e *Engine, fn func(*gate.Tx) error) *dto.EditReport 
 		t.Fatalf("recheck unavailable: %s", report.Note)
 	}
 	return report
+}
+
+// sfile addresses a sandbox file the way the engine now expects:
+// module-qualified, dir being the package's own bare directory name.
+func sfile(dir, name string) address.FilePath {
+	return address.FilePath("example.com/sandbox/" + dir + "/" + name)
 }

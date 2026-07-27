@@ -28,10 +28,9 @@ type ReloadOutput struct {
 func flush(eng *engine.Engine) mcp.ToolHandlerFor[FlushInput, FlushOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, _ FlushInput) (*mcp.CallToolResult, FlushOutput, error) {
 		written, removed, err := eng.Flush()
-		module := eng.ModulePath()
 		return nil, FlushOutput{
-			FilesWritten: filesByPackage(module, written),
-			FilesRemoved: filesByPackage(module, removed),
+			FilesWritten: filesByPackage(written),
+			FilesRemoved: filesByPackage(removed),
 		}, err
 	}
 }
@@ -43,7 +42,7 @@ func reload(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ReloadInput,
 		if err != nil {
 			return nil, out, err
 		}
-		out.FilesDiscarded = filesByPackage(eng.ModulePath(), discarded)
+		out.FilesDiscarded = filesByPackage(discarded)
 		err = eng.Read(ctx, func(v *gate.View) error {
 			out.DiagnosticsTruncated = newDiagnosticsTruncated(v.AllDiagnostics(), cfg.diagLimit)
 			return nil

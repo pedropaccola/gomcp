@@ -1,9 +1,6 @@
 package tools
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/dto"
 )
@@ -31,7 +28,7 @@ func newDiagnosticEntry(d dto.Diagnostic) DiagnosticEntry {
 	}
 	if d.File != "" {
 		e.FileName = new(string)
-		*e.FileName = string(d.File)
+		*e.FileName = d.File.Name()
 	}
 	if d.Key != "" {
 		e.SymbolKey = new(string)
@@ -40,57 +37,12 @@ func newDiagnosticEntry(d dto.Diagnostic) DiagnosticEntry {
 	return e
 }
 
-// canonicalizePkg canonicalizes an agent-supplied package address against the
-// workspace module: module-prefixed addresses pass through, bare workspace
-// directories gain the prefix. File names are refused — packages are
-// directories, always spelled alone.
-func canonicalizePkg(module address.PkgPath, addr string) (address.PkgPath, error) {
-	path, ok := address.CleanPath(addr)
-	if !ok {
-		return "", fmt.Errorf("invalid package path %q", addr)
-	}
-	if strings.HasSuffix(path.String(), ".go") {
-		return "", fmt.Errorf("%q names a file; package arguments take the package alone", addr)
-	}
-	if path == "." || address.PkgPath(path) == module {
-		return module, nil
-	}
-	if strings.HasPrefix(path.String(), module.String()+"/") {
-		return address.PkgPath(path), nil
-	}
-	return address.PkgPath(module.String() + "/" + path.String()), nil
-}
-
-// canonicalizeFile normalizes an agent-supplied file address inside pkg: a bare
-// *.go name, or a path accepted when its package agrees — spelled raw
-// (dependency and canonical workspace addresses) or workspace-relative.
-// Contradictions are refused, never guessed.
-func canonicalizeFile(module, pkg address.PkgPath, file string) (string, error) {
-	if strings.Contains(file, "/") {
-		fpath, ok := address.CleanPath(file)
-		if !ok {
-			return "", fmt.Errorf("invalid file path %q", file)
-		}
-		if address.PkgPath(fpath.Dir()) != pkg {
-			canon, err := canonicalizePkg(module, fpath.Dir().String())
-			if err != nil || canon != pkg {
-				return "", fmt.Errorf("file %q does not live in package %q", file, pkg)
-			}
-		}
-		file = fpath.Base()
-	}
-	if !strings.HasSuffix(file, ".go") {
-		return "", fmt.Errorf("file name must be a bare *.go name, got %q", file)
-	}
-	return file, nil
-}
-
 // pkgAddress composes the canonical address of a workspace directory.
-func pkgAddress(module address.PkgPath, dir address.RelativePath) string {
+func pkgAddress(module address.PkgPath, dir string) string {
 	if dir == "." {
 		return module.String()
 	}
-	return module.String() + "/" + dir.String()
+	return module.String() + "/" + dir
 }
 
 // DiagnosticsTruncated is the shared optional diagnostics view, scoped to whatever the
@@ -118,7 +70,7 @@ type DiagnosticEntry struct {
 }
 
 // diagsForFile narrows a package's diagnostics down to one file's own.
-func diagsForFile(diags []dto.Diagnostic, path address.RelativePath) []dto.Diagnostic {
+func diagsForFile(diags []dto.Diagnostic, path address.FilePath) []dto.Diagnostic {
 	out := diags[:0:0]
 	for _, d := range diags {
 		if d.File == path {

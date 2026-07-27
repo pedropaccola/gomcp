@@ -20,7 +20,7 @@ func (tx *Tx) DeleteFile(pkg address.PkgPath, name string) error {
 		if owner == nil {
 			continue
 		}
-		path, err := packageFilePath(owner, name)
+		path, err := address.NewFilePath(tx.ws.Module(), owner.PkgPath, name)
 		if err != nil {
 			return err
 		}
@@ -46,7 +46,7 @@ func (tx *Tx) DeletePackage(pkg address.PkgPath) error {
 			continue
 		}
 		for _, file := range p.Files() {
-			tx.ws.Tombstone(file.Path, p.Name)
+			tx.ws.Tombstone(pkg, file.Path, p.Name)
 			tx.touch(file.Path)
 		}
 	}

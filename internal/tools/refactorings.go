@@ -39,21 +39,13 @@ func moveSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveSymb
 				return err
 			}
 			var newPkg address.PkgPath
-			destPkg := pkg
 			if newPkgPath := optStr(in.NewPkgPath); newPkgPath != "" {
 				newPkg, err = writeWorkspacePkg(tx.View, newPkgPath)
 				if err != nil {
 					return err
 				}
-				destPkg = newPkg
 			}
-			var newFile string
-			if newFileName := optStr(in.NewFileName); newFileName != "" {
-				newFile, err = canonicalizeFile(tx.Module(), destPkg, newFileName)
-				if err != nil {
-					return err
-				}
-			}
+			newFile := optStr(in.NewFileName)
 			if len(in.SymbolKeys) > 0 {
 				if in.SymbolKey != "" {
 					return fmt.Errorf("give symbol_key or symbol_keys, not both")
@@ -83,10 +75,6 @@ func moveFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveFileIn
 			if err != nil {
 				return err
 			}
-			file, err := canonicalizeFile(tx.Module(), pkg, in.FileName)
-			if err != nil {
-				return err
-			}
 			var newPkg address.PkgPath
 			if newPkgPath := optStr(in.NewPkgPath); newPkgPath != "" {
 				newPkg, err = writeWorkspacePkg(tx.View, newPkgPath)
@@ -94,7 +82,7 @@ func moveFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveFileIn
 					return err
 				}
 			}
-			return tx.MoveFile(pkg, file, newPkg, optStr(in.NewFileName))
+			return tx.MoveFile(pkg, in.FileName, newPkg, optStr(in.NewFileName))
 		})
 		if err != nil {
 			return nil, out, err

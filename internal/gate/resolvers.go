@@ -2,6 +2,7 @@ package gate
 
 import (
 	"go/token"
+	"path/filepath"
 	"strings"
 
 	"github.com/pedropaccola/gomcp/internal/address"
@@ -34,12 +35,12 @@ func (v *View) Symbol(pkg address.PkgPath, key string) (dto.Symbol, dto.Package,
 
 // dirOf unwraps a workspace package address to its directory, comma-ok
 // false outside the module: dependencies have no workspace location.
-func (v *View) dirOf(pkg address.PkgPath) (address.RelativePath, bool) {
+func (v *View) dirOf(pkg address.PkgPath) (string, bool) {
 	if pkg == v.ws.Module() {
 		return ".", true
 	}
 	if rest, ok := strings.CutPrefix(string(pkg), string(v.ws.Module())+"/"); ok {
-		return address.RelativePath(rest), true
+		return rest, true
 	}
 	return "", false
 }
@@ -50,21 +51,16 @@ func (v *View) fsetOf(pkg *workspace.Package) *token.FileSet {
 	return v.ws.FsetOf(pkg)
 }
 
-// pkgAt wraps a workspace directory into its canonical package address.
-func (v *View) pkgAt(dir address.RelativePath) address.PkgPath {
-	if dir == "." {
-		return v.ws.Module()
-	}
-	return address.PkgPath(string(v.ws.Module()) + "/" + string(dir))
-}
-
 // resolveFileByPath resolves a file path to the file and its owning package, in
 // the workspace's own model types, checking the production package before
 // the external test package. Dependency files resolve through their
-// import-path-qualified pseudo-paths.
-func (v *View) resolveFileByPath(path address.RelativePath) (*workspace.File, *workspace.Package, bool) {
-	path = path.Clean()
-	if unit, ok := v.ws.Unit(v.pkgAt(path.Dir())); ok {
+// import-path-qualified pseudo-paths. path's own directory is its owning
+// package's canonical PkgPath by construction (every FilePath is built as
+// pkg+"/"+basename — see address.PkgPath.File) — no module-prefixing
+// derivation needed here.
+func (v *View) resolveFileByPath(path address.FilePath) (*workspace.File, *workspace.Package, bool) {
+	pkgPath := address.PkgPath(filepath.Dir(string(path)))
+	if unit, ok := v.ws.Unit(pkgPath); ok {
 		for _, pkg := range []*workspace.Package{unit.Prod(), unit.XTest()} {
 			if pkg == nil {
 				continue
@@ -74,7 +70,7 @@ func (v *View) resolveFileByPath(path address.RelativePath) (*workspace.File, *w
 			}
 		}
 	}
-	if pkg, ok := v.ws.LookupExternal(address.PkgPath(path.Dir())); ok {
+	if pkg, ok := v.ws.LookupExternal(pkgPath); ok {
 		if file, ok := pkg.File(path); ok {
 			return file, pkg, true
 		}

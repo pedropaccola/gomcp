@@ -29,7 +29,7 @@ func (k DiagKind) String() string {
 // [packages.Error] during loads; every later source (type re-checks after
 // mutations) funnels into the same shape.
 type Diagnostic struct {
-	File address.RelativePath // "" when not attributable to a workspace file
+	File address.FilePath // "" when not attributable to a workspace file
 	Line int
 	Col  int
 	Kind DiagKind

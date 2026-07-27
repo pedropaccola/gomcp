@@ -19,7 +19,7 @@ func TestEditPlanUngrouped(t *testing.T) {
 	if groupTok != token.ILLEGAL {
 		t.Errorf("groupTok = %v, want ILLEGAL for an ungrouped decl", groupTok)
 	}
-	file, _, _ := w.resolveFile("test.mod/pkg", "pkg/pkg.go")
+	file, _, _ := w.resolveFile("test.mod/pkg", "test.mod/pkg/pkg.go")
 	if got := string(file.Src()[target.Start:target.End]); !strings.Contains(got, "func Foo() {}") {
 		t.Errorf("target = %q, want the whole Foo declaration", got)
 	}
@@ -37,7 +37,7 @@ func TestEditPlanGroupedNonPositionDependent(t *testing.T) {
 	if groupTok != token.CONST {
 		t.Errorf("groupTok = %v, want CONST", groupTok)
 	}
-	file, _, _ := w.resolveFile("test.mod/pkg", "pkg/pkg.go")
+	file, _, _ := w.resolveFile("test.mod/pkg", "test.mod/pkg/pkg.go")
 	got := string(file.Src()[target.Start:target.End])
 	if !strings.Contains(got, "A = 1") || strings.Contains(got, "B") {
 		t.Errorf("target = %q, want just A's own spec", got)
@@ -58,7 +58,7 @@ func TestEditPlanPositionDependent(t *testing.T) {
 	if groupTok != token.CONST {
 		t.Errorf("groupTok = %v, want CONST", groupTok)
 	}
-	file, _, _ := w.resolveFile("test.mod/pkg", "pkg/pkg.go")
+	file, _, _ := w.resolveFile("test.mod/pkg", "test.mod/pkg/pkg.go")
 	got := string(file.Src()[target.Start:target.End])
 	if !strings.Contains(got, "A = iota") || !strings.Contains(got, "B") {
 		t.Errorf("target = %q, want the whole group (A and B)", got)

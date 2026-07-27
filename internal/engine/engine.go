@@ -48,9 +48,9 @@ func NewEngine(rootDir string, logf func(string, ...any)) *Engine {
 	}
 }
 
-// absPath maps a workspace-relative path back to the filesystem.
-func (e *Engine) absPath(p address.RelativePath) string {
-	return filepath.Join(e.RootDir, string(p))
+// absPath maps a file's canonical address back to the filesystem.
+func (e *Engine) absPath(p address.FilePath) string {
+	return filepath.Join(e.RootDir, p.RelativePath(e.ws.Module()))
 }
 
 // Bootstrap loads the workspace from scratch and installs it wholesale,
@@ -94,8 +94,10 @@ func (e *Engine) load(ctx context.Context, overlay map[string][]byte) (*token.Fi
 // canonical bytes from overlay-or-disk, the loader's ASTs and type info,
 // and a fresh symbol index. Files outside the workspace (generated cgo
 // output) are skipped with a diagnostic rather than tracked as
-// untouchable paths.
-func (e *Engine) buildPackage(srcPkg *packages.Package, fset *token.FileSet, overlay map[string][]byte) (*workspace.Package, error) {
+// untouchable paths. canonicalPkg addresses every file this builds —
+// srcPkg.PkgPath itself only for Package.PkgPath, since the XTest
+// variant's own PkgPath differs from the shared unit key (see loadInto).
+func (e *Engine) buildPackage(srcPkg *packages.Package, canonicalPkg address.PkgPath, fset *token.FileSet, overlay map[string][]byte) (*workspace.Package, error) {
 	relPath, err := e.relativePath(srcPkg.Dir)
 	if err != nil {
 		return nil, fmt.Errorf("package mapping failure for %s: %w", srcPkg.Dir, err)
@@ -105,7 +107,7 @@ func (e *Engine) buildPackage(srcPkg *packages.Package, fset *token.FileSet, ove
 	for _, astFile := range srcPkg.Syntax {
 		absFilePath := fset.File(astFile.FileStart).Name()
 		relFilePath, err := e.relativePath(absFilePath)
-		if err != nil || relFilePath.IsOutsideRoot() {
+		if err != nil || address.IsOutsideRoot(relFilePath) {
 			// Generated files (e.g. cgo output) live outside the workspace;
 			// record and move on rather than tracking untouchable paths.
 			pkg.Diags = append(pkg.Diags, workspace.Diagnostic{
@@ -118,19 +120,22 @@ func (e *Engine) buildPackage(srcPkg *packages.Package, fset *token.FileSet, ove
 		if !ok {
 			var err error
 			if src, err = os.ReadFile(absFilePath); err != nil {
-				return nil, fmt.Errorf("failed to read source of %s: %w", relFilePath, err)
+				return nil, fmt.Errorf("failed to read source of %s: %w", absFilePath, err)
 			}
 		}
-		pkg.LoadFile(relFilePath, src, astFile)
+		filePath := canonicalPkg.File(filepath.Base(absFilePath))
+		pkg.LoadFile(filePath, src, astFile)
 	}
 	pkg.RebuildIndex()
-	e.ingestErrors(pkg, srcPkg.Errors)
+	e.ingestErrors(pkg, canonicalPkg, srcPkg.Errors)
 	return pkg, nil
 }
 
 // ingestErrors converts load errors into Diagnostics, attaching them to the
 // file they point at when it is tracked, and to the package otherwise.
-func (e *Engine) ingestErrors(pkg *workspace.Package, errs []packages.Error) {
+// canonicalPkg, not pkg.PkgPath, addresses each attributed file — see
+// buildPackage.
+func (e *Engine) ingestErrors(pkg *workspace.Package, canonicalPkg address.PkgPath, errs []packages.Error) {
 	for _, pkgErr := range errs {
 		// go list relays compiler output prefixed with "# pkg" and positions
 		// pointing into overlay temp copies; the same problems arrive again
@@ -141,8 +146,8 @@ func (e *Engine) ingestErrors(pkg *workspace.Package, errs []packages.Error) {
 		}
 		diag := workspace.Diagnostic{Kind: toDiagKind(pkgErr.Kind), Msg: pkgErr.Msg}
 		if absFile, line, col, ok := splitPos(pkgErr.Pos); ok {
-			if relFile, err := e.relativePath(absFile); err == nil && !relFile.IsOutsideRoot() {
-				diag.File, diag.Line, diag.Col = relFile, line, col
+			if relFile, err := e.relativePath(absFile); err == nil && !address.IsOutsideRoot(relFile) {
+				diag.File, diag.Line, diag.Col = canonicalPkg.File(filepath.Base(relFile)), line, col
 			}
 		}
 		if file, ok := pkg.File(diag.File); ok && diag.File != "" {
@@ -154,12 +159,8 @@ func (e *Engine) ingestErrors(pkg *workspace.Package, errs []packages.Error) {
 }
 
 // Returns a path relative to [Engine]'s RootDir
-func (e *Engine) relativePath(fullPath string) (address.RelativePath, error) {
-	relPath, err := filepath.Rel(e.RootDir, fullPath)
-	if err != nil {
-		return "", err
-	}
-	return address.RelativePath(relPath), nil
+func (e *Engine) relativePath(fullPath string) (string, error) {
+	return filepath.Rel(e.RootDir, fullPath)
 }
 
 // LoadExternal resolves a dependency by import path into the read-only
@@ -223,14 +224,15 @@ func (e *Engine) LoadExternal(ctx context.Context, pkg address.PkgPath) error {
 // loaded srcPkg's positions into — never re-derived from e.ws, since this
 // runs with no lock held and the published cache can move on beneath it.
 func (e *Engine) buildExternal(srcPkg *packages.Package, fset *token.FileSet) (*workspace.Package, error) {
-	pkg := workspace.NewPackage(srcPkg.Name, "", address.PkgPath(srcPkg.PkgPath), srcPkg.Types, nil, true)
+	pkgPath := address.PkgPath(srcPkg.PkgPath)
+	pkg := workspace.NewPackage(srcPkg.Name, "", pkgPath, srcPkg.Types, nil, true)
 	for _, astFile := range srcPkg.Syntax {
 		abs := fset.File(astFile.FileStart).Name()
 		src, err := os.ReadFile(abs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read dependency source %s: %w", abs, err)
 		}
-		path := address.RelativePath(srcPkg.PkgPath).Join(filepath.Base(abs))
+		path := pkgPath.File(filepath.Base(abs))
 		pkg.LoadFile(path, src, astFile)
 	}
 	pkg.RebuildIndex()
@@ -385,31 +387,36 @@ func (e *Engine) loadInto(ctx context.Context, fset *token.FileSet, overlay map[
 
 	// Pass 2: build only the winners, keyed by canonical package address —
 	// an external-test-only unit answers to its production sibling's path.
-	// Both halves are built before NewUnit assembles them, so a Unit is
-	// never observed half-built.
+	// canonicalPkg (never a variant's own srcPkg.PkgPath, which for the
+	// XTest half carries its own distinct "_test"-suffixed identity) is
+	// resolved once per candidate and threaded into buildPackage so every
+	// file constructed from either half addresses through the same package
+	// key Workspace.units is keyed by. Both halves are built before NewUnit
+	// assembles them, so a Unit is never observed half-built.
 	units := make(map[address.PkgPath]*workspace.Unit)
 	for _, cand := range selected {
 		if ctx.Err() != nil {
 			return nil, "", nil, fmt.Errorf("workspace load aborted by context cancellation: %w", ctx.Err())
 		}
+		var canonicalPkg address.PkgPath
+		switch {
+		case cand.prod != nil:
+			canonicalPkg = address.PkgPath(cand.prod.PkgPath)
+		case cand.xtest != nil:
+			canonicalPkg = address.PkgPath(strings.TrimSuffix(cand.xtest.PkgPath, "_test"))
+		}
 		var prod, xtest *workspace.Package
 		if cand.prod != nil {
-			if prod, err = e.buildPackage(cand.prod, fset, overlay); err != nil {
+			if prod, err = e.buildPackage(cand.prod, canonicalPkg, fset, overlay); err != nil {
 				return nil, "", nil, err
 			}
 		}
 		if cand.xtest != nil {
-			if xtest, err = e.buildPackage(cand.xtest, fset, overlay); err != nil {
+			if xtest, err = e.buildPackage(cand.xtest, canonicalPkg, fset, overlay); err != nil {
 				return nil, "", nil, err
 			}
 		}
-		unit := workspace.NewUnit(prod, xtest)
-		switch {
-		case prod != nil:
-			units[prod.PkgPath] = unit
-		case xtest != nil:
-			units[address.PkgPath(strings.TrimSuffix(string(xtest.PkgPath), "_test"))] = unit
-		}
+		units[canonicalPkg] = workspace.NewUnit(prod, xtest)
 	}
 	if e.logf != nil {
 		e.logf("load: select+build took %v for %d units", time.Since(buildStart), len(units))

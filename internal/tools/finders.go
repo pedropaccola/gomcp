@@ -121,17 +121,15 @@ func searchReferences(eng *engine.Engine) mcp.ToolHandlerFor[SearchReferencesInp
 // the semantic finders' gate: dependencies are excluded, since their type
 // universe cannot be matched exactly against the workspace's.
 func resolveAnySymbol(v *gate.View, addr, key string) (dto.Symbol, dto.Package, error) {
-	pkg, err := canonicalizePkg(v.Module(), addr)
+	pkg, err := address.NewPkgPath(v.Module(), addr)
 	if err != nil {
 		return dto.Symbol{}, dto.Package{}, err
 	}
 	if sym, owner, ok := v.Symbol(pkg, key); ok {
 		return sym, owner, nil
 	}
-	if clean, ok := address.CleanPath(addr); ok {
-		if _, cached := v.ExternalPackage(address.PkgPath(clean)); cached {
-			return dto.Symbol{}, dto.Package{}, fmt.Errorf("%q is a dependency: its API is served read-only by list_* and describe_*; semantic search stays in the workspace", addr)
-		}
+	if _, cached := v.ExternalPackage(address.PkgPath(addr)); cached {
+		return dto.Symbol{}, dto.Package{}, fmt.Errorf("%q is a dependency: its API is served read-only by list_* and describe_*; semantic search stays in the workspace", addr)
 	}
 	return dto.Symbol{}, dto.Package{}, fmt.Errorf("no symbol %q in package %q: call list_symbols for valid keys", key, addr)
 }

@@ -20,7 +20,7 @@ import (
 // symbol's doc opens with its bare name; a package's doc opens with
 // "Package name"), never prose that merely happens to mention the same
 // word.
-func (tx *Tx) leadingDocWord(file address.RelativePath, doc *ast.CommentGroup, prefix, want string) (span, bool) {
+func (tx *Tx) leadingDocWord(file address.FilePath, doc *ast.CommentGroup, prefix, want string) (span, bool) {
 	if doc == nil || len(doc.List) == 0 {
 		return span{}, false
 	}
@@ -46,7 +46,7 @@ func (tx *Tx) leadingDocWord(file address.RelativePath, doc *ast.CommentGroup, p
 // the primitive under both source extraction and mutation splicing. Valid
 // because Ast is by invariant a parse of exactly Src. Positions resolve in
 // the owner's FileSet, so dependency files extract like workspace ones.
-func (v *View) offsetSpan(path address.RelativePath, from, to token.Pos) (span, bool) {
+func (v *View) offsetSpan(path address.FilePath, from, to token.Pos) (span, bool) {
 	file, owner, ok := v.resolveFileByPath(path)
 	if !ok || !from.IsValid() || !to.IsValid() {
 		return span{}, false

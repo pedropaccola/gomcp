@@ -19,7 +19,7 @@ func TestLookupNavigation(t *testing.T) {
 	e := sandboxEngine(t)
 	ws := e.ws
 
-	var paths []address.RelativePath
+	var paths []string
 	for _, addr := range ws.UnitKeys() {
 		unit, _ := ws.Unit(addr)
 		if prod := unit.Prod(); prod != nil {
@@ -32,7 +32,7 @@ func TestLookupNavigation(t *testing.T) {
 	if !slices.IsSorted(paths) {
 		t.Error("Packages not in path order")
 	}
-	if !slices.Contains(paths, address.RelativePath("shapes")) {
+	if !slices.Contains(paths, "shapes") {
 		t.Fatalf("Packages missing shapes: %v", paths)
 	}
 
@@ -49,11 +49,11 @@ func TestLookupNavigation(t *testing.T) {
 		t.Fatalf("XTest(shapes) = %v", xtest)
 	}
 
-	file, ok := pkg.File("shapes/shapes.go")
-	if !ok || file.Path != address.RelativePath("shapes/shapes.go") {
+	file, ok := pkg.File("example.com/sandbox/shapes/shapes.go")
+	if !ok || file.Path != address.FilePath("example.com/sandbox/shapes/shapes.go") {
 		t.Fatal("File(shapes/shapes.go) resolution failed")
 	}
-	if _, ok := xtest.File("shapes/external_test.go"); !ok {
+	if _, ok := xtest.File("example.com/sandbox/shapes/external_test.go"); !ok {
 		t.Error("external test file must resolve to the XTest package")
 	}
 	if _, ok := pkg.File("does/not/exist.go"); ok {
@@ -61,12 +61,9 @@ func TestLookupNavigation(t *testing.T) {
 	}
 
 	// Package addresses are canonical at the engine level — spelling
-	// tolerance lives in the tools gate (canonicalizePkg).
+	// tolerance lives in the tools gate (address.NewPkgPath).
 	if _, ok := ws.Unit("shapes"); ok {
 		t.Error("bare directory must not resolve at the engine level")
-	}
-	if p := address.RelativePath("./shapes/shapes.go").Clean(); p != "shapes/shapes.go" {
-		t.Errorf("RelativePath.Clean must strip a leading ./ prefix, got %q", p)
 	}
 
 	// Symbol resolution falls through Prod into XTest.
@@ -377,7 +374,7 @@ func TestPackageAndFileDoc(t *testing.T) {
 		}
 		var groupsDoc, shapesDoc string
 		for _, f := range pkg.Files() {
-			switch f.Path().Base() {
+			switch f.Path().Name() {
 			case "groups.go":
 				groupsDoc = f.Doc()
 			case "shapes.go":

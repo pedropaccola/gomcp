@@ -42,12 +42,12 @@ type View struct {
 // on. Flush and Reload, the disk boundary, live on Engine, one layer up.
 type Tx struct {
 	*View
-	changed map[address.RelativePath]bool // paths this transaction touched
+	changed map[address.FilePath]bool // paths this transaction touched
 }
 
 // touch records paths as changed by this transaction; every verb reports
 // its footprint here regardless of prior dirtiness.
-func (tx *Tx) touch(paths ...address.RelativePath) {
+func (tx *Tx) touch(paths ...address.FilePath) {
 	for _, path := range paths {
 		tx.changed[path] = true
 	}
@@ -55,7 +55,7 @@ func (tx *Tx) touch(paths ...address.RelativePath) {
 
 // ChangedKeys is the sorted set of paths this transaction touched, for
 // Engine.Edit's report.
-func (tx *Tx) ChangedKeys() []address.RelativePath {
+func (tx *Tx) ChangedKeys() []address.FilePath {
 	return sortedKeys(tx.changed)
 }
 
@@ -67,5 +67,5 @@ func NewView(rootDir string, ws *workspace.Workspace, ctx context.Context) *View
 
 // NewTx constructs a Tx over view. Engine.Edit is the only caller.
 func NewTx(view *View) *Tx {
-	return &Tx{View: view, changed: make(map[address.RelativePath]bool)}
+	return &Tx{View: view, changed: make(map[address.FilePath]bool)}
 }

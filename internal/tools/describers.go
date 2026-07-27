@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/dto"
 	"github.com/pedropaccola/gomcp/internal/engine"
 	"github.com/pedropaccola/gomcp/internal/gate"
@@ -103,7 +104,7 @@ func describePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Des
 				files := pkg.Files()
 				res.Files = make([]string, 0, len(files))
 				for _, f := range files {
-					res.Files = append(res.Files, f.Path().Base())
+					res.Files = append(res.Files, f.Path().Name())
 				}
 				res.DiagnosticsTruncated = newDiagnosticsTruncated(v.Diagnostics(pkg.PkgPath()), cfg.diagLimit)
 				return nil
@@ -125,19 +126,19 @@ func describeFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Descri
 		out := DescribeFileOutput{Results: make([]DescribeFileResult, n)}
 		for i, entry := range in.Describes {
 			err := readPackage(ctx, eng, entry.PkgPath, func(v *gate.View, pkg dto.Package) error {
-				name, err := canonicalizeFile(v.Module(), pkg.PkgPath(), entry.FileName)
+				fp, err := address.NewFilePath(v.Module(), pkg.PkgPath(), entry.FileName)
 				if err != nil {
 					return err
 				}
 				var target *dto.File
 				for _, f := range pkg.Files() {
-					if f.Path().Base() == name {
+					if f.Path() == fp {
 						target = &f
 						break
 					}
 				}
 				if target == nil {
-					return fmt.Errorf("no file %q in package %q", name, entry.PkgPath)
+					return fmt.Errorf("no file %q in package %q", fp, entry.PkgPath)
 				}
 				res := &out.Results[i]
 				if doc := target.Doc(); doc != "" {
@@ -169,7 +170,7 @@ func describeSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Desc
 					return fmt.Errorf("source extraction failed for %q", entry.SymbolKey)
 				}
 				res := &out.Results[i]
-				res.File = sym.File().Base()
+				res.File = sym.File().Name()
 				res.Source = src
 				res.Kind = sym.Kind().String()
 				diags := v.SymbolDiagnostics(owner.PkgPath(), sym.Key())

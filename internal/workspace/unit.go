@@ -16,7 +16,7 @@ type Unit struct {
 // it — how dirty state survives a reload built from overlays. Replaces
 // rather than mutates in place, since a File may still be shared with
 // another Workspace generation via Clone.
-func (u *Unit) MarkDirty(path address.RelativePath) {
+func (u *Unit) MarkDirty(path address.FilePath) {
 	for _, p := range []*Package{u.prod, u.xtest} {
 		if p == nil {
 			continue

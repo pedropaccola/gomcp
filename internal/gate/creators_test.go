@@ -12,8 +12,8 @@ func TestTxCreateSymbolTouchesFile(t *testing.T) {
 		t.Error("Bar not found after CreateSymbol")
 	}
 	changed := tx.ChangedKeys()
-	if len(changed) != 1 || changed[0] != "pkg/pkg.go" {
-		t.Errorf("ChangedKeys() = %v, want [pkg/pkg.go]", changed)
+	if len(changed) != 1 || changed[0] != "test.mod/pkg/pkg.go" {
+		t.Errorf("ChangedKeys() = %v, want [test.mod/pkg/pkg.go]", changed)
 	}
 }
 

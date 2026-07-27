@@ -28,10 +28,10 @@ func TestFlushWritesAndUnlinks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Flush: %v", err)
 	}
-	if !slices.Contains(written, address.RelativePath("shapes/extra.go")) {
+	if !slices.Contains(written, sfile("shapes", "extra.go")) {
 		t.Errorf("Flush written = %v, missing extra.go", written)
 	}
-	if !slices.Contains(removed, address.RelativePath("broken/broken.go")) {
+	if !slices.Contains(removed, sfile("broken", "broken.go")) {
 		t.Errorf("Flush removed = %v, missing broken.go", removed)
 	}
 	if _, err := os.Stat(filepath.Join(root, "shapes", "extra.go")); err != nil {
@@ -145,7 +145,7 @@ func TestReloadDiscards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reload: %v", err)
 	}
-	for _, want := range []address.RelativePath{"shapes/extra.go", "use/alias.go"} {
+	for _, want := range []address.FilePath{sfile("shapes", "extra.go"), sfile("use", "alias.go")} {
 		if !slices.Contains(discarded, want) {
 			t.Errorf("discarded missing %q: %v", want, discarded)
 		}
@@ -153,7 +153,7 @@ func TestReloadDiscards(t *testing.T) {
 	if _, _, ok := resolveSymbol(e, spkg("shapes"), "Extra"); ok {
 		t.Error("unflushed symbol survived reload")
 	}
-	if _, _, ok := resolveFile(e, "use/alias.go"); !ok {
+	if _, _, ok := resolveFile(e, sfile("use", "alias.go")); !ok {
 		t.Error("unflushed deletion survived reload: alias.go missing")
 	}
 }
@@ -170,7 +170,7 @@ func TestMoveFileAndFlush(t *testing.T) {
 	if len(report.Delta) != 0 {
 		t.Errorf("file move introduced diagnostics: %v", deltaStrings(report))
 	}
-	for _, want := range []address.RelativePath{"shapes/groups.go", "shapes/extras.go"} {
+	for _, want := range []address.FilePath{sfile("shapes", "groups.go"), sfile("shapes", "extras.go")} {
 		if !slices.Contains(report.Changed, want) {
 			t.Errorf("Changed = %v, missing %s", report.Changed, want)
 		}

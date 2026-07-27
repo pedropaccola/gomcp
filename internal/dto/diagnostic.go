@@ -15,9 +15,9 @@ import (
 // blocks, unparsed syntax), and both are empty for module/driver-level
 // problems.
 type Diagnostic struct {
-	File    address.RelativePath // "" when not attributable to a workspace file
-	Package address.PkgPath      // "" when not attributable to a package
-	Key     string               // enclosing declaration's key; "" when not attributable to one
+	File    address.FilePath // "" when not attributable to a workspace file
+	Package address.PkgPath  // "" when not attributable to a package
+	Key     string           // enclosing declaration's key; "" when not attributable to one
 	Kind    DiagKind
 	Msg     string
 }

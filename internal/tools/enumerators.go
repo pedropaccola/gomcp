@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/dto"
 	"github.com/pedropaccola/gomcp/internal/engine"
 	"github.com/pedropaccola/gomcp/internal/gate"
@@ -78,7 +79,7 @@ func listFiles(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListFiles
 			files := pkg.Files()
 			out.Files = make([]string, 0, len(files))
 			for _, file := range files {
-				out.Files = append(out.Files, file.Path().Base())
+				out.Files = append(out.Files, file.Path().Name())
 			}
 			out.DiagnosticsTruncated = newDiagnosticsTruncated(v.Diagnostics(pkg.PkgPath()), cfg.diagLimit)
 			return nil
@@ -93,18 +94,18 @@ func listSymbols(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListSym
 		err := readPackage(ctx, eng, in.PkgPath, func(v *gate.View, pkg dto.Package) error {
 			var target *dto.File
 			if fileName := optStr(in.FileName); fileName != "" {
-				name, err := canonicalizeFile(v.Module(), pkg.PkgPath(), fileName)
+				fp, err := address.NewFilePath(v.Module(), pkg.PkgPath(), fileName)
 				if err != nil {
 					return err
 				}
 				for _, f := range pkg.Files() {
-					if f.Path().Base() == name {
+					if f.Path() == fp {
 						target = &f
 						break
 					}
 				}
 				if target == nil {
-					return fmt.Errorf("no file %q in package %q", name, in.PkgPath)
+					return fmt.Errorf("no file %q in package %q", fp, in.PkgPath)
 				}
 			}
 			syms := pkg.Symbols()

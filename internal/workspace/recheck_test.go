@@ -11,11 +11,11 @@ func TestRecheckScopeIsTransitive(t *testing.T) {
 	w := NewWorkspace()
 	w.Reset("test.mod", token.NewFileSet(), map[address.PkgPath]*Unit{})
 	for _, name := range []string{"a", "b", "c", "d"} {
-		w.InstallUnit(address.PkgPath("test.mod/"+name), NewUnit(&Package{Name: name, Path: address.RelativePath(name), PkgPath: address.PkgPath("test.mod/" + name)}, nil))
+		w.InstallUnit(address.PkgPath("test.mod/"+name), NewUnit(&Package{Name: name, Path: name, PkgPath: address.PkgPath("test.mod/" + name)}, nil))
 	}
 	mustSwap := func(pkg address.PkgPath, dir, src string) {
 		t.Helper()
-		if err := w.SwapFile(pkg, false, address.RelativePath(dir+"/"+dir+".go"), dir+".go", []byte(src)); err != nil {
+		if err := w.SwapFile(pkg, false, address.FilePath(string(pkg)+"/"+dir+".go"), dir+".go", []byte(src)); err != nil {
 			t.Fatalf("SwapFile(%s): %v", pkg, err)
 		}
 	}

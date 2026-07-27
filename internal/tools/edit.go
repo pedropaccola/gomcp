@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pedropaccola/gomcp/internal/address"
@@ -32,7 +33,7 @@ func runEdit(ctx context.Context, eng *engine.Engine, cfg *toolConfig, fn func(*
 	if err != nil {
 		return nil, out, err
 	}
-	out.Files = filesByPackage(eng.ModulePath(), report.Changed)
+	out.Files = filesByPackage(report.Changed)
 	if introduced := newDiagnosticsTruncated(report.Delta, cfg.diagLimit); len(introduced.Diagnostics) > 0 || introduced.Truncated != nil {
 		out.IntroducedDiagnostics = &introduced
 	}
@@ -53,29 +54,30 @@ func runEdit(ctx context.Context, eng *engine.Engine, cfg *toolConfig, fn func(*
 // *engine.Engine directly) so it's safe to call from inside a Read/Edit
 // closure too — View never acquires the gate lock itself.
 func writeWorkspacePkg(v *gate.View, addr string) (address.PkgPath, error) {
-	canon, err := canonicalizePkg(v.Module(), addr)
+	canon, err := address.NewPkgPath(v.Module(), addr)
 	if err != nil {
 		return "", err
 	}
-	if clean, ok := address.CleanPath(addr); ok {
-		if _, ok := v.ExternalPackage(address.PkgPath(clean)); ok {
-			return "", fmt.Errorf("dependency %q is read-only", addr)
-		}
+	if _, ok := v.ExternalPackage(address.PkgPath(addr)); ok {
+		return "", fmt.Errorf("dependency %q is read-only", addr)
 	}
 	return canon, nil
 }
 
-// filesByPackage groups workspace-relative paths into the interface's
-// address convention: canonical package address to bare file names. Input
-// order is preserved within each package, so sorted paths stay sorted.
-func filesByPackage(module address.PkgPath, paths []address.RelativePath) map[string][]string {
+// filesByPackage groups already-canonical file addresses into the
+// interface's address convention: canonical package address to bare file
+// names. Input order is preserved within each package, so sorted paths
+// stay sorted. Every FilePath is already module-qualified by
+// construction (pkg+"/"+basename), so its directory portion is already
+// the exact package address — no separate composition needed.
+func filesByPackage(paths []address.FilePath) map[string][]string {
 	if len(paths) == 0 {
 		return nil
 	}
 	out := make(map[string][]string)
 	for _, p := range paths {
-		key := pkgAddress(module, p.Dir())
-		out[key] = append(out[key], p.Base())
+		key := filepath.Dir(string(p))
+		out[key] = append(out[key], p.Name())
 	}
 	return out
 }

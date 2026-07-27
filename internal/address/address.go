@@ -6,44 +6,35 @@
 package address
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 )
 
-// RelativePath is a workspace-relative disk path: the address form of the
+// FilePath is a workspace-relative disk path: the address form of the
 // disk boundary (files, tombstones, flush, the recheck overlay), while
 // PkgPath is the address form of everything else. Untrusted strings enter
 // through CleanPath.
-type RelativePath string
+type FilePath string
 
-// IsOutsideRoot reports whether the path points outside the workspace root.
-func (p RelativePath) IsOutsideRoot() bool {
-	return p == ".." || strings.HasPrefix(string(p), ".."+string(filepath.Separator))
-}
-
-// Base is the final path element: the bare file name for file paths.
-func (p RelativePath) Base() string {
-	return filepath.Base(string(p))
-}
-
-// Clean re-normalizes the path so equivalent spellings of the same address
-// ("./x", "x/", "a//b") resolve identically. Resolvers apply it on entry.
-func (p RelativePath) Clean() RelativePath {
-	return RelativePath(filepath.Clean(string(p)))
-}
-
-// Dir is the path of the containing directory ("." for root-level paths).
-func (p RelativePath) Dir() RelativePath {
-	return RelativePath(filepath.Dir(string(p)))
-}
-
-// Join appends a name to the path.
-func (p RelativePath) Join(name string) RelativePath {
-	return RelativePath(filepath.Join(string(p), name))
-}
-
-func (p RelativePath) String() string {
+func (p FilePath) String() string {
 	return string(p)
+}
+
+// RelativePath derives f's on-disk path relative to the workspace root
+// — the one representation disk I/O needs (go/packages overlays,
+// os.ReadFile/WriteFile). The disk boundary's own door out of FilePath;
+// nothing past that boundary should need it.
+func (f FilePath) RelativePath(module PkgPath) string {
+	rel, _ := strings.CutPrefix(string(f), string(module)+"/")
+	return rel
+}
+
+// Name is f's bare file name — for presentation alongside a PkgPath shown
+// separately, or as the raw material for composing a new FilePath
+// (PkgPath.File). Never an address on its own.
+func (f FilePath) Name() string {
+	return filepath.Base(string(f))
 }
 
 // PkgPath is a package's import path: the canonical address of every
@@ -54,13 +45,87 @@ type PkgPath string
 
 func (p PkgPath) String() string { return string(p) }
 
-// CleanPath is the constructor for untrusted path strings (agent input):
-// it normalizes equivalent spellings and rejects addresses that cannot
-// live inside the workspace — absolute paths and paths escaping the root.
-func CleanPath(s string) (RelativePath, bool) {
-	p := RelativePath(filepath.Clean(s))
-	if filepath.IsAbs(string(p)) || p.IsOutsideRoot() {
+// Join composes a subpackage's PkgPath from an already-known-legitimate
+// workspace-relative directory — trusted, no validation, always
+// succeeds. For untrusted agent input, use NewPkgPath.
+func (p PkgPath) Join(dir string) PkgPath {
+	if dir == "" || dir == "." {
+		return p
+	}
+	return PkgPath(p.String() + "/" + dir)
+}
+
+// File composes a file's canonical FilePath from an already-known-legitimate
+// bare name inside p — trusted, no validation, always succeeds. The
+// loader's own door into FilePath construction; for untrusted agent
+// input, use NewFilePath.
+func (p PkgPath) File(name string) FilePath {
+	return FilePath(p.String() + "/" + name)
+}
+
+// cleanRelative narrows s, an untrusted string, against module: absolute
+// paths and paths escaping the workspace root are refused; a spelling
+// already prefixed by module resolves to its workspace-relative
+// remainder, and the bare module root resolves to ".". The shared
+// narrowing step behind NewPkgPath and NewFilePath.
+func cleanRelative(module PkgPath, s string) (string, bool) {
+	p := filepath.Clean(s)
+	if filepath.IsAbs(p) || p == ".." || strings.HasPrefix(p, ".."+string(filepath.Separator)) {
 		return "", false
 	}
+	if p == string(module) {
+		return ".", true
+	}
+	if trimmed := strings.TrimPrefix(p, string(module)+"/"); trimmed != p {
+		return trimmed, true
+	}
 	return p, true
+}
+
+// NewPkgPath narrows addr, an untrusted agent-supplied package address,
+// against module: module-prefixed addresses pass through, bare workspace
+// directories gain the prefix. File names are refused — packages are
+// directories, always spelled alone.
+func NewPkgPath(module PkgPath, addr string) (PkgPath, error) {
+	path, ok := cleanRelative(module, addr)
+	if !ok {
+		return "", fmt.Errorf("invalid package path %q", addr)
+	}
+	if strings.HasSuffix(path, ".go") {
+		return "", fmt.Errorf("%q names a file: a package address must name a directory alone", addr)
+	}
+	if path == "." {
+		return module, nil
+	}
+	return PkgPath(string(module) + "/" + path), nil
+}
+
+// NewFilePath narrows raw, an untrusted agent-supplied file address,
+// against module and pkg: a bare *.go name is accepted outright and
+// joined onto pkg; a path is accepted only when its directory agrees
+// with pkg, then narrowed to pkg plus its bare name. Contradictions are
+// refused, never guessed.
+func NewFilePath(module, pkg PkgPath, raw string) (FilePath, error) {
+	name := raw
+	if strings.Contains(raw, "/") {
+		path, ok := cleanRelative(module, raw)
+		if !ok {
+			return "", fmt.Errorf("invalid file path %q", raw)
+		}
+		declaredPkg, err := NewPkgPath(module, filepath.Dir(path))
+		if err != nil || declaredPkg != pkg {
+			return "", fmt.Errorf("file %q does not live in package %q", raw, pkg)
+		}
+		name = filepath.Base(path)
+	}
+	if !strings.HasSuffix(name, ".go") {
+		return "", fmt.Errorf("file name must be a bare *.go name, got %q", name)
+	}
+	return pkg.File(name), nil
+}
+
+// IsOutsideRoot reports whether a workspace-relative path (already
+// cleaned) points outside the workspace root.
+func IsOutsideRoot(p string) bool {
+	return p == ".." || strings.HasPrefix(p, ".."+string(filepath.Separator))
 }

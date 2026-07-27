@@ -28,11 +28,11 @@ func TestSymbolsRegexp(t *testing.T) {
 
 func TestAddressAtLineUngrouped(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\nfunc Foo() {}\n\nfunc Bar() {}\n")
-	_, key, ok := w.AddressAtLine("pkg/pkg.go", 3)
+	_, key, ok := w.AddressAtLine("test.mod/pkg/pkg.go", 3)
 	if !ok || key != "Foo" {
 		t.Errorf("AddressAtLine(3) = %q, %v, want Foo, true", key, ok)
 	}
-	_, key, ok = w.AddressAtLine("pkg/pkg.go", 5)
+	_, key, ok = w.AddressAtLine("test.mod/pkg/pkg.go", 5)
 	if !ok || key != "Bar" {
 		t.Errorf("AddressAtLine(5) = %q, %v, want Bar, true", key, ok)
 	}
@@ -40,11 +40,11 @@ func TestAddressAtLineUngrouped(t *testing.T) {
 
 func TestAddressAtLineGroupedPrefersOwnSpec(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\nconst (\n\tA = 1\n\tB = 2\n)\n")
-	_, key, ok := w.AddressAtLine("pkg/pkg.go", 4)
+	_, key, ok := w.AddressAtLine("test.mod/pkg/pkg.go", 4)
 	if !ok || key != "A" {
 		t.Errorf("AddressAtLine(4) = %q, %v, want A, true", key, ok)
 	}
-	_, key, ok = w.AddressAtLine("pkg/pkg.go", 5)
+	_, key, ok = w.AddressAtLine("test.mod/pkg/pkg.go", 5)
 	if !ok || key != "B" {
 		t.Errorf("AddressAtLine(5) = %q, %v, want B, true", key, ok)
 	}
@@ -52,7 +52,7 @@ func TestAddressAtLineGroupedPrefersOwnSpec(t *testing.T) {
 
 func TestAddressAtLineNotFound(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\nfunc Foo() {}\n")
-	if _, _, ok := w.AddressAtLine("pkg/pkg.go", 1); ok {
+	if _, _, ok := w.AddressAtLine("test.mod/pkg/pkg.go", 1); ok {
 		t.Error("AddressAtLine on the package line must find no enclosing declaration")
 	}
 }

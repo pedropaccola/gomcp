@@ -17,7 +17,7 @@ func (tx *Tx) CreateFile(pkg address.PkgPath, name, doc string) error {
 	if !ok {
 		return fmt.Errorf("no package at %q: create_package first", pkg)
 	}
-	path, err := packageFilePath(p, name)
+	path, err := address.NewFilePath(tx.ws.Module(), p.PkgPath, name)
 	if err != nil {
 		return err
 	}
@@ -33,20 +33,20 @@ func (tx *Tx) CreateFile(pkg address.PkgPath, name, doc string) error {
 // the address already holds a package; the directory is created at Flush.
 func (tx *Tx) CreatePackage(pkg address.PkgPath, name string) error {
 	dir, ok := tx.dirOf(pkg)
-	if !ok || dir == "." || dir.IsOutsideRoot() {
+	if !ok || dir == "." || address.IsOutsideRoot(dir) {
 		return fmt.Errorf("cannot create a package at %q: workspace packages live under module %q", pkg, tx.ws.Module())
 	}
 	if _, exists := tx.ws.Unit(pkg); exists {
 		return fmt.Errorf("a package already exists at %q", pkg)
 	}
 	if name == "" {
-		name = filepath.Base(string(dir))
+		name = filepath.Base(dir)
 	}
 	if !token.IsIdentifier(name) {
 		return fmt.Errorf("%q is not a valid package name", name)
 	}
 	tx.ws.InstallUnit(pkg, workspace.NewUnit(workspace.NewPackage(name, dir, pkg, nil, nil, false), nil))
-	return tx.installFile(pkg, false, dir.Join(name+".go"), []byte("package "+name+"\n"))
+	return tx.installFile(pkg, false, pkg.File(name+".go"), []byte("package "+name+"\n"))
 }
 
 // CreateSymbol adds one new top-level declaration to a file of an existing
@@ -80,7 +80,7 @@ func (tx *Tx) CreateSymbol(pkg address.PkgPath, fileName, src string) error {
 			return fmt.Errorf("symbol %q already exists in %q: use EditSymbol", key, pkg)
 		}
 	}
-	path, err := packageFilePath(p, fileName)
+	path, err := address.NewFilePath(tx.ws.Module(), p.PkgPath, fileName)
 	if err != nil {
 		return err
 	}

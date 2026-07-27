@@ -18,9 +18,9 @@ import (
 // only through the Workspace primitives, RebuildIndex, and NewPackage.
 type Package struct {
 	Name    string
-	Path    address.RelativePath // workspace directory: the disk location
-	PkgPath address.PkgPath      // import path: the canonical address
-	files   map[address.RelativePath]*File
+	Path    string          // workspace-root-relative directory: the disk location
+	PkgPath address.PkgPath // import path: the canonical address
+	files   map[address.FilePath]*File
 	symbols map[string]*Symbol // derived index; see RebuildIndex
 	Diags   []Diagnostic       // package-scoped: no usable file position
 
@@ -42,7 +42,7 @@ type Package struct {
 // path's other door for the fields NewPackage/LoadFile own — direct
 // struct literals from outside this package can no longer set typesPkg/
 // typesInfo now that they're sealed.
-func NewPackage(name string, path address.RelativePath, pkgPath address.PkgPath, typesPkg *types.Package, typesInfo *types.Info, external bool) *Package {
+func NewPackage(name string, path string, pkgPath address.PkgPath, typesPkg *types.Package, typesInfo *types.Info, external bool) *Package {
 	return &Package{
 		Name:      name,
 		Path:      path,
@@ -56,9 +56,9 @@ func NewPackage(name string, path address.RelativePath, pkgPath address.PkgPath,
 // LoadFile installs bytes with the loader's AST as a clean file — the
 // load path's door for content, where the AST is the one the type checker
 // saw and is stored as-is; SwapFile is the mutation path's door.
-func (p *Package) LoadFile(path address.RelativePath, src []byte, astFile *ast.File) {
+func (p *Package) LoadFile(path address.FilePath, src []byte, astFile *ast.File) {
 	if p.files == nil {
-		p.files = make(map[address.RelativePath]*File)
+		p.files = make(map[address.FilePath]*File)
 	}
 	p.files[path] = newFile(path, src, astFile, false)
 }
@@ -77,13 +77,13 @@ func (p *Package) Clone() *Package {
 // through the content pipeline.
 func (p *Package) CloneShell() *Package {
 	shell := *p
-	shell.files = make(map[address.RelativePath]*File, len(p.files))
+	shell.files = make(map[address.FilePath]*File, len(p.files))
 	shell.symbols = make(map[string]*Symbol)
 	return &shell
 }
 
 // File resolves one file by path.
-func (p *Package) File(path address.RelativePath) (*File, bool) {
+func (p *Package) File(path address.FilePath) (*File, bool) {
 	file, ok := p.files[path]
 	return file, ok
 }
@@ -98,9 +98,11 @@ func (p *Package) Files() []*File {
 }
 
 // RebuildIndex re-derives symbols and every file's Inits from the current
-// ASTs. Call after any file's ast is replaced; nothing is patched in place.
-// External packages keep exported symbols only — a dependency is API
-// surface, not editable code.
+// ASTs. Call after any file's ast is replaced; nothing is patched in
+// place. For an external (dependency) package, this also strips every
+// unexported symbol and every method with an unexported receiver from
+// the result — a dependency is API surface only, never editable code, so
+// nothing outside its exported surface is indexed at all.
 func (p *Package) RebuildIndex() {
 	p.symbols = make(map[string]*Symbol)
 	for _, file := range p.files {
@@ -157,7 +159,7 @@ func (p *Package) Doc() string {
 // File — Flush's half of the dirty lifecycle; SwapFile and MoveFile set
 // the mark. Replaces rather than mutates in place, since a File may still
 // be shared with another Workspace generation via Clone.
-func (p *Package) MarkFlushed(path address.RelativePath) {
+func (p *Package) MarkFlushed(path address.FilePath) {
 	if file, ok := p.files[path]; ok {
 		cp := *file
 		cp.dirty = false

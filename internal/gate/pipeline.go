@@ -18,7 +18,7 @@ import (
 
 // applyFileSplices applies per-file splice batches and reloads each touched
 // file, deduplicating overlapping gathers.
-func (tx *Tx) applyFileSplices(splices map[address.RelativePath][]splice) error {
+func (tx *Tx) applyFileSplices(splices map[address.FilePath][]splice) error {
 	for _, path := range sortedKeys(splices) {
 		file, owner, ok := tx.resolveFileByPath(path)
 		if !ok {
@@ -27,7 +27,7 @@ func (tx *Tx) applyFileSplices(splices map[address.RelativePath][]splice) error 
 		batch := splices[path]
 		slices.SortFunc(batch, func(a, b splice) int { return cmp.Compare(a.start, b.start) })
 		batch = slices.CompactFunc(batch, func(a, b splice) bool { return a.span == b.span })
-		addr := tx.pkgAt(path.Dir())
+		addr := address.PkgPath(filepath.Dir(string(path)))
 		if err := tx.installFile(addr, isXTestOwner(tx.ws, addr, owner), path, applySplices(file.Src(), batch)); err != nil {
 			return err
 		}
@@ -42,7 +42,7 @@ func (tx *Tx) applyFileSplices(splices map[address.RelativePath][]splice) error 
 // SwapFile itself rather than trusted from a pointer the caller might
 // have resolved before an intervening mutation. Every fallible step
 // precedes the swap; an error means state is untouched.
-func (tx *Tx) installFile(addr address.PkgPath, isXTest bool, path address.RelativePath, candidate []byte) error {
+func (tx *Tx) installFile(addr address.PkgPath, isXTest bool, path address.FilePath, candidate []byte) error {
 	abs := filepath.Join(tx.rootDir, string(path))
 	formatted, err := imports.Process(abs, candidate, nil)
 	if err != nil {
@@ -83,7 +83,7 @@ func (tx *Tx) RepairMissingImports() bool {
 		candidates[pkg.Name] = pkg.PkgPath
 	}
 
-	needed := make(map[address.RelativePath]map[string]bool) // file -> import paths
+	needed := make(map[address.FilePath]map[string]bool) // file -> import paths
 	for _, diag := range tx.AllDiagnostics() {
 		if diag.Kind != dto.DiagType || diag.File == "" {
 			continue
@@ -121,7 +121,7 @@ func (tx *Tx) RepairMissingImports() bool {
 			fmt.Fprintf(&repl, "\n\nimport %q", path)
 		}
 		candidate := applySplices(file.Src(), []splice{{span: span{start: sp.end, end: sp.end}, repl: []byte(repl.String())}})
-		addr := tx.pkgAt(filePath.Dir())
+		addr := address.PkgPath(filepath.Dir(string(filePath)))
 		if err := tx.installFile(addr, isXTestOwner(tx.ws, addr, owner), filePath, candidate); err != nil {
 			continue // repair is best-effort; the diagnostic stays visible
 		}
@@ -145,14 +145,6 @@ func applySplices(src []byte, splices []splice) []byte {
 		out = slices.Concat(out[:s.start], s.repl, out[s.end:])
 	}
 	return out
-}
-
-// packageFilePath validates a bare *.go name inside pkg's directory.
-func packageFilePath(pkg *workspace.Package, name string) (address.RelativePath, error) {
-	if name == "" || name != filepath.Base(name) || !strings.HasSuffix(name, ".go") {
-		return "", fmt.Errorf("file name must be a bare *.go name, got %q", name)
-	}
-	return pkg.Path.Join(name), nil
 }
 
 // importsPath reports whether the file already imports path, so the import
@@ -197,8 +189,8 @@ func renderDocComment(doc string) []byte {
 
 // toSplices translates workspace's boundary-safe Splice value objects into
 // gate's own per-file batch shape, the form applyFileSplices expects.
-func toSplices(ws []workspace.Splice) map[address.RelativePath][]splice {
-	out := make(map[address.RelativePath][]splice, len(ws))
+func toSplices(ws []workspace.Splice) map[address.FilePath][]splice {
+	out := make(map[address.FilePath][]splice, len(ws))
 	for _, s := range ws {
 		out[s.Path] = append(out[s.Path], splice{span: span{start: s.Start, end: s.End}, repl: s.Repl})
 	}

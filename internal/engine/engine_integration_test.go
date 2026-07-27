@@ -56,7 +56,7 @@ func TestBootstrapSandbox(t *testing.T) {
 		t.Errorf("Prod = %q %q, synthesized variants not filtered?", pkg.Name, pkg.PkgPath)
 	}
 	// Widest-variant preference: the in-package test file folds into Prod.
-	if _, ok := pkg.File(address.RelativePath("shapes/internal_test.go")); !ok {
+	if _, ok := pkg.File(address.FilePath("example.com/sandbox/shapes/internal_test.go")); !ok {
 		t.Error("internal_test.go not in Prod: widest variant was not preferred")
 	}
 	if _, ok := pkg.Symbol("TestAreaInternal"); !ok {
@@ -81,7 +81,7 @@ func TestBootstrapSandbox(t *testing.T) {
 		t.Errorf(`Symbol("Stack.Push") = %+v, generic receiver not unwrapped`, sym)
 	}
 	// init functions are keyless, collected per file.
-	groups, ok := pkg.File(address.RelativePath("shapes/groups.go"))
+	groups, ok := pkg.File(address.FilePath("example.com/sandbox/shapes/groups.go"))
 	if !ok || len(groups.Inits) != 1 {
 		t.Errorf("groups.go Inits = %v, want exactly one", groups)
 	}
@@ -98,9 +98,6 @@ func TestBootstrapSandbox(t *testing.T) {
 				continue
 			}
 			for _, f := range p.Files() {
-				if f.Path.IsOutsideRoot() {
-					t.Errorf("%s: tracked file escapes workspace root", f.Path)
-				}
 				if len(f.Src()) == 0 {
 					t.Errorf("%s: empty Src, canonical-bytes invariant broken", f.Path)
 				}
@@ -166,7 +163,7 @@ func TestIngestErrorsOnBrokenFile(t *testing.T) {
 		t.Fatal("broken package missing from state")
 	}
 	var diags []workspace.Diagnostic
-	if f, ok := prod.File("main.go"); ok {
+	if f, ok := prod.File("example.com/broken/main.go"); ok {
 		diags = append(diags, f.Diags...)
 		if !bytes.Contains(f.Src(), []byte("func main()")) {
 			t.Error("broken file Src not captured")

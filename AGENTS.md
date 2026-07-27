@@ -160,3 +160,13 @@ call sites, and now-orphaned symbols behind more often than not. Sweep
 what you just touched (`search_references`, a fresh read of the doc
 comment) before calling a change done, not only when explicitly asked
 to audit for it.
+
+**Confirm the target shape before a wide mechanical move, don't correct
+it after.** A rename or retype that will touch many call sites — and
+especially a change to what a value's underlying representation actually
+means, not just its name — needs its exact final shape agreed before
+being propagated, never guessed and then walked back once it turns out
+wrong. Propagating a guess across dozens of sites and then re-deriving
+and re-propagating the correct shape costs strictly more than a short
+confirmation would have, and leaves a wider trail of half-right
+intermediate states to clean up.

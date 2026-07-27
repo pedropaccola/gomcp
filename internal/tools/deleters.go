@@ -80,11 +80,7 @@ func deleteFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[DeleteFi
 				if err != nil {
 					return batchErr("deletes", i, n, err)
 				}
-				file, err := canonicalizeFile(tx.Module(), pkg, entry.FileName)
-				if err != nil {
-					return batchErr("deletes", i, n, err)
-				}
-				if err := tx.DeleteFile(pkg, file); err != nil {
+				if err := tx.DeleteFile(pkg, entry.FileName); err != nil {
 					return batchErr("deletes", i, n, err)
 				}
 			}

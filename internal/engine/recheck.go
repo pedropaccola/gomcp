@@ -42,10 +42,9 @@ func (e *Engine) recheckFullLocked(ctx context.Context, ws *workspace.Workspace)
 // single unified type-checking session.
 func (e *Engine) recheckScopedLocked(ctx context.Context, ws *workspace.Workspace, forceFull bool) error {
 	overlay := make(map[string][]byte)
-	dirty := make(map[address.RelativePath]bool)
+	dirty := make(map[address.FilePath]address.PkgPath)
 	dirtyPkgs := make(map[address.PkgPath]bool)
-	for path := range changedSet(ws) {
-		pkg := pkgAt(ws, path.Dir())
+	for path, pkg := range changedSet(ws) {
 		dirtyPkgs[pkg] = true
 		if mask, tombstoned := ws.TombstoneMask(path); tombstoned {
 			overlay[e.absPath(path)] = mask
@@ -58,7 +57,7 @@ func (e *Engine) recheckScopedLocked(ctx context.Context, ws *workspace.Workspac
 				}
 				if file, ok := p.File(path); ok {
 					overlay[e.absPath(path)] = file.Src()
-					dirty[path] = true
+					dirty[path] = pkg
 				}
 			}
 		}
@@ -125,10 +124,12 @@ func (e *Engine) recheckScopedLocked(ctx context.Context, ws *workspace.Workspac
 	}
 
 	for _, path := range ws.Tombstones() {
-		workspace.DropTombstonedFile(units, pkgAt(ws, path.Dir()), path)
+		if pkg, ok := ws.TombstonePkg(path); ok {
+			workspace.DropTombstonedFile(units, pkg, path)
+		}
 	}
-	for path := range dirty {
-		if unit, ok := units[pkgAt(ws, path.Dir())]; ok {
+	for path, pkg := range dirty {
+		if unit, ok := units[pkg]; ok {
 			unit.MarkDirty(path)
 		}
 	}
@@ -136,9 +137,16 @@ func (e *Engine) recheckScopedLocked(ctx context.Context, ws *workspace.Workspac
 	return nil
 }
 
-// changedSet is the union of dirty files and tombstoned paths.
-func changedSet(ws *workspace.Workspace) map[address.RelativePath]bool {
-	out := make(map[address.RelativePath]bool)
+// changedSet is the union of dirty files and tombstoned paths, each
+// paired with the directory-canonical package address that owns it (the
+// key Workspace.units and go/packages patterns actually use — not
+// necessarily a *workspace.Package's own .PkgPath, which for an XTest
+// half names its own distinct import path). Known already at every
+// path's point of origin (the unit-key loop below, or the tombstone's
+// own creation-time record), so callers never re-derive it from the
+// path.
+func changedSet(ws *workspace.Workspace) map[address.FilePath]address.PkgPath {
+	out := make(map[address.FilePath]address.PkgPath)
 	for _, addr := range ws.UnitKeys() {
 		unit, _ := ws.Unit(addr)
 		for _, pkg := range []*workspace.Package{unit.Prod(), unit.XTest()} {
@@ -147,21 +155,15 @@ func changedSet(ws *workspace.Workspace) map[address.RelativePath]bool {
 			}
 			for _, file := range pkg.Files() {
 				if file.IsDirty() {
-					out[file.Path] = true
+					out[file.Path] = addr
 				}
 			}
 		}
 	}
 	for _, path := range ws.Tombstones() {
-		out[path] = true
+		if pkg, ok := ws.TombstonePkg(path); ok {
+			out[path] = pkg
+		}
 	}
 	return out
-}
-
-// pkgAt wraps a workspace directory into its canonical package address.
-func pkgAt(ws *workspace.Workspace, dir address.RelativePath) address.PkgPath {
-	if dir == "." {
-		return ws.Module()
-	}
-	return address.PkgPath(string(ws.Module()) + "/" + string(dir))
 }

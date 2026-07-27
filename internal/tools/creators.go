@@ -80,11 +80,7 @@ func createFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[CreateFi
 				if err != nil {
 					return batchErr("creates", i, n, err)
 				}
-				file, err := canonicalizeFile(tx.Module(), pkg, entry.FileName)
-				if err != nil {
-					return batchErr("creates", i, n, err)
-				}
-				if err := tx.CreateFile(pkg, file, optStr(entry.Doc)); err != nil {
+				if err := tx.CreateFile(pkg, entry.FileName, optStr(entry.Doc)); err != nil {
 					return batchErr("creates", i, n, err)
 				}
 			}
@@ -105,11 +101,7 @@ func createSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Create
 				if err != nil {
 					return batchErr("creates", i, n, err)
 				}
-				file, err := canonicalizeFile(tx.Module(), pkg, entry.FileName)
-				if err != nil {
-					return batchErr("creates", i, n, err)
-				}
-				if err := tx.CreateSymbol(pkg, file, entry.Source); err != nil {
+				if err := tx.CreateSymbol(pkg, entry.FileName, entry.Source); err != nil {
 					return batchErr("creates", i, n, err)
 				}
 			}

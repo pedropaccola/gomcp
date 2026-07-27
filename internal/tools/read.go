@@ -13,19 +13,20 @@ import (
 // readPackage resolves a package address across both worlds and runs fn
 // under the read gate with the resolved package: workspace first, then the
 // dependency cache, lazily loading the dependency on a workspace miss —
-// loads never happen under the gate.
+// loads never happen under the gate. An external dependency address has
+// no "relative to the workspace" interpretation, so it's looked up raw,
+// never run through NewPkgPath's module-prefixing.
 func readPackage(ctx context.Context, eng *engine.Engine, addr string, fn func(*gate.View, dto.Package) error) error {
-	clean, cleanOK := address.CleanPath(addr)
-	ext := address.PkgPath(clean)
+	ext := address.PkgPath(addr)
 	var extOK bool
 	attempt := func() (bool, error) {
 		found := false
 		err := eng.Read(ctx, func(v *gate.View) error {
-			canon, err := canonicalizePkg(v.Module(), addr)
+			canon, err := address.NewPkgPath(v.Module(), addr)
 			if err != nil {
 				return err
 			}
-			extOK = cleanOK && ext != canon && ext != "."
+			extOK = ext != canon && ext != "."
 			if pkg, ok := v.Package(canon); ok {
 				found = true
 				return fn(v, pkg)

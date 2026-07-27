@@ -12,14 +12,14 @@ func TestCloneAndCloneShell(t *testing.T) {
 	w := NewWorkspace()
 	w.Reset("example.com/mod", token.NewFileSet(), map[address.PkgPath]*Unit{})
 	w.InstallUnit("example.com/mod/pkg", NewUnit(&Package{Name: "pkg", Path: "pkg", PkgPath: "example.com/mod/pkg"}, nil))
-	if err := w.SwapFile("example.com/mod/pkg", false, "pkg/pkg.go", "pkg/pkg.go", []byte("package pkg\n\nfunc Hello() {}\n")); err != nil {
+	if err := w.SwapFile("example.com/mod/pkg", false, "example.com/mod/pkg/pkg.go", "pkg.go", []byte("package pkg\n\nfunc Hello() {}\n")); err != nil {
 		t.Fatal(err)
 	}
 	unit, _ := w.Unit("example.com/mod/pkg")
 	p := unit.Prod()
 	cloned := p.Clone()
-	clonedFile, _ := cloned.File("pkg/pkg.go")
-	origFile, _ := p.File("pkg/pkg.go")
+	clonedFile, _ := cloned.File("example.com/mod/pkg/pkg.go")
+	origFile, _ := p.File("example.com/mod/pkg/pkg.go")
 	if clonedFile != origFile {
 		t.Error("Clone must share File values")
 	}

@@ -17,7 +17,7 @@ func (tx *Tx) EditFile(pkg address.PkgPath, name, doc string) error {
 	if !ok {
 		return fmt.Errorf("no package at %q", pkg)
 	}
-	path, err := packageFilePath(p, name)
+	path, err := address.NewFilePath(tx.ws.Module(), p.PkgPath, name)
 	if err != nil {
 		return err
 	}

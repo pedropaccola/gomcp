@@ -16,7 +16,7 @@ import (
 // Aggregate boundary, unlike the Symbol/Package/File pointers the
 // analysis that produces one is computed from.
 type Splice struct {
-	Path       address.RelativePath
+	Path       address.FilePath
 	Start, End int
 	Repl       []byte
 }
@@ -416,7 +416,7 @@ func (w *Workspace) ComputeQualifierFixups(srcPkg, destPkg address.PkgPath, movi
 	}
 
 	type declSpan struct{ start, end token.Pos }
-	movingSpans := make(map[address.RelativePath][]declSpan, len(moving))
+	movingSpans := make(map[address.FilePath][]declSpan, len(moving))
 	movingObjKeys := make(map[ObjectKey]bool, len(moving))
 	inboundTargets := make(map[ObjectKey]bool, len(moving))
 	for _, m := range moving {
@@ -435,7 +435,7 @@ func (w *Workspace) ComputeQualifierFixups(srcPkg, destPkg address.PkgPath, movi
 			inboundTargets[k] = true
 		}
 	}
-	fromMoving := func(file address.RelativePath, pos token.Pos) bool {
+	fromMoving := func(file address.FilePath, pos token.Pos) bool {
 		for _, sp := range movingSpans[file] {
 			if pos >= sp.start && pos < sp.end {
 				return true

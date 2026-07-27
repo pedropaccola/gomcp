@@ -12,27 +12,27 @@ func TestSwapFileParseEnforcedAndDirty(t *testing.T) {
 	w := NewWorkspace()
 	w.Reset("example.com/mod", token.NewFileSet(), map[address.PkgPath]*Unit{})
 	w.InstallUnit("example.com/mod/pkg", NewUnit(&Package{Name: "pkg", Path: "pkg", PkgPath: "example.com/mod/pkg"}, nil))
-	if err := w.SwapFile("example.com/mod/pkg", false, "pkg/pkg.go", "pkg/pkg.go", []byte("package pkg\n\nfunc broken( {}\n")); err == nil {
+	if err := w.SwapFile("example.com/mod/pkg", false, "example.com/mod/pkg/pkg.go", "pkg.go", []byte("package pkg\n\nfunc broken( {}\n")); err == nil {
 		t.Fatal("SwapFile accepted unparseable bytes")
 	}
 	unit, _ := w.Unit("example.com/mod/pkg")
 	if len(unit.Prod().Files()) != 0 {
 		t.Fatal("failed swap must leave the package untouched")
 	}
-	if err := w.SwapFile("example.com/mod/pkg", false, "pkg/pkg.go", "pkg/pkg.go", []byte("package pkg\n\nfunc Hello() {}\n")); err != nil {
+	if err := w.SwapFile("example.com/mod/pkg", false, "example.com/mod/pkg/pkg.go", "pkg.go", []byte("package pkg\n\nfunc Hello() {}\n")); err != nil {
 		t.Fatalf("SwapFile: %v", err)
 	}
 	unit, _ = w.Unit("example.com/mod/pkg")
-	file, ok := unit.Prod().File("pkg/pkg.go")
+	file, ok := unit.Prod().File("example.com/mod/pkg/pkg.go")
 	if !ok || !file.IsDirty() {
 		t.Fatal("swapped file missing or not dirty")
 	}
 	if _, ok := unit.Prod().Symbol("Hello"); !ok {
 		t.Error("index not rebuilt by SwapFile")
 	}
-	w.MarkFlushed("example.com/mod/pkg", false, "pkg/pkg.go")
+	w.MarkFlushed("example.com/mod/pkg", false, "example.com/mod/pkg/pkg.go")
 	unit, _ = w.Unit("example.com/mod/pkg")
-	file, ok = unit.Prod().File("pkg/pkg.go")
+	file, ok = unit.Prod().File("example.com/mod/pkg/pkg.go")
 	if !ok || file.IsDirty() {
 		t.Error("MarkFlushed did not clear the dirty mark")
 	}
@@ -51,7 +51,7 @@ func TestCloneSharesUntouchedPackages(t *testing.T) {
 func TestCloneIsolatesMutationsFromOriginal(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\nfunc Foo() {}\n")
 	clone := w.Clone()
-	if err := clone.SwapFile("test.mod/pkg", false, "pkg/pkg.go", "pkg/pkg.go", []byte("package pkg\n\nfunc Bar() {}\n")); err != nil {
+	if err := clone.SwapFile("test.mod/pkg", false, "test.mod/pkg/pkg.go", "pkg.go", []byte("package pkg\n\nfunc Bar() {}\n")); err != nil {
 		t.Fatalf("SwapFile on clone: %v", err)
 	}
 	unit, _ := w.Unit("test.mod/pkg")
@@ -82,30 +82,30 @@ func TestForkExternalIndependentCache(t *testing.T) {
 
 func TestDropFilePrunesEmptyUnit(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\nfunc Foo() {}\n")
-	w.DropFile("test.mod/pkg", false, "pkg/pkg.go")
+	w.DropFile("test.mod/pkg", false, "test.mod/pkg/pkg.go")
 	if _, ok := w.Unit("test.mod/pkg"); ok {
 		t.Error("a unit whose last file was dropped must be pruned")
 	}
-	if _, ok := w.TombstoneMask("pkg/pkg.go"); !ok {
+	if _, ok := w.TombstoneMask("test.mod/pkg/pkg.go"); !ok {
 		t.Error("DropFile must tombstone the removed path")
 	}
 }
 
 func TestMoveFileTombstonesOldPathAndMarksDirty(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\nfunc Foo() {}\n")
-	w.MoveFile("test.mod/pkg", false, "pkg/pkg.go", "pkg/renamed.go")
-	if _, ok := w.TombstoneMask("pkg/pkg.go"); !ok {
+	w.MoveFile("test.mod/pkg", false, "test.mod/pkg/pkg.go", "test.mod/pkg/renamed.go")
+	if _, ok := w.TombstoneMask("test.mod/pkg/pkg.go"); !ok {
 		t.Error("MoveFile must tombstone the old path")
 	}
-	if _, ok := w.TombstoneMask("pkg/renamed.go"); ok {
+	if _, ok := w.TombstoneMask("test.mod/pkg/renamed.go"); ok {
 		t.Error("MoveFile must not leave the new path tombstoned")
 	}
 	unit, _ := w.Unit("test.mod/pkg")
-	file, ok := unit.Prod().File("pkg/renamed.go")
+	file, ok := unit.Prod().File("test.mod/pkg/renamed.go")
 	if !ok || !file.IsDirty() {
 		t.Error("the moved file must exist at its new path and be marked dirty")
 	}
-	if _, ok := unit.Prod().File("pkg/pkg.go"); ok {
+	if _, ok := unit.Prod().File("test.mod/pkg/pkg.go"); ok {
 		t.Error("the old path must no longer resolve")
 	}
 }

@@ -43,10 +43,13 @@ type Workspace struct {
 	narrowlyChecked bool
 
 	// removed maps tombstoned paths (deleted or renamed away in-memory) to
-	// the overlay mask that hides their on-disk content from rechecks;
-	// Flush unlinks them. go/packages overlays cannot remove files, only
-	// replace their content, hence the mask.
-	removed       map[address.RelativePath][]byte
+	// the package that owned them and the overlay mask that hides their
+	// on-disk content from rechecks; Flush unlinks them. go/packages
+	// overlays cannot remove files, only replace their content, hence the
+	// mask. The owning package is captured here, at tombstone-creation
+	// time, rather than re-derived from the path later: every caller that
+	// tombstones a path already has its package in hand.
+	removed       map[address.FilePath]tombstoneEntry
 	removedForked bool
 
 	// forkedPkgs marks which *Package objects this generation has already
@@ -68,7 +71,7 @@ func NewWorkspace() *Workspace {
 	return &Workspace{
 		fset:         token.NewFileSet(),
 		units:        make(map[address.PkgPath]*Unit),
-		removed:      make(map[address.RelativePath][]byte),
+		removed:      make(map[address.FilePath]tombstoneEntry),
 		external:     make(map[address.PkgPath]*Package),
 		externalErr:  make(map[address.PkgPath]error),
 		externalFset: token.NewFileSet(),
@@ -84,7 +87,7 @@ func (w *Workspace) Reset(module address.PkgPath, fset *token.FileSet, units map
 	w.fset = fset
 	w.units = units
 	w.narrowlyChecked = false
-	w.removed = make(map[address.RelativePath][]byte)
+	w.removed = make(map[address.FilePath]tombstoneEntry)
 	w.external = make(map[address.PkgPath]*Package)
 	w.externalErr = make(map[address.PkgPath]error)
 	w.externalFset = token.NewFileSet()

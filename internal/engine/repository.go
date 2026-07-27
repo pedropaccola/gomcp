@@ -17,7 +17,7 @@ import (
 // clone, so nothing appears flushed even if some files already reached
 // disk — re-flushing recovers, at the cost of re-writing what already
 // landed.
-func (e *Engine) Flush() (written, removed []address.RelativePath, err error) {
+func (e *Engine) Flush() (written, removed []address.FilePath, err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -62,7 +62,7 @@ func (e *Engine) Flush() (written, removed []address.RelativePath, err error) {
 // change: the disk-facing inverse of Flush. It reports the files whose
 // in-memory state was lost — dirty files and pending removals. An error
 // means the previous state is untouched.
-func (e *Engine) Reload(ctx context.Context) ([]address.RelativePath, error) {
+func (e *Engine) Reload(ctx context.Context) ([]address.FilePath, error) {
 	fset, module, units, err := e.load(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -71,7 +71,7 @@ func (e *Engine) Reload(ctx context.Context) ([]address.RelativePath, error) {
 	defer e.mu.Unlock()
 
 	orig := e.ws
-	var discarded []address.RelativePath
+	var discarded []address.FilePath
 	for _, addr := range orig.UnitKeys() {
 		unit, _ := orig.Unit(addr)
 		for _, pkg := range []*workspace.Package{unit.Prod(), unit.XTest()} {

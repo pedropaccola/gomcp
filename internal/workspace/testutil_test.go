@@ -29,7 +29,7 @@ func simpleFixture(tb testing.TB, src string) *Workspace {
 	w := NewWorkspace()
 	w.Reset("test.mod", token.NewFileSet(), map[address.PkgPath]*Unit{})
 	w.InstallUnit("test.mod/pkg", NewUnit(&Package{Name: "pkg", Path: "pkg", PkgPath: "test.mod/pkg"}, nil))
-	if err := w.SwapFile("test.mod/pkg", false, "pkg/pkg.go", "pkg/pkg.go", []byte(src)); err != nil {
+	if err := w.SwapFile("test.mod/pkg", false, "test.mod/pkg/pkg.go", "pkg.go", []byte(src)); err != nil {
 		tb.Fatalf("fixture SwapFile: %v", err)
 	}
 	return w
@@ -102,8 +102,8 @@ func typesFixture(tb testing.TB, srcs map[string]string) *Workspace {
 	}
 	for path, src := range srcs {
 		name := files[path].Name.Name
-		wp := NewPackage(name, address.RelativePath(name), address.PkgPath(path), checked[path], infos[path], false)
-		wp.LoadFile(address.RelativePath(name+"/file.go"), []byte(src), files[path])
+		wp := NewPackage(name, name, address.PkgPath(path), checked[path], infos[path], false)
+		wp.LoadFile(address.FilePath(path+"/file.go"), []byte(src), files[path])
 		wp.RebuildIndex()
 		w.InstallUnit(address.PkgPath(path), NewUnit(wp, nil))
 	}

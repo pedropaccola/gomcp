@@ -22,7 +22,7 @@ func TestCreateSymbolAndRollback(t *testing.T) {
 	if len(report.Delta) != 0 {
 		t.Errorf("valid creation produced diagnostics: %v", deltaStrings(report))
 	}
-	if !slices.Contains(report.Changed, address.RelativePath("shapes/extra.go")) {
+	if !slices.Contains(report.Changed, sfile("shapes", "extra.go")) {
 		t.Errorf("Changed missing the new file: %v", report.Changed)
 	}
 	if _, _, ok := resolveSymbol(e, spkg("shapes"), "Twice"); !ok {
@@ -34,7 +34,7 @@ func TestCreateSymbolAndRollback(t *testing.T) {
 		}
 		return nil
 	})
-	file, _, _ := resolveFile(e, "shapes/extra.go")
+	file, _, _ := resolveFile(e, sfile("shapes", "extra.go"))
 	if file == nil || !file.IsDirty() {
 		t.Error("new file must be dirty until flushed")
 	}
@@ -81,7 +81,7 @@ func TestReplaceSymbolBlastRadiusAndHealing(t *testing.T) {
 	heal := mustEdit(t, e, func(tx *gate.Tx) error {
 		return tx.EditSymbol(spkg("shapes"), "Circle", "type Circle struct{ R float64 }")
 	})
-	if !slices.Contains(heal.Changed, address.RelativePath("shapes/shapes.go")) {
+	if !slices.Contains(heal.Changed, sfile("shapes", "shapes.go")) {
 		t.Errorf("consecutive edit to a dirty file must still report it: %v", heal.Changed)
 	}
 	if len(heal.Delta) != 0 {
@@ -129,7 +129,7 @@ func TestRenameSymbolPropagates(t *testing.T) {
 	if _, _, ok := resolveSymbol(e, spkg("shapes"), "Round.Area"); !ok {
 		t.Error("method key did not follow the renamed receiver")
 	}
-	file, _, _ := resolveFile(e, "use/use.go")
+	file, _, _ := resolveFile(e, sfile("use", "use.go"))
 	if !bytes.Contains(file.Src(), []byte("shapes.Round{")) || bytes.Contains(file.Src(), []byte("shapes.Circle")) {
 		t.Errorf("use/use.go not rewritten:\n%s", file.Src())
 	}
@@ -150,7 +150,7 @@ func TestMovePackagePropagates(t *testing.T) {
 	if !ok || pkg.Name != "geo" || pkg.PkgPath != "example.com/sandbox/geo" {
 		t.Fatalf("geo package wrong after move: %+v", pkg)
 	}
-	file, _, _ := resolveFile(e, "use/use.go")
+	file, _, _ := resolveFile(e, sfile("use", "use.go"))
 	if !bytes.Contains(file.Src(), []byte(`"example.com/sandbox/geo"`)) {
 		t.Errorf("import path not rewritten:\n%s", file.Src())
 	}
@@ -159,7 +159,7 @@ func TestMovePackagePropagates(t *testing.T) {
 	}
 
 	// Aliased imports: path rewritten, alias untouched.
-	alias, _, _ := resolveFile(e, "use/alias.go")
+	alias, _, _ := resolveFile(e, sfile("use", "alias.go"))
 	if !bytes.Contains(alias.Src(), []byte(`sh "example.com/sandbox/geo"`)) {
 		t.Errorf("aliased import path not rewritten:\n%s", alias.Src())
 	}
@@ -173,14 +173,14 @@ func TestMovePackagePropagates(t *testing.T) {
 	if !ok || xtest.Name != "geo_test" {
 		t.Fatalf("XTest did not follow the move: %+v", xtest)
 	}
-	ext, _, _ := resolveFile(e, "geo/external_test.go")
+	ext, _, _ := resolveFile(e, sfile("geo", "external_test.go"))
 	if !bytes.Contains(ext.Src(), []byte(`"example.com/sandbox/geo"`)) || !bytes.Contains(ext.Src(), []byte("geo.Circle{")) {
 		t.Errorf("external test not rewritten:\n%s", ext.Src())
 	}
 
 	// The package doc's leading "Package shapes" opens with the new
 	// name too — the one place a package rename fixes prose.
-	doc, _, _ := resolveFile(e, "geo/shapes.go")
+	doc, _, _ := resolveFile(e, sfile("geo", "shapes.go"))
 	if !bytes.Contains(doc.Src(), []byte("// Package geo provides fixture shape types for tests.")) {
 		t.Errorf("package doc opening not rewritten:\n%s", doc.Src())
 	}
@@ -190,7 +190,7 @@ func TestMovePackagePropagates(t *testing.T) {
 
 	// A doc that doesn't open with "Package shapes" is left alone,
 	// even though it mentions "shapes" mid-sentence.
-	groups, _, _ := resolveFile(e, "geo/groups.go")
+	groups, _, _ := resolveFile(e, sfile("geo", "groups.go"))
 	if !bytes.Contains(groups.Src(), []byte("Kinds are grouped separately from shapes themselves.")) {
 		t.Errorf("non-conforming doc was touched:\n%s", groups.Src())
 	}
@@ -207,7 +207,7 @@ func TestPlacementPolicy(t *testing.T) {
 		}
 		return tx.CreateSymbol(spkg("use"), "use.go", "func (helper) run() {}")
 	})
-	file, _, _ := resolveFile(e, "use/use.go")
+	file, _, _ := resolveFile(e, sfile("use", "use.go"))
 	src := string(file.Src())
 	idx := func(needle string) int {
 		i := strings.Index(src, needle)
@@ -248,10 +248,10 @@ func TestImportSelfRepair(t *testing.T) {
 	if len(report.Delta) != 0 {
 		t.Errorf("self-repair did not clear the delta: %v", deltaStrings(report))
 	}
-	if !slices.Contains(report.Changed, address.RelativePath("use/use.go")) {
+	if !slices.Contains(report.Changed, sfile("use", "use.go")) {
 		t.Errorf("repaired file missing from Changed: %v", report.Changed)
 	}
-	file, _, _ := resolveFile(e, "use/use.go")
+	file, _, _ := resolveFile(e, sfile("use", "use.go"))
 	if !bytes.Contains(file.Src(), []byte(`"example.com/sandbox/colors"`)) {
 		t.Errorf("import not spliced:\n%s", file.Src())
 	}
@@ -275,7 +275,7 @@ func TestImportRepairRefusesAmbiguity(t *testing.T) {
 	}) {
 		t.Errorf("ambiguous name must leave the diagnostic standing: %v", deltaStrings(report))
 	}
-	file, _, _ := resolveFile(e, "use/use.go")
+	file, _, _ := resolveFile(e, sfile("use", "use.go"))
 	if bytes.Contains(file.Src(), []byte("/dup")) {
 		t.Errorf("repair guessed between ambiguous packages:\n%s", file.Src())
 	}
@@ -315,7 +315,7 @@ func TestDeleteGroupedSpec(t *testing.T) {
 	mustEdit(t, e, func(tx *gate.Tx) error {
 		return tx.DeleteSymbol(spkg("shapes"), "Pair")
 	})
-	file, _, _ := resolveFile(e, "shapes/groups.go")
+	file, _, _ := resolveFile(e, sfile("shapes", "groups.go"))
 	if bytes.Contains(file.Src(), []byte("type (")) {
 		t.Errorf("empty type group left behind:\n%s", file.Src())
 	}
@@ -334,7 +334,7 @@ func TestDeleteTrimsMultiNameSpec(t *testing.T) {
 	if _, _, ok := resolveSymbol(e, spkg("shapes"), "maxX"); !ok {
 		t.Error("maxX destroyed by trimming its sibling minX")
 	}
-	file, _, _ := resolveFile(e, "shapes/groups.go")
+	file, _, _ := resolveFile(e, sfile("shapes", "groups.go"))
 	if !bytes.Contains(file.Src(), []byte("var maxX = 10.0")) {
 		t.Errorf("maxX not trimmed to a standalone spec:\n%s", file.Src())
 	}
@@ -353,7 +353,7 @@ func TestRenameMethodReportsBrokenSatisfaction(t *testing.T) {
 	}) {
 		t.Errorf("broken interface satisfaction missing from delta: %v", deltaStrings(report))
 	}
-	file, _, _ := resolveFile(e, "use/use.go")
+	file, _, _ := resolveFile(e, sfile("use", "use.go"))
 	if !bytes.Contains(file.Src(), []byte("c.Extent()")) {
 		t.Errorf("direct method call not renamed:\n%s", file.Src())
 	}
@@ -371,7 +371,7 @@ func TestMoveSymbol(t *testing.T) {
 	if !ok {
 		t.Fatal("NotShape lost by move")
 	}
-	if sym.File != "shapes/groups.go" {
+	if sym.File != sfile("shapes", "groups.go") {
 		t.Errorf("NotShape lives in %q, want shapes/groups.go", sym.File)
 	}
 	// A method moves too: without its receiver anchor in the destination it
@@ -396,13 +396,13 @@ func TestMoveGroupedSpec(t *testing.T) {
 	if !ok {
 		t.Fatal("DefaultScale lost by move")
 	}
-	if sym.File != "shapes/shapes.go" {
+	if sym.File != sfile("shapes", "shapes.go") {
 		t.Errorf("DefaultScale lives in %q, want shapes/shapes.go", sym.File)
 	}
 	if _, _, ok := resolveSymbol(e, spkg("shapes"), "debugMode"); !ok {
 		t.Error("sibling spec destroyed by grouped move")
 	}
-	file, _, _ := resolveFile(e, "shapes/shapes.go")
+	file, _, _ := resolveFile(e, sfile("shapes", "shapes.go"))
 	if !bytes.Contains(file.Src(), []byte("var DefaultScale")) {
 		t.Errorf("grouped member not extracted as standalone declaration:\n%s", file.Src())
 	}
@@ -443,10 +443,10 @@ func TestMoveToNewFile(t *testing.T) {
 	if !ok {
 		t.Fatal("Doubled lost by move")
 	}
-	if sym.File != "shapes/moved.go" {
+	if sym.File != sfile("shapes", "moved.go") {
 		t.Errorf("Doubled lives in %q, want shapes/moved.go", sym.File)
 	}
-	file, _, _ := resolveFile(e, "shapes/moved.go")
+	file, _, _ := resolveFile(e, sfile("shapes", "moved.go"))
 	if !bytes.Contains(file.Src(), []byte("// Doubled reports twice the default scale.")) {
 		t.Errorf("doc comment did not travel with the move:\n%s", file.Src())
 	}
@@ -492,7 +492,7 @@ func TestCreateFileWithDocAndEditFile(t *testing.T) {
 	e.Read(context.Background(), func(v *gate.View) error {
 		pkg, _ := v.Package(spkg("shapes"))
 		for _, f := range pkg.Files() {
-			if f.Path().Base() == "extra_doc.go" && f.Doc() != "Extra holds throwaway fixtures for this test." {
+			if f.Path().Name() == "extra_doc.go" && f.Doc() != "Extra holds throwaway fixtures for this test." {
 				t.Errorf("new file's doc = %q", f.Doc())
 			}
 		}
@@ -506,7 +506,7 @@ func TestCreateFileWithDocAndEditFile(t *testing.T) {
 	e.Read(context.Background(), func(v *gate.View) error {
 		pkg, _ := v.Package(spkg("shapes"))
 		for _, f := range pkg.Files() {
-			if f.Path().Base() == "extra_doc.go" && f.Doc() != "Replaced doc." {
+			if f.Path().Name() == "extra_doc.go" && f.Doc() != "Replaced doc." {
 				t.Errorf("edited file's doc = %q, want %q", f.Doc(), "Replaced doc.")
 			}
 		}
@@ -520,7 +520,7 @@ func TestCreateFileWithDocAndEditFile(t *testing.T) {
 	e.Read(context.Background(), func(v *gate.View) error {
 		pkg, _ := v.Package(spkg("shapes"))
 		for _, f := range pkg.Files() {
-			if f.Path().Base() == "extra_doc.go" && f.Doc() != "" {
+			if f.Path().Name() == "extra_doc.go" && f.Doc() != "" {
 				t.Errorf("cleared file still has doc: %q", f.Doc())
 			}
 		}
@@ -537,7 +537,7 @@ func TestCreateFileWithDocAndEditFile(t *testing.T) {
 		}
 		pkg, _ := v.Package(spkg("shapes"))
 		for _, f := range pkg.Files() {
-			if f.Path().Base() == "shapes.go" && f.Doc() != "New shapes doc." {
+			if f.Path().Name() == "shapes.go" && f.Doc() != "New shapes doc." {
 				t.Errorf("shapes.go doc = %q, want %q", f.Doc(), "New shapes doc.")
 			}
 		}
@@ -601,7 +601,7 @@ func TestRenameUpdatesLeadingDoc(t *testing.T) {
 	mustEdit(t, e, func(tx *gate.Tx) error {
 		return tx.MoveSymbol(spkg("shapes"), "Named", "", "", "Nameable")
 	})
-	file, _, _ := resolveFile(e, "shapes/shapes.go")
+	file, _, _ := resolveFile(e, sfile("shapes", "shapes.go"))
 	if !bytes.Contains(file.Src(), []byte("// Nameable is a second interface")) {
 		t.Errorf("doc comment not updated:\n%s", file.Src())
 	}
@@ -618,7 +618,7 @@ func TestRenameUpdatesLeadingDoc(t *testing.T) {
 	mustEdit(t, e, func(tx *gate.Tx) error {
 		return tx.MoveSymbol(spkg("shapes"), "Foo", "", "", "Bar")
 	})
-	file, _, _ = resolveFile(e, "shapes/extra.go")
+	file, _, _ = resolveFile(e, sfile("shapes", "extra.go"))
 	if !bytes.Contains(file.Src(), []byte("// This helper returns something related to Foo.")) {
 		t.Errorf("non-conforming doc was touched:\n%s", file.Src())
 	}
@@ -632,7 +632,7 @@ func TestMoveSoloGroupedSpecPreservesDoc(t *testing.T) {
 	mustEdit(t, e, func(tx *gate.Tx) error {
 		return tx.MoveSymbol(spkg("shapes"), "Solo", "", "solo2.go", "")
 	})
-	file, _, _ := resolveFile(e, "shapes/solo2.go")
+	file, _, _ := resolveFile(e, sfile("shapes", "solo2.go"))
 	t.Logf("moved file source:\n%s", file.Src())
 	if !bytes.Contains(file.Src(), []byte("Solo is the only member")) {
 		t.Errorf("doc comment lost when moving a solo grouped spec:\n%s", file.Src())
@@ -647,7 +647,7 @@ func TestRenameSoloGroupedSpecUpdatesDoc(t *testing.T) {
 	mustEdit(t, e, func(tx *gate.Tx) error {
 		return tx.MoveSymbol(spkg("shapes"), "Solo", "", "", "Alone")
 	})
-	file, _, _ := resolveFile(e, "shapes/solo.go")
+	file, _, _ := resolveFile(e, sfile("shapes", "solo.go"))
 	t.Logf("renamed file source:\n%s", file.Src())
 	if !bytes.Contains(file.Src(), []byte("// Alone is the only member")) {
 		t.Errorf("solo grouped spec's doc not updated:\n%s", file.Src())
@@ -686,7 +686,7 @@ func TestMoveSymbolRenamesIotaGroupMember(t *testing.T) {
 	if _, _, ok := resolveSymbol(e, spkg("shapes"), "KindQuad"); !ok {
 		t.Error("KindQuad lost when renaming the anchor")
 	}
-	file, _, _ := resolveFile(e, "shapes/groups.go")
+	file, _, _ := resolveFile(e, sfile("shapes", "groups.go"))
 	if !bytes.Contains(file.Src(), []byte("// KindRound is the round one.")) {
 		t.Errorf("anchor's own leading doc not updated:\n%s", file.Src())
 	}
@@ -707,15 +707,15 @@ func TestMoveWholeIotaGroup(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s lost by group move", key)
 		}
-		if sym.File != "shapes/kinds.go" {
+		if sym.File != sfile("shapes", "kinds.go") {
 			t.Errorf("%s lives in %q, want shapes/kinds.go (only KindSquare was named)", key, sym.File)
 		}
 	}
-	file, _, _ := resolveFile(e, "shapes/kinds.go")
+	file, _, _ := resolveFile(e, sfile("shapes", "kinds.go"))
 	if !bytes.Contains(file.Src(), []byte("KindCircle Kind = iota")) || !bytes.Contains(file.Src(), []byte("KindSquare")) {
 		t.Errorf("group not moved intact:\n%s", file.Src())
 	}
-	old, _, _ := resolveFile(e, "shapes/groups.go")
+	old, _, _ := resolveFile(e, sfile("shapes", "groups.go"))
 	if bytes.Contains(old.Src(), []byte("KindCircle")) || bytes.Contains(old.Src(), []byte("KindSquare")) {
 		t.Errorf("old file still has group members:\n%s", old.Src())
 	}
@@ -738,7 +738,7 @@ func TestDeleteWholeIotaGroup(t *testing.T) {
 	if _, _, ok := resolveSymbol(e, spkg("shapes"), "KindSquare"); ok {
 		t.Error("KindSquare still resolvable after delete")
 	}
-	file, _, _ := resolveFile(e, "shapes/groups.go")
+	file, _, _ := resolveFile(e, sfile("shapes", "groups.go"))
 	if bytes.Contains(file.Src(), []byte("KindCircle")) || bytes.Contains(file.Src(), []byte("KindSquare")) {
 		t.Errorf("group not fully removed:\n%s", file.Src())
 	}
@@ -807,7 +807,7 @@ func TestCreatePlainConstMergesIntoExistingGroup(t *testing.T) {
 	mustEdit(t, e, func(tx *gate.Tx) error {
 		return tx.CreateSymbol(spkg("shapes"), "consts2.go", "const Baz = 3")
 	})
-	file, _, _ := resolveFile(e, "shapes/consts2.go")
+	file, _, _ := resolveFile(e, sfile("shapes", "consts2.go"))
 	src := string(file.Src())
 	if strings.Count(src, "const") != 1 {
 		t.Errorf("expected exactly one const group after merge, got source:\n%s", src)
@@ -827,7 +827,7 @@ func TestCreateIotaGroupNeverMergesIntoExistingGroup(t *testing.T) {
 	mustEdit(t, e, func(tx *gate.Tx) error {
 		return tx.CreateSymbol(spkg("shapes"), "kinds2.go", "const (\n\tFirstB = iota\n\tSecondB\n)")
 	})
-	file, _, _ := resolveFile(e, "shapes/kinds2.go")
+	file, _, _ := resolveFile(e, sfile("shapes", "kinds2.go"))
 	src := string(file.Src())
 	if strings.Count(src, "const") != 2 {
 		t.Errorf("expected two separate iota groups, got source:\n%s", src)
@@ -848,7 +848,7 @@ func TestCreateTypedIotaGroupNearItsType(t *testing.T) {
 		return tx.CreateSymbol(spkg("shapes"), "status.go",
 			"const (\n\t// Active is running.\n\tActive Status = iota\n\tInactive\n)")
 	})
-	file, _, _ := resolveFile(e, "shapes/status.go")
+	file, _, _ := resolveFile(e, sfile("shapes", "status.go"))
 	src := string(file.Src())
 	typeIdx := strings.Index(src, "type Status int")
 	constIdx := strings.Index(src, "Active Status = iota")
@@ -868,7 +868,7 @@ func TestCreateUntypedIotaGroupStandardRegion(t *testing.T) {
 	mustEdit(t, e, func(tx *gate.Tx) error {
 		return tx.CreateSymbol(spkg("shapes"), "flags.go", "const (\n\tFlagA = 1 << iota\n\tFlagB\n)")
 	})
-	file, _, _ := resolveFile(e, "shapes/flags.go")
+	file, _, _ := resolveFile(e, sfile("shapes", "flags.go"))
 	src := string(file.Src())
 	typeIdx := strings.Index(src, "type Flag int")
 	constIdx := strings.Index(src, "FlagA = 1 << iota")
@@ -894,7 +894,7 @@ func TestDeleteBlanksSharedMultiValueSpec(t *testing.T) {
 	if _, _, ok := resolveSymbol(e, spkg("shapes"), "boundY"); !ok {
 		t.Error("boundY destroyed by blanking its sibling boundX")
 	}
-	file, _, _ := resolveFile(e, "shapes/groups.go")
+	file, _, _ := resolveFile(e, sfile("shapes", "groups.go"))
 	if !bytes.Contains(file.Src(), []byte("var _, boundY = boundsOf()")) {
 		t.Errorf("boundX not blanked to _:\n%s", file.Src())
 	}
@@ -914,7 +914,7 @@ func TestDeleteConvergesToFullRemovalWhenNoRealNameRemains(t *testing.T) {
 	if _, _, ok := resolveSymbol(e, spkg("shapes"), "boundY"); ok {
 		t.Error("boundY still resolvable after its spec should have collapsed")
 	}
-	file, _, _ := resolveFile(e, "shapes/groups.go")
+	file, _, _ := resolveFile(e, sfile("shapes", "groups.go"))
 	if bytes.Contains(file.Src(), []byte("= boundsOf()")) {
 		t.Errorf("shared-call spec not fully collapsed after its last real name was deleted:\n%s", file.Src())
 	}
@@ -985,11 +985,11 @@ func TestMoveSymbolCrossPackageQualifierRewrite(t *testing.T) {
 	if _, _, ok := resolveSymbol(e, spkg("mvsrc"), "Perimeter"); ok {
 		t.Error("Perimeter still resolvable in mvsrc after the move")
 	}
-	srcFile, _, _ := resolveFile(e, "mvsrc/mvsrc.go")
+	srcFile, _, _ := resolveFile(e, sfile("mvsrc", "mvsrc.go"))
 	if !bytes.Contains(srcFile.Src(), []byte("mvdest.Perimeter(r)")) {
 		t.Errorf("sibling reference didn't gain the destination qualifier:\n%s", srcFile.Src())
 	}
-	useFile, _, _ := resolveFile(e, "use/use.go")
+	useFile, _, _ := resolveFile(e, sfile("use", "use.go"))
 	if !bytes.Contains(useFile.Src(), []byte("mvdest.Perimeter(r)")) {
 		t.Errorf("third-party reference wasn't repointed to the new package:\n%s", useFile.Src())
 	}
@@ -1009,7 +1009,7 @@ func TestMoveSymbolQualifierDropsAtDestination(t *testing.T) {
 	if _, _, ok := resolveSymbol(e, spkg("mvbeta"), "Solo"); !ok {
 		t.Error("Solo not resolvable in mvbeta after the move")
 	}
-	file, _, _ := resolveFile(e, "mvbeta/mvbeta.go")
+	file, _, _ := resolveFile(e, sfile("mvbeta", "mvbeta.go"))
 	if !bytes.Contains(file.Src(), []byte("return Solo()")) {
 		t.Errorf("destination's pre-existing reference didn't lose its qualifier:\n%s", file.Src())
 	}
@@ -1082,7 +1082,7 @@ func TestMoveFileCrossPackageSucceedsWhenSafe(t *testing.T) {
 	// MoveFile now rewrites external qualifiers too: use.go's pre-existing
 	// mvsrc.StandaloneFunc reference must be repointed to mvdest, not left
 	// dangling.
-	useFile, _, _ := resolveFile(e, "use/use.go")
+	useFile, _, _ := resolveFile(e, sfile("use", "use.go"))
 	if !bytes.Contains(useFile.Src(), []byte("mvdest.StandaloneFunc()")) {
 		t.Errorf("external reference wasn't repointed to the new package:\n%s", useFile.Src())
 	}
@@ -1126,7 +1126,7 @@ func TestMoveSymbolRequalifiesOutboundExportedDependency(t *testing.T) {
 	if len(report.Delta) != 0 {
 		t.Errorf("cross-package move introduced diagnostics: %v", deltaStrings(report))
 	}
-	file, _, _ := resolveFile(e, "mvdest/mvdest.go")
+	file, _, _ := resolveFile(e, sfile("mvdest", "mvdest.go"))
 	if !bytes.Contains(file.Src(), []byte("mvsrc.PublicHelper()")) {
 		t.Errorf("outbound reference to the remaining exported sibling wasn't requalified:\n%s", file.Src())
 	}
@@ -1143,7 +1143,7 @@ func TestMoveFileRequalifiesOutboundExportedDependency(t *testing.T) {
 	if len(report.Delta) != 0 {
 		t.Errorf("cross-package file move introduced diagnostics: %v", deltaStrings(report))
 	}
-	file, _, _ := resolveFile(e, "mvdest/fileoutbound.go")
+	file, _, _ := resolveFile(e, sfile("mvdest", "fileoutbound.go"))
 	if !bytes.Contains(file.Src(), []byte("mvsrc.PublicHelper()")) {
 		t.Errorf("outbound reference to the remaining exported sibling wasn't requalified:\n%s", file.Src())
 	}
@@ -1185,7 +1185,7 @@ func TestMoveFileDoesNotCorruptMethodCallSites(t *testing.T) {
 	if len(report.Delta) != 0 {
 		t.Errorf("cross-package file move introduced diagnostics: %v", deltaStrings(report))
 	}
-	useFile, _, _ := resolveFile(e, "use/use.go")
+	useFile, _, _ := resolveFile(e, sfile("use", "use.go"))
 	if !bytes.Contains(useFile.Src(), []byte("mvdest.Gauge{N: 3}")) {
 		t.Errorf("type reference wasn't requalified to the new package:\n%s", useFile.Src())
 	}

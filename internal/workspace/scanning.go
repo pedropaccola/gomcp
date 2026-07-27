@@ -205,7 +205,7 @@ func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg address.PkgPath,
 // resolveFileByPath finds path within any workspace package — the
 // path-only sibling of resolveFile, for callers that don't already know
 // which package a file belongs to.
-func (w *Workspace) resolveFileByPath(path address.RelativePath) (*File, *Package, bool) {
+func (w *Workspace) resolveFileByPath(path address.FilePath) (*File, *Package, bool) {
 	for _, pkg := range w.allPackages() {
 		if file, ok := pkg.File(path); ok {
 			return file, pkg, true
@@ -219,7 +219,7 @@ func (w *Workspace) resolveFileByPath(path address.RelativePath) (*File, *Packag
 // based resolution, for diagnostics, which carry a line number rather
 // than a token.Pos once translated. In grouped decls it prefers the
 // symbol whose own spec's line range contains the line.
-func (w *Workspace) AddressAtLine(path address.RelativePath, line int) (pkg address.PkgPath, key string, ok bool) {
+func (w *Workspace) AddressAtLine(path address.FilePath, line int) (pkg address.PkgPath, key string, ok bool) {
 	_, owner, ok := w.resolveFileByPath(path)
 	if !ok {
 		return "", "", false

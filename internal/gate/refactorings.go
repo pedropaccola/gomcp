@@ -34,7 +34,7 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 			continue
 		}
 		isXTest := i == 1
-		path, err := packageFilePath(owner, fileName)
+		path, err := address.NewFilePath(tx.ws.Module(), owner.PkgPath, fileName)
 		if err != nil {
 			return err
 		}
@@ -52,7 +52,7 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 		if newName != "" {
 			baseName = newName
 		}
-		newPath, err := packageFilePath(destOwner, baseName)
+		newPath, err := address.NewFilePath(tx.ws.Module(), destOwner.PkgPath, baseName)
 		if err != nil {
 			return err
 		}
@@ -121,7 +121,7 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 		return fmt.Errorf("no workspace package at %q", oldPkg)
 	}
 	newDir, ok := tx.dirOf(newPkg)
-	if !ok || newDir == "." || newDir.IsOutsideRoot() {
+	if !ok || newDir == "." || address.IsOutsideRoot(newDir) {
 		return fmt.Errorf("cannot move %q to %q: workspace packages live under module %q", oldPkg, newPkg, tx.ws.Module())
 	}
 	unit, ok := tx.ws.Unit(oldPkg)
@@ -131,7 +131,7 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 	if _, exists := tx.ws.Unit(newPkg); exists {
 		return fmt.Errorf("a package already exists at %q", newPkg)
 	}
-	oldBase, newBase := filepath.Base(string(dir)), filepath.Base(string(newDir))
+	oldBase, newBase := filepath.Base(dir), filepath.Base(newDir)
 	renameName := unit.Prod() != nil && unit.Prod().Name == oldBase && oldBase != newBase
 	if renameName && !token.IsIdentifier(newBase) {
 		return fmt.Errorf("%q is not a valid package name", newBase)
@@ -170,8 +170,6 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 		}
 		halves[i] = half{orig: orig, moved: moved}
 	}
-	// Every moved file re-enters through the content pipeline, so SwapFile
-	// stays the one door for file content.
 	tx.ws.InstallUnit(newPkg, workspace.NewUnit(halves[0].moved, halves[1].moved))
 	for i, h := range halves {
 		if h.orig == nil {
@@ -179,8 +177,8 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 		}
 		isXTest := i == 1
 		for _, file := range h.orig.Files() {
-			newPath := newDir.Join(filepath.Base(string(file.Path)))
-			tx.ws.Tombstone(file.Path, h.orig.Name)
+			newPath := newPkg.File(file.Path.Name())
+			tx.ws.Tombstone(oldPkg, file.Path, h.orig.Name)
 			tx.ws.ClearTombstone(newPath)
 			tx.touch(file.Path, newPath)
 			candidate := file.Src()
@@ -288,7 +286,7 @@ func (tx *Tx) relocateSymbol(srcPkg, destPkg address.PkgPath, key, fileName stri
 	if !ok {
 		return fmt.Errorf("no package at %q: create_package first", destPkg)
 	}
-	destPath, err := packageFilePath(destOwner, fileName)
+	destPath, err := address.NewFilePath(tx.ws.Module(), destOwner.PkgPath, fileName)
 	if err != nil {
 		return err
 	}
@@ -328,7 +326,7 @@ func (tx *Tx) renameSymbol(pkg address.PkgPath, key, newName string) error {
 		return fmt.Errorf("symbol %q already exists in %q", newKey, pkg)
 	}
 
-	edits := make(map[address.RelativePath][]splice)
+	edits := make(map[address.FilePath][]splice)
 	def := workspace.DefiningIdent(sym)
 	if sp, ok := tx.offsetSpan(sym.File, def.Pos(), def.End()); ok {
 		edits[sym.File] = append(edits[sym.File], splice{span: sp, repl: []byte(newName)})
@@ -378,7 +376,7 @@ func (tx *Tx) applyQualifierFixups(srcPkg, destPkg address.PkgPath, movingKeys [
 // behind. Always resolves srcPkg/key and destPkg fresh from tx.ws — never
 // a pointer a caller might be holding from before an earlier key's own
 // installFile in the same batch forked the package out from under it.
-func (tx *Tx) relocateDeclaration(srcPkg, destPkg address.PkgPath, key string, destPath address.RelativePath) error {
+func (tx *Tx) relocateDeclaration(srcPkg, destPkg address.PkgPath, key string, destPath address.FilePath) error {
 	sym, owner, ok := tx.resolveSymbol(srcPkg, key)
 	if !ok {
 		return fmt.Errorf("no symbol %q in %q", key, srcPkg)
@@ -456,7 +454,7 @@ func (tx *Tx) MoveSymbolGroup(pkg address.PkgPath, keys []string, newPkgPath add
 	if !ok {
 		return fmt.Errorf("no package at %q: create_package first", destPkg)
 	}
-	destPath, err := packageFilePath(destOwner, newFileName)
+	destPath, err := address.NewFilePath(tx.ws.Module(), destOwner.PkgPath, newFileName)
 	if err != nil {
 		return err
 	}

@@ -8,11 +8,11 @@ import (
 
 func TestInsertOffsetAppendsFuncAtEnd(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\nfunc Foo() {}\n")
-	at, ok := w.InsertOffset("test.mod/pkg", "pkg/pkg.go", KindFunc, "")
+	at, ok := w.InsertOffset("test.mod/pkg", "test.mod/pkg/pkg.go", KindFunc, "")
 	if !ok {
 		t.Fatal("InsertOffset must find a position for a new func")
 	}
-	file, _, _ := w.resolveFile("test.mod/pkg", "pkg/pkg.go")
+	file, _, _ := w.resolveFile("test.mod/pkg", "test.mod/pkg/pkg.go")
 	src := string(file.Src())
 	fooEnd := strings.Index(src, "func Foo() {}") + len("func Foo() {}")
 	if at != fooEnd {
@@ -22,11 +22,11 @@ func TestInsertOffsetAppendsFuncAtEnd(t *testing.T) {
 
 func TestInsertOffsetMethodNearReceiver(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\ntype Box struct{}\n\nfunc (b Box) M() {}\n\nfunc Other() {}\n")
-	at, ok := w.InsertOffset("test.mod/pkg", "pkg/pkg.go", KindMethod, "Box")
+	at, ok := w.InsertOffset("test.mod/pkg", "test.mod/pkg/pkg.go", KindMethod, "Box")
 	if !ok {
 		t.Fatal("InsertOffset must find a position for a new Box method")
 	}
-	file, _, _ := w.resolveFile("test.mod/pkg", "pkg/pkg.go")
+	file, _, _ := w.resolveFile("test.mod/pkg", "test.mod/pkg/pkg.go")
 	src := string(file.Src())
 	mEnd := strings.Index(src, "func (b Box) M() {}") + len("func (b Box) M() {}")
 	otherStart := strings.Index(src, "func Other")
@@ -37,11 +37,11 @@ func TestInsertOffsetMethodNearReceiver(t *testing.T) {
 
 func TestTypeDeclOffset(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\ntype Status int\n\nfunc Foo() {}\n")
-	at, ok := w.TypeDeclOffset("test.mod/pkg", "pkg/pkg.go", "Status")
+	at, ok := w.TypeDeclOffset("test.mod/pkg", "test.mod/pkg/pkg.go", "Status")
 	if !ok {
 		t.Fatal("TypeDeclOffset must find Status")
 	}
-	file, _, _ := w.resolveFile("test.mod/pkg", "pkg/pkg.go")
+	file, _, _ := w.resolveFile("test.mod/pkg", "test.mod/pkg/pkg.go")
 	src := string(file.Src())
 	typeEnd := strings.Index(src, "type Status int") + len("type Status int")
 	fooStart := strings.Index(src, "func Foo")
@@ -52,11 +52,11 @@ func TestTypeDeclOffset(t *testing.T) {
 
 func TestMergeableGroupInsertOffset(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\nconst (\n\tA = 1\n\tB = 2\n)\n")
-	at, ok := w.MergeableGroupInsertOffset("test.mod/pkg", "pkg/pkg.go", token.CONST)
+	at, ok := w.MergeableGroupInsertOffset("test.mod/pkg", "test.mod/pkg/pkg.go", token.CONST)
 	if !ok {
 		t.Fatal("expected a mergeable const group")
 	}
-	file, _, _ := w.resolveFile("test.mod/pkg", "pkg/pkg.go")
+	file, _, _ := w.resolveFile("test.mod/pkg", "test.mod/pkg/pkg.go")
 	src := string(file.Src())
 	bEnd := strings.Index(src, "B = 2") + len("B = 2")
 	closeParen := strings.LastIndex(src, ")")
@@ -67,7 +67,7 @@ func TestMergeableGroupInsertOffset(t *testing.T) {
 
 func TestMergeableGroupInsertOffsetNoneForPositionDependent(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\nconst (\n\tA = iota\n\tB\n)\n")
-	if _, ok := w.MergeableGroupInsertOffset("test.mod/pkg", "pkg/pkg.go", token.CONST); ok {
+	if _, ok := w.MergeableGroupInsertOffset("test.mod/pkg", "test.mod/pkg/pkg.go", token.CONST); ok {
 		t.Error("an iota group must never be reported mergeable")
 	}
 }
@@ -79,11 +79,11 @@ func TestMergeableGroupInsertOffsetNoneForPositionDependent(t *testing.T) {
 // unrelated plain func.
 func TestInsertOffsetMethodAfterTypeWithNoExistingMethods(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\ntype Box struct{}\n\nfunc Other() {}\n")
-	at, ok := w.InsertOffset("test.mod/pkg", "pkg/pkg.go", KindMethod, "Box")
+	at, ok := w.InsertOffset("test.mod/pkg", "test.mod/pkg/pkg.go", KindMethod, "Box")
 	if !ok {
 		t.Fatal("InsertOffset must find a position for Box's first method")
 	}
-	file, _, _ := w.resolveFile("test.mod/pkg", "pkg/pkg.go")
+	file, _, _ := w.resolveFile("test.mod/pkg", "test.mod/pkg/pkg.go")
 	src := string(file.Src())
 	boxEnd := strings.Index(src, "type Box struct{}") + len("type Box struct{}")
 	if at != boxEnd {

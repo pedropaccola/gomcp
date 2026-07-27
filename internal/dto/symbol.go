@@ -1,8 +1,6 @@
 package dto
 
-import (
-	"github.com/pedropaccola/gomcp/internal/address"
-)
+import "github.com/pedropaccola/gomcp/internal/address"
 
 // Symbol is dto's read-only view of one addressable top-level
 // declaration: the key, kind, receiver, and owning file — constructed
@@ -14,11 +12,11 @@ type Symbol struct {
 	key  string
 	kind SymbolKind
 	recv string
-	file address.RelativePath
+	file address.FilePath
 }
 
 // File is the workspace-relative path of the file that declares the symbol.
-func (s Symbol) File() address.RelativePath { return s.file }
+func (s Symbol) File() address.FilePath { return s.file }
 
 // Key is the symbol's address within its package: "Recv.Name" for methods,
 // "Name" otherwise.
@@ -31,6 +29,6 @@ func (s Symbol) Kind() SymbolKind { return s.kind }
 func (s Symbol) Recv() string { return s.recv }
 
 // NewSymbol constructs a Symbol from its plain fields.
-func NewSymbol(key string, kind SymbolKind, recv string, file address.RelativePath) Symbol {
+func NewSymbol(key string, kind SymbolKind, recv string, file address.FilePath) Symbol {
 	return Symbol{key: key, kind: kind, recv: recv, file: file}
 }
