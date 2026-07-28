@@ -97,16 +97,15 @@ func describePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Des
 		for i, entry := range in.Describes {
 			err := readPackage(ctx, eng, entry.PkgPath, func(v *gate.View, pkg dto.Package) error {
 				res := &out.Results[i]
-				if doc := pkg.Doc(); doc != "" {
+				if doc := pkg.Doc; doc != "" {
 					res.Doc = new(string)
 					*res.Doc = doc
 				}
-				files := pkg.Files()
-				res.Files = make([]string, 0, len(files))
-				for _, f := range files {
-					res.Files = append(res.Files, f.Path().Base())
+				res.Files = make([]string, 0, len(pkg.Files))
+				for _, f := range pkg.Files {
+					res.Files = append(res.Files, f.Path.Base())
 				}
-				res.DiagnosticsTruncated = newDiagnosticsTruncated(v.Diagnostics(pkg.PkgPath()), cfg.diagLimit)
+				res.DiagnosticsTruncated = newDiagnosticsTruncated(v.Diagnostics(pkg.Path), cfg.diagLimit)
 				return nil
 			})
 			if err != nil {
@@ -126,13 +125,13 @@ func describeFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Descri
 		out := DescribeFileOutput{Results: make([]DescribeFileResult, n)}
 		for i, entry := range in.Describes {
 			err := readPackage(ctx, eng, entry.PkgPath, func(v *gate.View, pkg dto.Package) error {
-				fp, err := address.NewFilePath(v.Module(), pkg.PkgPath(), entry.FileName)
+				fp, err := address.NewFilePath(v.Module(), pkg.Path, entry.FileName)
 				if err != nil {
 					return err
 				}
 				var target *dto.File
-				for _, f := range pkg.Files() {
-					if f.Path() == fp {
+				for _, f := range pkg.Files {
+					if f.Path == fp {
 						target = &f
 						break
 					}
@@ -141,11 +140,11 @@ func describeFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Descri
 					return fmt.Errorf("no file %q in package %q", fp, entry.PkgPath)
 				}
 				res := &out.Results[i]
-				if doc := target.Doc(); doc != "" {
+				if doc := target.Doc; doc != "" {
 					res.Doc = new(string)
 					*res.Doc = doc
 				}
-				res.DiagnosticsTruncated = newDiagnosticsTruncated(diagsForFile(v.Diagnostics(pkg.PkgPath()), target.Path()), cfg.diagLimit)
+				res.DiagnosticsTruncated = newDiagnosticsTruncated(diagsForFile(v.Diagnostics(pkg.Path), target.Path), cfg.diagLimit)
 				return nil
 			})
 			if err != nil {
@@ -165,19 +164,19 @@ func describeSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Desc
 		out := DescribeSymbolOutput{Results: make([]DescribeSymbolResult, n)}
 		for i, entry := range in.Describes {
 			err := readSymbol(ctx, eng, entry.PkgPath, entry.SymbolKey, func(v *gate.View, sym dto.Symbol, owner dto.Package) error {
-				src, ok := v.DeclSource(owner.PkgPath(), sym.Key())
+				src, ok := v.DeclSource(owner.Path, sym.Key)
 				if !ok {
 					return fmt.Errorf("source extraction failed for %q", entry.SymbolKey)
 				}
 				res := &out.Results[i]
-				res.File = sym.File().Base()
+				res.File = sym.File.Base()
 				res.Source = src
-				res.Kind = sym.Kind().String()
-				diags := v.SymbolDiagnostics(owner.PkgPath(), sym.Key())
-				if sym.Kind() == dto.KindType {
-					res.Methods = methodSignatures(v, owner, sym.Key())
-					for _, m := range v.Methods(owner, sym.Key()) {
-						diags = append(diags, v.SymbolDiagnostics(owner.PkgPath(), m.Key())...)
+				res.Kind = sym.Kind.String()
+				diags := v.SymbolDiagnostics(owner.Path, sym.Key)
+				if sym.Kind == dto.KindType {
+					res.Methods = methodSignatures(v, owner, sym.Key)
+					for _, m := range v.Methods(owner, sym.Key) {
+						diags = append(diags, v.SymbolDiagnostics(owner.Path, m.Key)...)
 					}
 				}
 				res.DiagnosticsTruncated = newDiagnosticsTruncated(diags, cfg.diagLimit)

@@ -69,7 +69,7 @@ func (v *View) toMatches(ms []workspace.SymbolMatch) []dto.Match {
 		if !ok {
 			continue
 		}
-		out = append(out, dto.Match{Pkg: pkg, Sym: sym})
+		out = append(out, dto.Match{Package: pkg, Symbol: sym})
 	}
 	return out
 }

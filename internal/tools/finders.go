@@ -76,7 +76,7 @@ func searchImplementors(eng *engine.Engine) mcp.ToolHandlerFor[SearchImplementor
 				if err != nil {
 					return err
 				}
-				matches, err := v.SymbolsImplementing(owner.PkgPath(), in.SymbolKey)
+				matches, err := v.SymbolsImplementing(owner.Path, in.SymbolKey)
 				if err != nil {
 					return err
 				}
@@ -106,7 +106,7 @@ func searchReferences(eng *engine.Engine) mcp.ToolHandlerFor[SearchReferencesInp
 			if err != nil {
 				return err
 			}
-			matches, err := v.SymbolsReferencing(owner.PkgPath(), in.SymbolKey)
+			matches, err := v.SymbolsReferencing(owner.Path, in.SymbolKey)
 			if err != nil {
 				return err
 			}
@@ -140,8 +140,8 @@ func resolveSymbol(v *gate.View, dir, key string, want dto.SymbolKind) (dto.Symb
 	if err != nil {
 		return dto.Symbol{}, dto.Package{}, err
 	}
-	if sym.Kind() != want {
-		return dto.Symbol{}, dto.Package{}, fmt.Errorf("%q is a %s, not a %s: use the matching describe_* tool", key, sym.Kind(), want)
+	if sym.Kind != want {
+		return dto.Symbol{}, dto.Package{}, fmt.Errorf("%q is a %s, not a %s: use the matching describe_* tool", key, sym.Kind, want)
 	}
 	return sym, owner, nil
 }
@@ -152,9 +152,9 @@ func newMatchEntries(matches []dto.Match) []MatchEntry {
 	out := make([]MatchEntry, 0, len(matches))
 	for _, m := range matches {
 		out = append(out, MatchEntry{
-			PkgPath:   m.Pkg.PkgPath().String(),
-			SymbolKey: m.Sym.Key(),
-			Kind:      m.Sym.Kind().String(),
+			PkgPath:   m.Package.Path.String(),
+			SymbolKey: m.Symbol.Key,
+			Kind:      m.Symbol.Kind.String(),
 		})
 	}
 	return out

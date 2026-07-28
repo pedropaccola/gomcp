@@ -97,11 +97,11 @@ func TestLookupSymbolsAndExtraction(t *testing.T) {
 		}
 
 		// Enumerators: methods on a generic receiver, files round-trip.
-		if methods := v.Methods(owner, "Stack"); len(methods) != 1 || methods[0].Key() != "Stack.Push" {
+		if methods := v.Methods(owner, "Stack"); len(methods) != 1 || methods[0].Key != "Stack.Push" {
 			t.Errorf("Methods(Stack) = %v", methods)
 		}
-		for _, f := range owner.Files() {
-			if f.Path() == "" {
+		for _, f := range owner.Files {
+			if f.Path == "" {
 				t.Error("Files entry has empty path")
 			}
 		}
@@ -151,7 +151,7 @@ func TestLookupScans(t *testing.T) {
 	e := sandboxEngine(t)
 	err := e.Read(context.Background(), func(v *gate.View) error {
 		hasKey := func(ms []dto.Match, key string) bool {
-			return slices.ContainsFunc(ms, func(m dto.Match) bool { return m.Sym.Key() == key })
+			return slices.ContainsFunc(ms, func(m dto.Match) bool { return m.Symbol.Key == key })
 		}
 
 		if ms := v.SymbolsLike("AREA"); !hasKey(ms, "Circle.Area") || !hasKey(ms, "TotalArea") {
@@ -163,9 +163,9 @@ func TestLookupScans(t *testing.T) {
 
 		var consts []dto.Match
 		for _, pkg := range v.Packages() {
-			for _, sym := range pkg.Symbols() {
-				if sym.Kind() == dto.KindConst {
-					consts = append(consts, dto.Match{Pkg: pkg, Sym: sym})
+			for _, sym := range pkg.Symbols {
+				if sym.Kind == dto.KindConst {
+					consts = append(consts, dto.Match{Package: pkg, Symbol: sym})
 				}
 			}
 		}
@@ -174,18 +174,18 @@ func TestLookupScans(t *testing.T) {
 		}
 
 		hits := v.SymbolsRegexp(regexp.MustCompile(`(?m)^type Embedded struct`))
-		if len(hits) != 1 || hits[0].Sym.Key() != "Embedded" {
+		if len(hits) != 1 || hits[0].Symbol.Key != "Embedded" {
 			t.Fatalf("SymbolsRegexp(type Embedded) = %+v, want the single symbol Embedded", hits)
 		}
 
 		// Content matching reaches inside bodies; grouped members attribute
 		// to the one owning spec; hits dedupe per symbol.
 		body := v.SymbolsRegexp(regexp.MustCompile(`append\(s\.items`))
-		if len(body) != 1 || body[0].Sym.Key() != "Stack.Push" {
+		if len(body) != 1 || body[0].Symbol.Key != "Stack.Push" {
 			t.Errorf("SymbolsRegexp(append) = %v", matchKeys(body))
 		}
 		grouped := v.SymbolsRegexp(regexp.MustCompile(`DefaultScale stretches`))
-		if len(grouped) != 1 || grouped[0].Sym.Key() != "DefaultScale" {
+		if len(grouped) != 1 || grouped[0].Symbol.Key != "DefaultScale" {
 			t.Errorf("grouped hit misattributed: %v", matchKeys(grouped))
 		}
 		return nil
@@ -299,11 +299,11 @@ func TestPublicViewSurface(t *testing.T) {
 		if !ok {
 			t.Fatal("Package(shapes) not found")
 		}
-		if pkg.PkgPath() != spkg("shapes") {
-			t.Errorf("Package.PkgPath() = %q, want %q", pkg.PkgPath(), spkg("shapes"))
+		if pkg.Path != spkg("shapes") {
+			t.Errorf("Package.Path = %q, want %q", pkg.Path, spkg("shapes"))
 		}
-		if len(pkg.Files()) == 0 || len(pkg.Symbols()) == 0 {
-			t.Error("Package.Files()/Symbols() empty: translator dropped data")
+		if len(pkg.Files) == 0 || len(pkg.Symbols) == 0 {
+			t.Error("Package.Files/Symbols empty: translator dropped data")
 		}
 		if _, ok := pkg.Symbol("Shape"); !ok {
 			t.Error("Package.Symbol(Shape) not found on the translated package")
@@ -313,11 +313,11 @@ func TestPublicViewSurface(t *testing.T) {
 		if !ok {
 			t.Fatal("Symbol(Circle.Area) not found")
 		}
-		if sym.Kind() != dto.KindMethod || sym.Recv() != "Circle" {
+		if sym.Kind != dto.KindMethod || sym.Recv != "Circle" {
 			t.Errorf("Symbol(Circle.Area) = %+v, translator lost kind/recv", sym)
 		}
-		if owner.PkgPath() != spkg("shapes") {
-			t.Errorf("Symbol owner PkgPath() = %q", owner.PkgPath())
+		if owner.Path != spkg("shapes") {
+			t.Errorf("Symbol owner Path = %q", owner.Path)
 		}
 
 		if sig, ok := v.Signature(spkg("shapes"), "Circle.Area"); !ok || sig != "func (c Circle) Area() float64" {
@@ -338,8 +338,8 @@ func TestPublicViewSurface(t *testing.T) {
 			t.Fatal("Packages() empty")
 		}
 		for _, p := range pkgs {
-			if p.PkgPath() == "" {
-				t.Error("Packages() entry with empty PkgPath")
+			if p.Path == "" {
+				t.Error("Packages() entry with empty Path")
 			}
 		}
 
@@ -365,31 +365,31 @@ func TestPackageAndFileDoc(t *testing.T) {
 			t.Fatal("shapes package not resolvable")
 		}
 		want := "Kinds are grouped separately from shapes themselves.\n\nPackage shapes provides fixture shape types for tests."
-		if pkg.Doc() != want {
-			t.Errorf("Package.Doc() = %q, want %q", pkg.Doc(), want)
+		if pkg.Doc != want {
+			t.Errorf("Package.Doc = %q, want %q", pkg.Doc, want)
 		}
 		var groupsDoc, shapesDoc string
-		for _, f := range pkg.Files() {
-			switch f.Path().Base() {
+		for _, f := range pkg.Files {
+			switch f.Path.Base() {
 			case "groups.go":
-				groupsDoc = f.Doc()
+				groupsDoc = f.Doc
 			case "shapes.go":
-				shapesDoc = f.Doc()
+				shapesDoc = f.Doc
 			}
 		}
 		if groupsDoc != "Kinds are grouped separately from shapes themselves." {
-			t.Errorf("groups.go Doc() = %q", groupsDoc)
+			t.Errorf("groups.go Doc = %q", groupsDoc)
 		}
 		if shapesDoc != "Package shapes provides fixture shape types for tests." {
-			t.Errorf("shapes.go Doc() = %q", shapesDoc)
+			t.Errorf("shapes.go Doc = %q", shapesDoc)
 		}
 
 		use, ok := v.Package(spkg("use"))
 		if !ok {
 			t.Fatal("use package not resolvable")
 		}
-		if use.Doc() != "" {
-			t.Errorf("use.Doc() = %q, want empty (no fixture doc comments)", use.Doc())
+		if use.Doc != "" {
+			t.Errorf("use.Doc = %q, want empty (no fixture doc comments)", use.Doc)
 		}
 		return nil
 	})

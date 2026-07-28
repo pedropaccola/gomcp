@@ -35,8 +35,8 @@ func TestTxCreatePackage(t *testing.T) {
 	if !ok {
 		t.Fatal("newpkg not found after CreatePackage")
 	}
-	if len(pkg.Files()) != 1 {
-		t.Errorf("newpkg.Files() = %+v, want exactly one seeded file", pkg.Files())
+	if len(pkg.Files) != 1 {
+		t.Errorf("newpkg.Files = %+v, want exactly one seeded file", pkg.Files)
 	}
 }
 
@@ -58,8 +58,8 @@ func TestTxCreateFile(t *testing.T) {
 	if !ok {
 		t.Fatal("test.mod/pkg not found")
 	}
-	if len(pkg.Files()) != 2 {
-		t.Errorf("pkg.Files() = %+v, want the original file plus extra.go", pkg.Files())
+	if len(pkg.Files) != 2 {
+		t.Errorf("pkg.Files = %+v, want the original file plus extra.go", pkg.Files)
 	}
 }
 

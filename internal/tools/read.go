@@ -60,7 +60,7 @@ func readPackage(ctx context.Context, eng *engine.Engine, addr string, fn func(*
 // already falls through workspace units into the external cache.
 func readSymbol(ctx context.Context, eng *engine.Engine, addr, key string, fn func(*gate.View, dto.Symbol, dto.Package) error) error {
 	return readPackage(ctx, eng, addr, func(v *gate.View, pkg dto.Package) error {
-		sym, owner, ok := v.Symbol(pkg.PkgPath(), key)
+		sym, owner, ok := v.Symbol(pkg.Path, key)
 		if !ok {
 			return fmt.Errorf("no symbol %q in package %q: call list_symbols for valid keys", key, addr)
 		}
@@ -73,7 +73,7 @@ func readSymbol(ctx context.Context, eng *engine.Engine, addr, key string, fn fu
 func methodSignatures(v *gate.View, pkg dto.Package, typeName string) []string {
 	var out []string
 	for _, m := range v.Methods(pkg, typeName) {
-		if sig, ok := v.Signature(pkg.PkgPath(), m.Key()); ok {
+		if sig, ok := v.Signature(pkg.Path, m.Key); ok {
 			out = append(out, sig)
 		}
 	}

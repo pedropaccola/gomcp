@@ -57,14 +57,10 @@ func listPackages(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListPa
 	return func(ctx context.Context, _ *mcp.CallToolRequest, _ ListPackagesInput) (*mcp.CallToolResult, ListPackagesOutput, error) {
 		var out ListPackagesOutput
 		err := eng.Read(ctx, func(v *gate.View) error {
-			pkgs := v.Packages()
-			out.Packages = make([]string, 0, len(pkgs))
-			last := ""
-			for _, pkg := range pkgs {
-				if addr := pkg.Dir().String(); addr != last {
-					out.Packages = append(out.Packages, addr)
-					last = addr
-				}
+			dirs := v.UnitKeys()
+			out.Packages = make([]string, len(dirs))
+			for i, dir := range dirs {
+				out.Packages[i] = dir.String()
 			}
 			return nil
 		})
@@ -76,12 +72,11 @@ func listFiles(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListFiles
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListFilesInput) (*mcp.CallToolResult, ListFilesOutput, error) {
 		var out ListFilesOutput
 		err := readPackage(ctx, eng, in.PkgPath, func(v *gate.View, pkg dto.Package) error {
-			files := pkg.Files()
-			out.Files = make([]string, 0, len(files))
-			for _, file := range files {
-				out.Files = append(out.Files, file.Path().Base())
+			out.Files = make([]string, 0, len(pkg.Files))
+			for _, file := range pkg.Files {
+				out.Files = append(out.Files, file.Path.Base())
 			}
-			out.DiagnosticsTruncated = newDiagnosticsTruncated(v.Diagnostics(pkg.PkgPath()), cfg.diagLimit)
+			out.DiagnosticsTruncated = newDiagnosticsTruncated(v.Diagnostics(pkg.Path), cfg.diagLimit)
 			return nil
 		})
 		return nil, out, err
@@ -94,12 +89,12 @@ func listSymbols(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListSym
 		err := readPackage(ctx, eng, in.PkgPath, func(v *gate.View, pkg dto.Package) error {
 			var target *dto.File
 			if fileName := optStr(in.FileName); fileName != "" {
-				fp, err := address.NewFilePath(v.Module(), pkg.PkgPath(), fileName)
+				fp, err := address.NewFilePath(v.Module(), pkg.Path, fileName)
 				if err != nil {
 					return err
 				}
-				for _, f := range pkg.Files() {
-					if f.Path() == fp {
+				for _, f := range pkg.Files {
+					if f.Path == fp {
 						target = &f
 						break
 					}
@@ -108,21 +103,21 @@ func listSymbols(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListSym
 					return fmt.Errorf("no file %q in package %q", fp, in.PkgPath)
 				}
 			}
-			syms := pkg.Symbols()
+			syms := pkg.Symbols
 			out.Symbols = make([]SymbolEntry, 0, len(syms))
 			for _, sym := range syms {
-				if target != nil && sym.File() != target.Path() {
+				if target != nil && sym.File != target.Path {
 					continue
 				}
 				out.Symbols = append(out.Symbols, SymbolEntry{
-					SymbolKey: sym.Key(),
-					Kind:      sym.Kind().String(),
+					SymbolKey: sym.Key,
+					Kind:      sym.Kind.String(),
 					Summary:   summarize(v, pkg, sym),
 				})
 			}
-			diags := v.Diagnostics(pkg.PkgPath())
+			diags := v.Diagnostics(pkg.Path)
 			if target != nil {
-				diags = diagsForFile(diags, target.Path())
+				diags = diagsForFile(diags, target.Path)
 			}
 			out.DiagnosticsTruncated = newDiagnosticsTruncated(diags, cfg.diagLimit)
 			return nil
@@ -138,7 +133,7 @@ func listMethods(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListMet
 			out.Methods = methodSignatures(v, pkg, in.SymbolKey)
 			var diags []dto.Diagnostic
 			for _, m := range v.Methods(pkg, in.SymbolKey) {
-				diags = append(diags, v.SymbolDiagnostics(pkg.PkgPath(), m.Key())...)
+				diags = append(diags, v.SymbolDiagnostics(pkg.Path, m.Key)...)
 			}
 			out.DiagnosticsTruncated = newDiagnosticsTruncated(diags, cfg.diagLimit)
 			return nil
@@ -151,10 +146,10 @@ func listMethods(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListMet
 // methods, the trimmed first declaration line — doc comment skipped — for
 // everything else.
 func summarize(v *gate.View, owner dto.Package, sym dto.Symbol) string {
-	if sig, ok := v.Signature(owner.PkgPath(), sym.Key()); ok {
+	if sig, ok := v.Signature(owner.Path, sym.Key); ok {
 		return sig
 	}
-	if src, ok := v.SpecSource(owner.PkgPath(), sym.Key()); ok {
+	if src, ok := v.SpecSource(owner.Path, sym.Key); ok {
 		for _, line := range strings.Split(src, "\n") {
 			trimmed := strings.TrimSpace(line)
 			if len(trimmed) == 0 || strings.HasPrefix(trimmed, "//") {
@@ -163,5 +158,5 @@ func summarize(v *gate.View, owner dto.Package, sym dto.Symbol) string {
 			return strings.TrimRight(trimmed, " \t{")
 		}
 	}
-	return sym.Kind().String() + " " + sym.Key()
+	return sym.Kind.String() + " " + sym.Key
 }

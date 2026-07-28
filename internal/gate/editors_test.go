@@ -35,7 +35,7 @@ func TestTxEditFile(t *testing.T) {
 	if !ok {
 		t.Fatal("test.mod/pkg not found")
 	}
-	if !strings.Contains(pkg.Doc(), "does things") {
-		t.Errorf("Package.Doc() = %q, want the new file doc", pkg.Doc())
+	if !strings.Contains(pkg.Doc, "does things") {
+		t.Errorf("Package.Doc = %q, want the new file doc", pkg.Doc)
 	}
 }

@@ -76,7 +76,7 @@ func copySandbox(tb testing.TB) string {
 func matchKeys(matches []dto.Match) []string {
 	out := make([]string, 0, len(matches))
 	for _, m := range matches {
-		out = append(out, m.Pkg.Dir().String()+":"+m.Sym.Key())
+		out = append(out, m.Package.Path.String()+":"+m.Symbol.Key)
 	}
 	return out
 }

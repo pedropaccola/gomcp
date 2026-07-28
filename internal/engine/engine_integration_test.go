@@ -188,13 +188,13 @@ func TestExternalLoading(t *testing.T) {
 		if _, ok := pkg.Symbol("Reader"); !ok {
 			t.Fatal("io.Reader not indexed")
 		}
-		src, ok := v.DeclSource(pkg.PkgPath(), "Reader")
+		src, ok := v.DeclSource(pkg.Path, "Reader")
 		if !ok || !strings.Contains(src, "Read(p []byte) (n int, err error)") {
 			t.Errorf("DeclSource(io.Reader) = %q, %v", src, ok)
 		}
-		for _, sym := range pkg.Symbols() {
-			if r := sym.Key()[0]; r >= 'a' && r <= 'z' {
-				t.Errorf("unexported symbol %q leaked into the external index", sym.Key())
+		for _, sym := range pkg.Symbols {
+			if r := sym.Key[0]; r >= 'a' && r <= 'z' {
+				t.Errorf("unexported symbol %q leaked into the external index", sym.Key)
 			}
 		}
 		return nil

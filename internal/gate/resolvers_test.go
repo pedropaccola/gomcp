@@ -19,8 +19,8 @@ func TestViewPackage(t *testing.T) {
 	if !ok {
 		t.Fatal("Package(test.mod/pkg) not found")
 	}
-	if pkg.PkgPath() != "test.mod/pkg" {
-		t.Errorf("pkg.PkgPath() = %q, want test.mod/pkg", pkg.PkgPath())
+	if pkg.Path != "test.mod/pkg" {
+		t.Errorf("pkg.Path = %q, want test.mod/pkg", pkg.Path)
 	}
 	if _, ok := pkg.Symbol("Foo"); !ok {
 		t.Errorf("pkg.Symbol(Foo) not found in %+v", pkg)
@@ -40,10 +40,10 @@ func TestViewSymbol(t *testing.T) {
 	if !ok {
 		t.Fatal("Symbol(Foo) not found")
 	}
-	if sym.Key() != "Foo" || sym.Kind() != dto.KindFunc {
+	if sym.Key != "Foo" || sym.Kind != dto.KindFunc {
 		t.Errorf("Symbol(Foo) = %+v, want key Foo kind Func", sym)
 	}
-	if pkg.PkgPath() != "test.mod/pkg" {
+	if pkg.Path != "test.mod/pkg" {
 		t.Errorf("owning pkg = %+v, want test.mod/pkg", pkg)
 	}
 }

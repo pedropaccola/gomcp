@@ -35,8 +35,8 @@ func TestTxMoveFileWithinPackage(t *testing.T) {
 	if !ok {
 		t.Fatal("Foo must survive the file rename")
 	}
-	if sym.File() != "test.mod/pkg/renamed.go" {
-		t.Errorf("Foo.File() = %q, want test.mod/pkg/renamed.go", sym.File())
+	if sym.File != "test.mod/pkg/renamed.go" {
+		t.Errorf("Foo.File = %q, want test.mod/pkg/renamed.go", sym.File)
 	}
 }
 
