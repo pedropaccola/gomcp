@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pedropaccola/gomcp/internal/address"
@@ -76,7 +75,7 @@ func filesByPackage(paths []address.FilePath) map[string][]string {
 	}
 	out := make(map[string][]string)
 	for _, p := range paths {
-		key := filepath.Dir(string(p))
+		key := p.Dir().String()
 		out[key] = append(out[key], p.Base())
 	}
 	return out

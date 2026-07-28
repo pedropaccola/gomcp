@@ -3,44 +3,11 @@ package gate
 import (
 	"cmp"
 	"go/ast"
-	"go/token"
 	"maps"
 	"slices"
-	"strings"
 
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
-
-// leadingDocWord locates "prefix"+"want" at the very start of doc's first
-// line (right after the "// " comment marker) and returns the token.Pos
-// span of just the "want" text, ok=false when the comment doesn't open with
-// exactly that shape. This is what makes a doc-comment rewrite safe to
-// automate: it only ever matches Go's own doc-comment conventions (a
-// symbol's doc opens with its bare name; a package's doc opens with
-// "Package name"), never prose that merely happens to mention the same
-// word. Pure AST work — callers turn the returned span into a Splice via
-// Workspace.NewSpliceAtPos.
-func leadingDocWord(doc *ast.CommentGroup, prefix, want string) (from, to token.Pos, ok bool) {
-	if doc == nil || len(doc.List) == 0 {
-		return 0, 0, false
-	}
-	first := doc.List[0]
-	body := strings.TrimPrefix(strings.TrimPrefix(first.Text, "//"), " ")
-	bodyOffset := len(first.Text) - len(body)
-	if !strings.HasPrefix(body, prefix+want) {
-		return 0, 0, false
-	}
-	if rest := body[len(prefix+want):]; rest != "" {
-		switch rest[0] {
-		case ' ', '.', ',', ':', '\'':
-		default:
-			return 0, 0, false
-		}
-	}
-	from = first.Pos() + token.Pos(bodyOffset+len(prefix))
-	to = from + token.Pos(len(want))
-	return from, to, true
-}
 
 // sortedKeys is the deterministic way to walk any map (invariant 6).
 func sortedKeys[K cmp.Ordered, V any](m map[K]V) []K {

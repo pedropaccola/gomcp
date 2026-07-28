@@ -22,7 +22,7 @@ func (tx *Tx) EditFile(pkg address.PkgPath, name, doc string) error {
 	if err != nil {
 		return err
 	}
-	file, _, ok := tx.resolveFileByPath(path)
+	file, _, ok := tx.ws.ResolveFileByPath(path)
 	if !ok {
 		return fmt.Errorf("no file %q in %q", name, pkg)
 	}
@@ -81,10 +81,10 @@ func (tx *Tx) EditSymbol(pkg address.PkgPath, key, src string) error {
 	if collisions := tx.ws.DetectEditCollisions(pkg, key, frag.keys); len(collisions) > 0 {
 		return fmt.Errorf("replacement declares %q, which already exists in %q", collisions[0], pkg)
 	}
-	file, owner, ok := tx.resolveFileByPath(target.Path)
+	file, owner, ok := tx.ws.ResolveFileByPath(target.Path)
 	if !ok {
 		return fmt.Errorf("internal error: %q vanished while editing %q", target.Path, key)
 	}
 	target.Repl = []byte(replacement)
-	return tx.installFile(pkg, tx.isXTestOwner(pkg, owner), target.Path, workspace.ApplySplices(file.Src(), []workspace.Splice{target}))
+	return tx.installFile(pkg, tx.ws.IsXTestOwner(pkg, owner), target.Path, workspace.ApplySplices(file.Src(), []workspace.Splice{target}))
 }

@@ -73,9 +73,9 @@ func (tx *Tx) DeleteSymbol(pkg address.PkgPath, key string) error {
 		return nil
 	}
 	path := splices[0].Path
-	file, owner, ok := tx.resolveFileByPath(path)
+	file, owner, ok := tx.ws.ResolveFileByPath(path)
 	if !ok {
 		return fmt.Errorf("internal error: %q vanished while deleting %q", path, key)
 	}
-	return tx.installFile(pkg, tx.isXTestOwner(pkg, owner), path, workspace.ApplySplices(file.Src(), splices))
+	return tx.installFile(pkg, tx.ws.IsXTestOwner(pkg, owner), path, workspace.ApplySplices(file.Src(), splices))
 }

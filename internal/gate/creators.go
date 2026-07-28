@@ -20,7 +20,7 @@ func (tx *Tx) CreateFile(pkg address.PkgPath, name, doc string) error {
 	if err != nil {
 		return err
 	}
-	if _, _, exists := tx.resolveFileByPath(path); exists {
+	if _, _, exists := tx.ws.ResolveFileByPath(path); exists {
 		return fmt.Errorf("file %q already exists", path)
 	}
 	content := string(renderDocComment(doc)) + "package " + p.Name + "\n"

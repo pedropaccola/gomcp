@@ -199,11 +199,22 @@ func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg address.PkgPath,
 	return out, nil
 }
 
-// resolveFileByPath finds path within any workspace package — the
-// path-only sibling of resolveFile, for callers that don't already know
-// which package a file belongs to.
-func (w *Workspace) resolveFileByPath(path address.FilePath) (*File, *Package, bool) {
-	for _, pkg := range w.allPackages() {
+// ResolveFileByPath resolves a file path to the file and its owning
+// package, checking the production package before the external test
+// package, falling back to the external dependency cache. path's own
+// directory is its owning package's canonical PkgPath by construction
+// (every FilePath is built as pkg+"/"+basename — see address.PkgPath.File)
+// — no scan over every package needed.
+func (w *Workspace) ResolveFileByPath(path address.FilePath) (*File, *Package, bool) {
+	pkgPath := path.Dir()
+	if unit, ok := w.Unit(pkgPath); ok {
+		for _, pkg := range unit.Members() {
+			if file, ok := pkg.File(path); ok {
+				return file, pkg, true
+			}
+		}
+	}
+	if pkg, ok := w.LookupExternal(pkgPath); ok {
 		if file, ok := pkg.File(path); ok {
 			return file, pkg, true
 		}
@@ -217,7 +228,7 @@ func (w *Workspace) resolveFileByPath(path address.FilePath) (*File, *Package, b
 // than a token.Pos once translated. In grouped decls it prefers the
 // symbol whose own spec's line range contains the line.
 func (w *Workspace) AddressAtLine(path address.FilePath, line int) (pkg address.PkgPath, key string, ok bool) {
-	_, owner, ok := w.resolveFileByPath(path)
+	_, owner, ok := w.ResolveFileByPath(path)
 	if !ok {
 		return "", "", false
 	}
@@ -250,4 +261,14 @@ func (w *Workspace) AddressAtLine(path address.FilePath, line int) (pkg address.
 		return owner.PkgPath, groupHit.Key(), true
 	}
 	return "", "", false
+}
+
+// IsXTestOwner reports whether owner is pkg's external test package
+// rather than its production one — the Prod/XTest selector every
+// address-based primitive needs alongside an address, for callers that
+// resolved owner through a path that doesn't already know which half
+// matched.
+func (w *Workspace) IsXTestOwner(pkg address.PkgPath, owner *Package) bool {
+	unit, ok := w.Unit(pkg)
+	return ok && owner == unit.XTest()
 }

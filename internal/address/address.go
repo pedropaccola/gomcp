@@ -40,6 +40,14 @@ func (f FilePath) Base() string {
 	return path.Base(string(f))
 }
 
+// Dir is the canonical PkgPath of the package f belongs to — valid
+// because every FilePath is constructed as pkg+"/"+basename (see
+// PkgPath.File). path.Dir, not filepath.Dir: an address's separator is
+// always "/", regardless of the host OS.
+func (f FilePath) Dir() PkgPath {
+	return PkgPath(path.Dir(string(f)))
+}
+
 // PkgPath is a package's import path: the canonical address of every
 // package, mirroring the type checker's identity. Workspace addresses are
 // the module path or prefixed by it; they convert to disk locations only

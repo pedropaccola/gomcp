@@ -1,12 +1,9 @@
 package gate
 
 import (
-	"cmp"
 	"fmt"
 	"go/ast"
 	"go/token"
-	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -15,26 +12,15 @@ import (
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
-// applyFileSplices groups splices by file and installs each file's result,
-// deduplicating overlapping gathers.
+// applyFileSplices applies splices across however many files they touch
+// and records every one as changed — the one door gate's mutation verbs
+// use to turn a splice plan into installed content.
 func (tx *Tx) applyFileSplices(splices []workspace.Splice) error {
-	byPath := make(map[address.FilePath][]workspace.Splice)
-	for _, s := range splices {
-		byPath[s.Path] = append(byPath[s.Path], s)
+	touched, err := tx.ws.ApplyFileSplices(splices)
+	if err != nil {
+		return err
 	}
-	for _, path := range sortedKeys(byPath) {
-		file, owner, ok := tx.resolveFileByPath(path)
-		if !ok {
-			return fmt.Errorf("cannot resolve %q while applying splices", path)
-		}
-		batch := byPath[path]
-		slices.SortFunc(batch, func(a, b workspace.Splice) int { return cmp.Compare(a.Start, b.Start) })
-		batch = slices.CompactFunc(batch, func(a, b workspace.Splice) bool { return a.Start == b.Start && a.End == b.End })
-		addr := address.PkgPath(filepath.Dir(string(path)))
-		if err := tx.installFile(addr, tx.isXTestOwner(addr, owner), path, workspace.ApplySplices(file.Src(), batch)); err != nil {
-			return err
-		}
-	}
+	tx.markChanged(touched...)
 	return nil
 }
 
@@ -94,7 +80,7 @@ func (tx *Tx) RepairMissingImports() bool {
 		if !ok {
 			continue
 		}
-		file, owner, ok := tx.resolveFileByPath(diag.File)
+		file, owner, ok := tx.ws.ResolveFileByPath(diag.File)
 		if !ok || owner.PkgPath == path || importsPath(file.Ast(), string(path)) {
 			continue
 		}
@@ -106,7 +92,7 @@ func (tx *Tx) RepairMissingImports() bool {
 
 	repaired := false
 	for _, filePath := range sortedKeys(needed) {
-		file, owner, ok := tx.resolveFileByPath(filePath)
+		file, owner, ok := tx.ws.ResolveFileByPath(filePath)
 		if !ok {
 			continue
 		}
@@ -120,8 +106,8 @@ func (tx *Tx) RepairMissingImports() bool {
 			continue
 		}
 		candidate := workspace.ApplySplices(file.Src(), []workspace.Splice{sp})
-		addr := address.PkgPath(filepath.Dir(string(filePath)))
-		if err := tx.installFile(addr, tx.isXTestOwner(addr, owner), filePath, candidate); err != nil {
+		addr := filePath.Dir()
+		if err := tx.installFile(addr, tx.ws.IsXTestOwner(addr, owner), filePath, candidate); err != nil {
 			continue // repair is best-effort; the diagnostic stays visible
 		}
 		repaired = true
@@ -157,14 +143,4 @@ func renderDocComment(doc string) []byte {
 		}
 	}
 	return []byte(b.String())
-}
-
-// isXTestOwner reports whether owner is pkg's external test package
-// rather than its production one — the Prod/XTest selector every
-// address-based workspace primitive needs alongside an address, for
-// callers (like relocateSymbol) that resolved owner through a path that
-// doesn't already know which half matched.
-func (v *View) isXTestOwner(pkg address.PkgPath, owner *workspace.Package) bool {
-	unit, ok := v.ws.Unit(pkg)
-	return ok && owner == unit.XTest()
 }

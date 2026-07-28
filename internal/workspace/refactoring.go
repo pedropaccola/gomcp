@@ -584,6 +584,263 @@ func (w *Workspace) NewSpliceAtOffset(pkg *Package, path address.FilePath, start
 	return Splice{Path: path, Start: start, End: end, Repl: repl}, true
 }
 
+// ApplyFileSplices groups splices by file and installs each file's result
+// via SwapFile (parsed, goimports-formatted), deduplicating overlapping
+// gathers. Returns every path written, in address order — a caller's
+// material for its own change-tracking, since tracking what changed isn't
+// this method's own concern.
+func (w *Workspace) ApplyFileSplices(splices []Splice) ([]address.FilePath, error) {
+	byPath := make(map[address.FilePath][]Splice)
+	for _, s := range splices {
+		byPath[s.Path] = append(byPath[s.Path], s)
+	}
+	paths := make([]address.FilePath, 0, len(byPath))
+	for path := range byPath {
+		paths = append(paths, path)
+	}
+	slices.Sort(paths)
+	touched := make([]address.FilePath, 0, len(paths))
+	for _, path := range paths {
+		file, owner, ok := w.ResolveFileByPath(path)
+		if !ok {
+			return nil, fmt.Errorf("cannot resolve %q while applying splices", path)
+		}
+		batch := byPath[path]
+		slices.SortFunc(batch, func(a, b Splice) int { return cmp.Compare(a.Start, b.Start) })
+		batch = slices.CompactFunc(batch, func(a, b Splice) bool { return a.Start == b.Start && a.End == b.End })
+		addr := path.Dir()
+		if err := w.SwapFile(addr, w.IsXTestOwner(addr, owner), path, ApplySplices(file.Src(), batch)); err != nil {
+			return nil, err
+		}
+		touched = append(touched, path)
+	}
+	return touched, nil
+}
+
+// RelocateDeclaration extracts key's own declaration from srcPkg and
+// splices it into destPath (already confirmed to belong to destPkg,
+// created if missing) — the mechanical half of a relocation, with no
+// safety checks of its own beyond the two structural guards every
+// relocation needs regardless of scope (already-there, test-boundary
+// crossing): callers are responsible for DetectMoveConflicts and
+// ComputeQualifierFixups/ApplyFileSplices first, and only once, up
+// front — not here, since a batch relocates several keys one at a time
+// and an already-relocated key no longer resolves from srcPkg, so a
+// conflict check repeated mid-batch would incorrectly see it as left
+// behind. Everything this needs — the symbol's own kind and receiver,
+// destPath's file, the extracted text — is resolved fresh from w, once,
+// inside this one call: no caller ever holds a pointer across it.
+// Returns every path written, for the caller's own change-tracking.
+func (w *Workspace) RelocateDeclaration(srcPkg, destPkg address.PkgPath, key string, destPath address.FilePath) ([]address.FilePath, error) {
+	sym, owner, ok := w.ResolveSymbol(srcPkg, key)
+	if !ok {
+		return nil, fmt.Errorf("no symbol %q in %q", key, srcPkg)
+	}
+	destOwner, ok := w.ProdPackage(destPkg)
+	if !ok {
+		return nil, fmt.Errorf("no package at %q: create_package first", destPkg)
+	}
+	if destOwner == owner && destPath == sym.File {
+		return nil, fmt.Errorf("%q already lives in %q", key, destPath)
+	}
+	if strings.HasSuffix(destPath.String(), "_test.go") != strings.HasSuffix(sym.File.String(), "_test.go") {
+		return nil, fmt.Errorf("moving %q from %q to %q would cross the test build boundary", key, sym.File, destPath)
+	}
+	srcIsXTest := w.IsXTestOwner(srcPkg, owner)
+	kind, recv := sym.Kind, sym.Recv
+	src, extractSplice, err := w.ExtractDeclaration(srcPkg, key)
+	if err != nil {
+		return nil, err
+	}
+	dest, inDest := destOwner.File(destPath)
+	if _, _, exists := w.ResolveFileByPath(destPath); exists && !inDest {
+		return nil, fmt.Errorf("file %q belongs to another package", destPath)
+	}
+	file, _ := owner.File(sym.File)
+	if err := w.SwapFile(srcPkg, srcIsXTest, sym.File, ApplySplices(file.Src(), []Splice{extractSplice})); err != nil {
+		return nil, err
+	}
+	if !inDest {
+		if err := w.SwapFile(destPkg, false, destPath, []byte("package "+destOwner.Name+"\n\n"+src+"\n")); err != nil {
+			return nil, err
+		}
+		return []address.FilePath{sym.File, destPath}, nil
+	}
+	dest, destOwner, ok = w.ResolveFileByPath(destPath)
+	if !ok {
+		return nil, fmt.Errorf("internal error: %q vanished after relocation", destPath)
+	}
+	at, ok := w.InsertOffset(destPkg, destPath, kind, recv)
+	if !ok {
+		return nil, fmt.Errorf("cannot locate insertion point in %q", destPath)
+	}
+	sp, ok := w.NewSpliceAtOffset(destOwner, destPath, at, at, []byte("\n\n"+src+"\n"))
+	if !ok {
+		return nil, fmt.Errorf("cannot locate insertion point in %q", destPath)
+	}
+	if err := w.SwapFile(destPkg, false, destPath, ApplySplices(dest.Src(), []Splice{sp})); err != nil {
+		return nil, err
+	}
+	return []address.FilePath{sym.File, destPath}, nil
+}
+
+// RelocateFile moves path from pkg's isXTest half to newPath in
+// newPkgPath (already resolved, already confirmed not to exist) — the
+// cross-package half of MoveFile, refused when DetectMoveConflicts can
+// prove in advance it would break the workspace. Every surviving
+// reference across the move boundary is fixed up first
+// (ComputeQualifierFixups/ApplyFileSplices) — external callers of the
+// file's exported declarations, and the file's own outbound references
+// to exported siblings staying behind, alike — with pkg's and
+// newPkgPath's packages re-resolved fresh afterward, since applying
+// those fixups may have forked either. Returns every path written, for
+// the caller's own change-tracking.
+func (w *Workspace) RelocateFile(pkg address.PkgPath, path address.FilePath, isXTest bool, newPkgPath address.PkgPath, newPath address.FilePath) ([]address.FilePath, error) {
+	unit, ok := w.Unit(pkg)
+	if !ok {
+		return nil, fmt.Errorf("no package at %q", pkg)
+	}
+	owner := unit.Prod()
+	if isXTest {
+		owner = unit.XTest()
+	}
+	destOwner, ok := w.ProdPackage(newPkgPath)
+	if !ok {
+		return nil, fmt.Errorf("no package at %q: create_package first", newPkgPath)
+	}
+
+	var movingKeys []string
+	for _, sym := range owner.Symbols() {
+		if sym.File == path {
+			movingKeys = append(movingKeys, sym.Key())
+		}
+	}
+	if conflicts := w.DetectMoveConflicts(pkg, newPkgPath, movingKeys); len(conflicts) > 0 {
+		return nil, fmt.Errorf("moving %q to %q would break the workspace: %s", path, newPkgPath, strings.Join(conflicts, "; "))
+	}
+	fixups, err := w.ComputeQualifierFixups(pkg, newPkgPath, movingKeys)
+	if err != nil {
+		return nil, err
+	}
+	var touched []address.FilePath
+	if len(fixups) > 0 {
+		fixupTouched, err := w.ApplyFileSplices(fixups)
+		if err != nil {
+			return nil, err
+		}
+		touched = append(touched, fixupTouched...)
+		// ApplyFileSplices may have forked owner's or destOwner's package if
+		// either had a file among the fixups — re-resolve both from their
+		// stable addresses rather than trust the pointers captured above.
+		unit, ok = w.Unit(pkg)
+		if !ok {
+			return nil, fmt.Errorf("internal error: %q vanished after qualifier fixups", pkg)
+		}
+		owner = unit.Prod()
+		if isXTest {
+			owner = unit.XTest()
+		}
+		if owner == nil {
+			return nil, fmt.Errorf("internal error: %q vanished after qualifier fixups", pkg)
+		}
+		destOwner, ok = w.ProdPackage(newPkgPath)
+		if !ok {
+			return nil, fmt.Errorf("internal error: %q vanished after qualifier fixups", newPkgPath)
+		}
+	}
+	file, _ := owner.File(path)
+	candidate := file.Src()
+	if sp, ok := w.NewSpliceAtPos(owner, path, file.Ast().Name.Pos(), file.Ast().Name.End(), []byte(destOwner.Name)); ok {
+		candidate = ApplySplices(candidate, []Splice{sp})
+	}
+	w.DropFile(pkg, isXTest, path)
+	touched = append(touched, path)
+	if err := w.SwapFile(newPkgPath, false, newPath, candidate); err != nil {
+		return nil, err
+	}
+	touched = append(touched, newPath)
+	return touched, nil
+}
+
+// MovePackage moves oldPkg to newPkg — rewriting the import path in every
+// importer, and (when renameName) the package clause, every unaliased
+// qualifier, and each file's own "Package oldBase" doc-comment opening.
+// oldPkg and its Unit are re-resolved fresh after applying the
+// import-rewrite splices, since XTest imports its own Prod sibling and
+// so can itself be a splice target. Both halves' shells are built before
+// NewUnit assembles them atomically — there is no point where a
+// half-built Unit could be installed or observed, since NewUnit is the
+// only way to construct one at all. Returns every path written, for the
+// caller's own change-tracking.
+func (w *Workspace) MovePackage(oldPkg, newPkg address.PkgPath, renameName bool, oldBase, newBase string) ([]address.FilePath, error) {
+	unit, ok := w.Unit(oldPkg)
+	if !ok {
+		return nil, fmt.Errorf("no package at %q", oldPkg)
+	}
+	if _, exists := w.Unit(newPkg); exists {
+		return nil, fmt.Errorf("a package already exists at %q", newPkg)
+	}
+
+	edits := w.ComputePackageMoveSplices(oldPkg, newPkg, renameName, oldBase, newBase)
+	touched, err := w.ApplyFileSplices(edits)
+	if err != nil {
+		return nil, err
+	}
+	// ApplyFileSplices may have forked unit.XTest's package (it imports
+	// its own Prod sibling, so it's a splice target) — re-resolve the
+	// unit fresh rather than trust the pointer captured before the splice.
+	unit, ok = w.Unit(oldPkg)
+	if !ok {
+		return nil, fmt.Errorf("internal error: %q vanished after import rewrites", oldPkg)
+	}
+
+	type half struct {
+		orig, moved *Package
+		isXTest     bool
+	}
+	var halves []half
+	var prodMoved, xtestMoved *Package
+	for _, orig := range unit.Members() {
+		moved := orig.Relocated(oldPkg, newPkg, renameName)
+		isXTest := orig == unit.XTest()
+		halves = append(halves, half{orig: orig, moved: moved, isXTest: isXTest})
+		if isXTest {
+			xtestMoved = moved
+		} else {
+			prodMoved = moved
+		}
+	}
+	w.InstallUnit(newPkg, NewUnit(prodMoved, xtestMoved))
+	for _, h := range halves {
+		for _, file := range h.orig.Files() {
+			newPath := newPkg.File(file.Path.Base())
+			w.Tombstone(oldPkg, file.Path, h.orig.Name)
+			w.ClearTombstone(newPath)
+			touched = append(touched, file.Path, newPath)
+			candidate := file.Src()
+			if renameName {
+				var fileSplices []Splice
+				if sp, ok := w.NewSpliceAtPos(h.orig, file.Path, file.Ast().Name.Pos(), file.Ast().Name.End(), []byte(h.moved.Name)); ok {
+					fileSplices = append(fileSplices, sp)
+				} else {
+					return nil, fmt.Errorf("cannot locate package clause of %q", file.Path)
+				}
+				if from, to, ok := LeadingDocWord(file.Ast().Doc, "Package ", oldBase); ok {
+					if sp, ok := w.NewSpliceAtPos(h.orig, file.Path, from, to, []byte(newBase)); ok {
+						fileSplices = append(fileSplices, sp)
+					}
+				}
+				candidate = ApplySplices(file.Src(), fileSplices)
+			}
+			if err := w.SwapFile(newPkg, h.isXTest, newPath, candidate); err != nil {
+				return nil, err
+			}
+		}
+	}
+	w.RemoveUnit(oldPkg)
+	return touched, nil
+}
+
 // symbolRef pairs a referencing symbol with its owning package — the
 // Aggregate-internal shape referencesTo collects, mirroring dto.Match's
 // shape on the other side of the boundary.
@@ -709,4 +966,35 @@ func ApplySplices(src []byte, splices []Splice) []byte {
 		out = slices.Concat(out[:s.Start], s.Repl, out[s.End:])
 	}
 	return out
+}
+
+// LeadingDocWord locates "prefix"+"want" at the very start of doc's first
+// line (right after the "// " comment marker) and returns the token.Pos
+// span of just the "want" text, ok=false when the comment doesn't open with
+// exactly that shape. This is what makes a doc-comment rewrite safe to
+// automate: it only ever matches Go's own doc-comment conventions (a
+// symbol's doc opens with its bare name; a package's doc opens with
+// "Package name"), never prose that merely happens to mention the same
+// word. Pure AST work — callers turn the returned span into a Splice via
+// NewSpliceAtPos.
+func LeadingDocWord(doc *ast.CommentGroup, prefix, want string) (from, to token.Pos, ok bool) {
+	if doc == nil || len(doc.List) == 0 {
+		return 0, 0, false
+	}
+	first := doc.List[0]
+	body := strings.TrimPrefix(strings.TrimPrefix(first.Text, "//"), " ")
+	bodyOffset := len(first.Text) - len(body)
+	if !strings.HasPrefix(body, prefix+want) {
+		return 0, 0, false
+	}
+	if rest := body[len(prefix+want):]; rest != "" {
+		switch rest[0] {
+		case ' ', '.', ',', ':', '\'':
+		default:
+			return 0, 0, false
+		}
+	}
+	from = first.Pos() + token.Pos(bodyOffset+len(prefix))
+	to = from + token.Pos(len(want))
+	return from, to, true
 }
