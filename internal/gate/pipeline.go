@@ -49,7 +49,7 @@ func (tx *Tx) installFile(addr address.PkgPath, isXTest bool, newPath address.Fi
 	if err := tx.ws.SwapFile(addr, isXTest, newPath, candidate); err != nil {
 		return err
 	}
-	tx.touch(newPath)
+	tx.markChanged(newPath)
 	return nil
 }
 

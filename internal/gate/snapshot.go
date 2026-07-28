@@ -44,9 +44,9 @@ type Tx struct {
 	changed map[address.FilePath]bool // paths this transaction touched
 }
 
-// touch records paths as changed by this transaction; every verb reports
+// markChanged records paths as changed by this transaction; every verb reports
 // its footprint here regardless of prior dirtiness.
-func (tx *Tx) touch(paths ...address.FilePath) {
+func (tx *Tx) markChanged(paths ...address.FilePath) {
 	for _, path := range paths {
 		tx.changed[path] = true
 	}

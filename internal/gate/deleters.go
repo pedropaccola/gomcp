@@ -28,7 +28,7 @@ func (tx *Tx) DeleteFile(pkg address.PkgPath, name string) error {
 			continue
 		}
 		tx.ws.DropFile(pkg, i == 1, path)
-		tx.touch(path)
+		tx.markChanged(path)
 		return nil
 	}
 	return nil
@@ -47,7 +47,7 @@ func (tx *Tx) DeletePackage(pkg address.PkgPath) error {
 		}
 		for _, file := range p.Files() {
 			tx.ws.Tombstone(pkg, file.Path, p.Name)
-			tx.touch(file.Path)
+			tx.markChanged(file.Path)
 		}
 	}
 	tx.ws.RemoveUnit(pkg)

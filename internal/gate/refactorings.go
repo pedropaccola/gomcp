@@ -60,7 +60,7 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 		}
 		if destOwner == owner {
 			tx.ws.MoveFile(pkg, isXTest, path, newPath)
-			tx.touch(path, newPath)
+			tx.markChanged(path, newPath)
 			return nil
 		}
 		var movingKeys []string
@@ -103,7 +103,7 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 			candidate = workspace.ApplySplices(candidate, []workspace.Splice{sp})
 		}
 		tx.ws.DropFile(pkg, isXTest, path)
-		tx.touch(path)
+		tx.markChanged(path)
 		return tx.installFile(newPkgPath, false, newPath, candidate)
 	}
 	return fmt.Errorf("no file %q in %q", fileName, pkg)
@@ -159,12 +159,7 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 		if orig == nil {
 			continue
 		}
-		moved := orig.CloneShell()
-		moved.PkgPath = address.PkgPath(strings.Replace(string(orig.PkgPath), string(oldPkg), string(newPkg), 1))
-		if renameName {
-			moved.Name = newBase + strings.TrimPrefix(orig.Name, oldBase)
-		}
-		halves[i] = half{orig: orig, moved: moved}
+		halves[i] = half{orig: orig, moved: orig.Relocated(oldPkg, newPkg, renameName)}
 	}
 	tx.ws.InstallUnit(newPkg, workspace.NewUnit(halves[0].moved, halves[1].moved))
 	for i, h := range halves {
@@ -176,7 +171,7 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 			newPath := newPkg.File(file.Path.Base())
 			tx.ws.Tombstone(oldPkg, file.Path, h.orig.Name)
 			tx.ws.ClearTombstone(newPath)
-			tx.touch(file.Path, newPath)
+			tx.markChanged(file.Path, newPath)
 			candidate := file.Src()
 			if renameName {
 				var fileSplices []workspace.Splice

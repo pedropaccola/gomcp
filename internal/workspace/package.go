@@ -70,10 +70,10 @@ func (p *Package) Clone() *Package {
 	return &cloned
 }
 
-// CloneShell copies the package's metadata with no files and an empty
+// cloneShell copies the package's metadata with no files and an empty
 // index — the starting point for relocations that re-admit every file
 // through the content pipeline.
-func (p *Package) CloneShell() *Package {
+func (p *Package) cloneShell() *Package {
 	shell := *p
 	shell.files = make(map[address.FilePath]*File, len(p.files))
 	shell.symbols = make(map[string]*Symbol)
@@ -167,4 +167,18 @@ func (p *Package) MarkFlushed(path address.FilePath) {
 		cp.dirty = false
 		p.files[path] = &cp
 	}
+}
+
+// Relocated returns a detached shell of p as it becomes after a package
+// move from oldPkg to newPkg: same shape as cloneShell, but with PkgPath
+// rewritten to the destination address, and Name rewritten too when
+// renameName — the one place a package's own identity-under-move is
+// derived.
+func (p *Package) Relocated(oldPkg, newPkg address.PkgPath, renameName bool) *Package {
+	moved := p.cloneShell()
+	moved.PkgPath = address.PkgPath(strings.Replace(string(p.PkgPath), string(oldPkg), string(newPkg), 1))
+	if renameName {
+		moved.Name = newPkg.Base() + strings.TrimPrefix(p.Name, oldPkg.Base())
+	}
+	return moved
 }

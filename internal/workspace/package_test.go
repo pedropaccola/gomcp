@@ -23,7 +23,7 @@ func TestCloneAndCloneShell(t *testing.T) {
 	if clonedFile != origFile {
 		t.Error("Clone must share File values")
 	}
-	shell := p.CloneShell()
+	shell := p.cloneShell()
 	if shell.Name != p.Name || shell.PkgPath != p.PkgPath {
 		t.Error("CloneShell must keep metadata")
 	}
