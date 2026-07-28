@@ -370,7 +370,7 @@ func TestPackageAndFileDoc(t *testing.T) {
 		}
 		var groupsDoc, shapesDoc string
 		for _, f := range pkg.Files() {
-			switch f.Path().Name() {
+			switch f.Path().Base() {
 			case "groups.go":
 				groupsDoc = f.Doc()
 			case "shapes.go":

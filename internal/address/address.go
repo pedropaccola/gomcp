@@ -7,6 +7,7 @@ package address
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -30,11 +31,13 @@ func (f FilePath) RelativePath(module PkgPath) string {
 	return rel
 }
 
-// Name is f's bare file name — for presentation alongside a PkgPath shown
+// Base is f's bare file name — for presentation alongside a PkgPath shown
 // separately, or as the raw material for composing a new FilePath
-// (PkgPath.File). Never an address on its own.
-func (f FilePath) Name() string {
-	return filepath.Base(string(f))
+// (PkgPath.File). Never an address on its own. path.Base, not
+// filepath.Base: an address's separator is always "/", regardless of the
+// host OS.
+func (f FilePath) Base() string {
+	return path.Base(string(f))
 }
 
 // PkgPath is a package's import path: the canonical address of every
@@ -61,6 +64,14 @@ func (p PkgPath) Join(dir string) PkgPath {
 // input, use NewFilePath.
 func (p PkgPath) File(name string) FilePath {
 	return FilePath(p.String() + "/" + name)
+}
+
+// Base is p's bare final component — the package's own directory name,
+// stripped of everything before it (including the module prefix, since
+// that's just another leading component). path.Base, not filepath.Base:
+// an address's separator is always "/", regardless of the host OS.
+func (p PkgPath) Base() string {
+	return path.Base(string(p))
 }
 
 // cleanRelative narrows s, an untrusted string, against module: absolute

@@ -3,7 +3,6 @@ package gate
 import (
 	"fmt"
 	"go/token"
-	"path/filepath"
 
 	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/dto"
@@ -32,15 +31,14 @@ func (tx *Tx) CreateFile(pkg address.PkgPath, name, doc string) error {
 // file named after the package. name defaults to the address base. Fails if
 // the address already holds a package; the directory is created at Flush.
 func (tx *Tx) CreatePackage(pkg address.PkgPath, name string) error {
-	dir, ok := tx.dirOf(pkg)
-	if !ok || dir == "." || address.IsOutsideRoot(dir) {
+	if pkg == tx.ws.Module() {
 		return fmt.Errorf("cannot create a package at %q: workspace packages live under module %q", pkg, tx.ws.Module())
 	}
 	if _, exists := tx.ws.Unit(pkg); exists {
 		return fmt.Errorf("a package already exists at %q", pkg)
 	}
 	if name == "" {
-		name = filepath.Base(dir)
+		name = pkg.Base()
 	}
 	if !token.IsIdentifier(name) {
 		return fmt.Errorf("%q is not a valid package name", name)

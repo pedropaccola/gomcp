@@ -492,7 +492,7 @@ func TestCreateFileWithDocAndEditFile(t *testing.T) {
 	e.Read(context.Background(), func(v *gate.View) error {
 		pkg, _ := v.Package(spkg("shapes"))
 		for _, f := range pkg.Files() {
-			if f.Path().Name() == "extra_doc.go" && f.Doc() != "Extra holds throwaway fixtures for this test." {
+			if f.Path().Base() == "extra_doc.go" && f.Doc() != "Extra holds throwaway fixtures for this test." {
 				t.Errorf("new file's doc = %q", f.Doc())
 			}
 		}
@@ -506,7 +506,7 @@ func TestCreateFileWithDocAndEditFile(t *testing.T) {
 	e.Read(context.Background(), func(v *gate.View) error {
 		pkg, _ := v.Package(spkg("shapes"))
 		for _, f := range pkg.Files() {
-			if f.Path().Name() == "extra_doc.go" && f.Doc() != "Replaced doc." {
+			if f.Path().Base() == "extra_doc.go" && f.Doc() != "Replaced doc." {
 				t.Errorf("edited file's doc = %q, want %q", f.Doc(), "Replaced doc.")
 			}
 		}
@@ -520,7 +520,7 @@ func TestCreateFileWithDocAndEditFile(t *testing.T) {
 	e.Read(context.Background(), func(v *gate.View) error {
 		pkg, _ := v.Package(spkg("shapes"))
 		for _, f := range pkg.Files() {
-			if f.Path().Name() == "extra_doc.go" && f.Doc() != "" {
+			if f.Path().Base() == "extra_doc.go" && f.Doc() != "" {
 				t.Errorf("cleared file still has doc: %q", f.Doc())
 			}
 		}
@@ -537,7 +537,7 @@ func TestCreateFileWithDocAndEditFile(t *testing.T) {
 		}
 		pkg, _ := v.Package(spkg("shapes"))
 		for _, f := range pkg.Files() {
-			if f.Path().Name() == "shapes.go" && f.Doc() != "New shapes doc." {
+			if f.Path().Base() == "shapes.go" && f.Doc() != "New shapes doc." {
 				t.Errorf("shapes.go doc = %q, want %q", f.Doc(), "New shapes doc.")
 			}
 		}

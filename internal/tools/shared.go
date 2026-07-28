@@ -28,7 +28,7 @@ func newDiagnosticEntry(d dto.Diagnostic) DiagnosticEntry {
 	}
 	if d.File != "" {
 		e.FileName = new(string)
-		*e.FileName = d.File.Name()
+		*e.FileName = d.File.Base()
 	}
 	if d.Key != "" {
 		e.SymbolKey = new(string)

@@ -79,7 +79,7 @@ func listFiles(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListFiles
 			files := pkg.Files()
 			out.Files = make([]string, 0, len(files))
 			for _, file := range files {
-				out.Files = append(out.Files, file.Path().Name())
+				out.Files = append(out.Files, file.Path().Base())
 			}
 			out.DiagnosticsTruncated = newDiagnosticsTruncated(v.Diagnostics(pkg.PkgPath()), cfg.diagLimit)
 			return nil

@@ -104,7 +104,7 @@ func describePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Des
 				files := pkg.Files()
 				res.Files = make([]string, 0, len(files))
 				for _, f := range files {
-					res.Files = append(res.Files, f.Path().Name())
+					res.Files = append(res.Files, f.Path().Base())
 				}
 				res.DiagnosticsTruncated = newDiagnosticsTruncated(v.Diagnostics(pkg.PkgPath()), cfg.diagLimit)
 				return nil
@@ -170,7 +170,7 @@ func describeSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Desc
 					return fmt.Errorf("source extraction failed for %q", entry.SymbolKey)
 				}
 				res := &out.Results[i]
-				res.File = sym.File().Name()
+				res.File = sym.File().Base()
 				res.Source = src
 				res.Kind = sym.Kind().String()
 				diags := v.SymbolDiagnostics(owner.PkgPath(), sym.Key())

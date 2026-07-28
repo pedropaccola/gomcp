@@ -3,7 +3,6 @@ package gate
 import (
 	"fmt"
 	"go/token"
-	"path/filepath"
 	"strings"
 
 	"github.com/pedropaccola/gomcp/internal/address"
@@ -116,12 +115,10 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 // and each file's own "Package oldBase" doc-comment opening are renamed
 // too; aliased imports keep their alias untouched.
 func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
-	dir, ok := tx.dirOf(oldPkg)
-	if !ok || dir == "." {
+	if oldPkg == tx.ws.Module() {
 		return fmt.Errorf("no workspace package at %q", oldPkg)
 	}
-	newDir, ok := tx.dirOf(newPkg)
-	if !ok || newDir == "." || address.IsOutsideRoot(newDir) {
+	if newPkg == tx.ws.Module() {
 		return fmt.Errorf("cannot move %q to %q: workspace packages live under module %q", oldPkg, newPkg, tx.ws.Module())
 	}
 	unit, ok := tx.ws.Unit(oldPkg)
@@ -131,7 +128,7 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 	if _, exists := tx.ws.Unit(newPkg); exists {
 		return fmt.Errorf("a package already exists at %q", newPkg)
 	}
-	oldBase, newBase := filepath.Base(dir), filepath.Base(newDir)
+	oldBase, newBase := oldPkg.Base(), newPkg.Base()
 	renameName := unit.Prod() != nil && unit.Prod().Name == oldBase && oldBase != newBase
 	if renameName && !token.IsIdentifier(newBase) {
 		return fmt.Errorf("%q is not a valid package name", newBase)
@@ -176,7 +173,7 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 		}
 		isXTest := i == 1
 		for _, file := range h.orig.Files() {
-			newPath := newPkg.File(file.Path.Name())
+			newPath := newPkg.File(file.Path.Base())
 			tx.ws.Tombstone(oldPkg, file.Path, h.orig.Name)
 			tx.ws.ClearTombstone(newPath)
 			tx.touch(file.Path, newPath)

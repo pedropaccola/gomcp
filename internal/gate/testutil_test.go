@@ -42,12 +42,12 @@ func gateFixture(tb testing.TB, src string) *View {
 // cross-package checks) needs real type identity, not just AST/index
 // data. Mirrors workspace's own typesFixture exactly, since gate has no
 // access to workspace's unexported test helpers from outside the
-// package, with one addition: gate's write pipeline resolves a package's
-// directory from its PkgPath by stripping the module prefix (View.dirOf),
-// so each entry's key is a bare directory name installed under the
-// "test.mod/" module — not a raw import path the way workspace's own
-// typesFixture uses it — and a cross-package reference in fixture source
-// must import the full "test.mod/<key>" path to resolve.
+// package, with one addition: each entry's key is a bare directory name
+// installed under the "test.mod/" module — not a raw import path the way
+// workspace's own typesFixture uses it — matching how a real workspace
+// address decomposes (module + bare directory), and a cross-package
+// reference in fixture source must import the full "test.mod/<key>" path
+// to resolve.
 func gateTypesFixture(tb testing.TB, srcs map[string]string) *View {
 	tb.Helper()
 	fset := token.NewFileSet()

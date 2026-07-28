@@ -3,7 +3,6 @@ package gate
 import (
 	"go/token"
 	"path/filepath"
-	"strings"
 
 	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/dto"
@@ -31,18 +30,6 @@ func (v *View) Package(pkg address.PkgPath) (dto.Package, bool) {
 // to the symbol and its owning package, checking Prod before XTest.
 func (v *View) Symbol(pkg address.PkgPath, key string) (dto.Symbol, dto.Package, bool) {
 	return v.ws.Symbol(pkg, key)
-}
-
-// dirOf unwraps a workspace package address to its directory, comma-ok
-// false outside the module: dependencies have no workspace location.
-func (v *View) dirOf(pkg address.PkgPath) (string, bool) {
-	if pkg == v.ws.Module() {
-		return ".", true
-	}
-	if rest, ok := strings.CutPrefix(string(pkg), string(v.ws.Module())+"/"); ok {
-		return rest, true
-	}
-	return "", false
 }
 
 // fsetOf is the FileSet a package's positions live in: the external
