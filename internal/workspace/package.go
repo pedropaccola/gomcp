@@ -18,7 +18,6 @@ import (
 // only through the Workspace primitives, RebuildIndex, and NewPackage.
 type Package struct {
 	Name    string
-	Path    string          // workspace-root-relative directory: the disk location
 	PkgPath address.PkgPath // import path: the canonical address
 	files   map[address.FilePath]*File
 	symbols map[string]*Symbol // derived index; see RebuildIndex
@@ -42,10 +41,9 @@ type Package struct {
 // path's other door for the fields NewPackage/LoadFile own — direct
 // struct literals from outside this package can no longer set typesPkg/
 // typesInfo now that they're sealed.
-func NewPackage(name string, path string, pkgPath address.PkgPath, typesPkg *types.Package, typesInfo *types.Info, external bool) *Package {
+func NewPackage(name string, pkgPath address.PkgPath, typesPkg *types.Package, typesInfo *types.Info, external bool) *Package {
 	return &Package{
 		Name:      name,
-		Path:      path,
 		PkgPath:   pkgPath,
 		typesPkg:  typesPkg,
 		typesInfo: typesInfo,

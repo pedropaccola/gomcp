@@ -19,20 +19,15 @@ func TestLookupNavigation(t *testing.T) {
 	e := sandboxEngine(t)
 	ws := e.ws
 
-	var paths []string
+	var paths []address.PkgPath
 	for _, addr := range ws.UnitKeys() {
 		unit, _ := ws.Unit(addr)
-		if prod := unit.Prod(); prod != nil {
-			paths = append(paths, prod.Path)
-		}
-		if xtest := unit.XTest(); xtest != nil {
-			paths = append(paths, xtest.Path)
-		}
+		paths = append(paths, unit.Dir())
 	}
 	if !slices.IsSorted(paths) {
 		t.Error("Packages not in path order")
 	}
-	if !slices.Contains(paths, "shapes") {
+	if !slices.Contains(paths, spkg("shapes")) {
 		t.Fatalf("Packages missing shapes: %v", paths)
 	}
 
@@ -232,12 +227,13 @@ func TestSymbolsImplementing(t *testing.T) {
 			t.Fatalf("SymbolsImplementing(Shape): %v", err)
 		}
 		keys := matchKeys(matches)
-		for _, want := range []string{"shapes:Circle", "shapes:Square", "shapes:Base", "shapes:Embedded"} {
+		for _, want := range []string{"Circle", "Square", "Base", "Embedded"} {
+			want = spkg("shapes").String() + ":" + want
 			if !slices.Contains(keys, want) {
 				t.Errorf("implementors of Shape missing %s: %v", want, keys)
 			}
 		}
-		if slices.Contains(keys, "shapes:NotShape") {
+		if slices.Contains(keys, spkg("shapes").String()+":NotShape") {
 			t.Error("NotShape reported as a Shape implementor")
 		}
 
@@ -268,19 +264,19 @@ func TestSymbolsReferencing(t *testing.T) {
 		}
 
 		circleRefs := refsOf(spkg("shapes"), "Circle")
-		for _, want := range []string{"use:c", "use:NewCircle"} {
+		for _, want := range []string{spkg("use").String() + ":c", spkg("use").String() + ":NewCircle"} {
 			if !slices.Contains(circleRefs, want) {
 				t.Errorf("references of Circle missing %s: %v", want, circleRefs)
 			}
 		}
-		if slices.Contains(circleRefs, "use:TotalArea") {
+		if slices.Contains(circleRefs, spkg("use").String()+":TotalArea") {
 			t.Errorf("TotalArea references Shape, not Circle: %v", circleRefs)
 		}
 
-		if refs := refsOf(spkg("shapes"), "Circle.Area"); !slices.Contains(refs, "use:UseArea") {
+		if refs := refsOf(spkg("shapes"), "Circle.Area"); !slices.Contains(refs, spkg("use").String()+":UseArea") {
 			t.Errorf("references of Circle.Area missing use:UseArea: %v", refs)
 		}
-		if refs := refsOf(spkg("shapes"), "Shape"); !slices.Contains(refs, "use:TotalArea") {
+		if refs := refsOf(spkg("shapes"), "Shape"); !slices.Contains(refs, spkg("use").String()+":TotalArea") {
 			t.Errorf("references of Shape missing use:TotalArea: %v", refs)
 		}
 		return nil

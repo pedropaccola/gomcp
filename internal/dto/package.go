@@ -9,7 +9,7 @@ import (
 // carries no pointer into the live model (no AST, no type-checker
 // output).
 type Package struct {
-	path    string
+	dir     address.PkgPath
 	pkgPath address.PkgPath
 	files   []File
 	symbols []Symbol
@@ -23,8 +23,9 @@ func (p Package) Doc() string { return p.doc }
 // Files enumerates the package's files, sorted by path.
 func (p Package) Files() []File { return p.files }
 
-// Path is the package's workspace directory (empty for a dependency).
-func (p Package) Path() string { return p.path }
+// Dir is the canonical address of the directory the package occupies
+// (the zero value for a dependency, which has none).
+func (p Package) Dir() address.PkgPath { return p.dir }
 
 // PkgPath is the package's import path: its canonical address.
 func (p Package) PkgPath() address.PkgPath { return p.pkgPath }
@@ -44,6 +45,6 @@ func (p Package) Symbol(key string) (Symbol, bool) {
 func (p Package) Symbols() []Symbol { return p.symbols }
 
 // NewPackage constructs a Package from its plain fields.
-func NewPackage(path string, pkgPath address.PkgPath, files []File, symbols []Symbol, doc string) Package {
-	return Package{path: path, pkgPath: pkgPath, files: files, symbols: symbols, doc: doc}
+func NewPackage(dir, pkgPath address.PkgPath, files []File, symbols []Symbol, doc string) Package {
+	return Package{dir: dir, pkgPath: pkgPath, files: files, symbols: symbols, doc: doc}
 }

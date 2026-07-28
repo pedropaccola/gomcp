@@ -29,7 +29,7 @@ func gateFixture(tb testing.TB, src string) *View {
 	tb.Helper()
 	ws := workspace.NewWorkspace()
 	ws.Reset("test.mod", token.NewFileSet(), map[address.PkgPath]*workspace.Unit{})
-	ws.InstallUnit("test.mod/pkg", workspace.NewUnit(workspace.NewPackage("pkg", "pkg", "test.mod/pkg", nil, nil, false), nil))
+	ws.InstallUnit("test.mod/pkg", workspace.NewUnit(workspace.NewPackage("pkg", "test.mod/pkg", nil, nil, false), nil))
 	if err := ws.SwapFile("test.mod/pkg", false, "test.mod/pkg/pkg.go", []byte(src)); err != nil {
 		tb.Fatalf("gateFixture: SwapFile: %v", err)
 	}
@@ -96,7 +96,7 @@ func gateTypesFixture(tb testing.TB, srcs map[string]string) *View {
 	for dir, src := range srcs {
 		fullPath := "test.mod/" + dir
 		name := files[dir].Name.Name
-		wp := workspace.NewPackage(name, dir, address.PkgPath(fullPath), checked[fullPath], infos[fullPath], false)
+		wp := workspace.NewPackage(name, address.PkgPath(fullPath), checked[fullPath], infos[fullPath], false)
 		wp.LoadFile(address.FilePath(fullPath+"/file.go"), []byte(src), files[dir])
 		wp.RebuildIndex()
 		ws.InstallUnit(address.PkgPath(fullPath), workspace.NewUnit(wp, nil))

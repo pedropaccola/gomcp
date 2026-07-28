@@ -61,7 +61,7 @@ func listPackages(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListPa
 			out.Packages = make([]string, 0, len(pkgs))
 			last := ""
 			for _, pkg := range pkgs {
-				if addr := pkgAddress(v.Module(), pkg.Path()); addr != last {
+				if addr := pkg.Dir().String(); addr != last {
 					out.Packages = append(out.Packages, addr)
 					last = addr
 				}

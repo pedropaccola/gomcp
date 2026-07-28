@@ -45,7 +45,7 @@ func (tx *Tx) CreatePackage(pkg address.PkgPath, name string) error {
 	if !token.IsIdentifier(name) {
 		return fmt.Errorf("%q is not a valid package name", name)
 	}
-	tx.ws.InstallUnit(pkg, workspace.NewUnit(workspace.NewPackage(name, dir, pkg, nil, nil, false), nil))
+	tx.ws.InstallUnit(pkg, workspace.NewUnit(workspace.NewPackage(name, pkg, nil, nil, false), nil))
 	return tx.installFile(pkg, false, pkg.File(name+".go"), []byte("package "+name+"\n"))
 }
 

@@ -1,6 +1,10 @@
 package workspace
 
-import "github.com/pedropaccola/gomcp/internal/address"
+import (
+	"strings"
+
+	"github.com/pedropaccola/gomcp/internal/address"
+)
 
 // Unit holds the packages of one workspace address: the production package
 // (with in-package test files folded in) and the external _test package.
@@ -37,6 +41,17 @@ func (u *Unit) Prod() *Package {
 // XTest is the unit's external _test package, nil if it has none.
 func (u *Unit) XTest() *Package {
 	return u.xtest
+}
+
+// Dir is the canonical PkgPath of the directory this unit's packages
+// physically occupy — always the production-shaped address, even when
+// only the XTest half exists (its own PkgPath carries a "_test" suffix
+// the directory itself does not).
+func (u *Unit) Dir() address.PkgPath {
+	if u.prod != nil {
+		return u.prod.PkgPath
+	}
+	return address.PkgPath(strings.TrimSuffix(string(u.xtest.PkgPath), "_test"))
 }
 
 // NewUnit assembles a Unit from its two halves atomically — the only

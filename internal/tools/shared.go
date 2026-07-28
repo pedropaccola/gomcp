@@ -37,14 +37,6 @@ func newDiagnosticEntry(d dto.Diagnostic) DiagnosticEntry {
 	return e
 }
 
-// pkgAddress composes the canonical address of a workspace directory.
-func pkgAddress(module address.PkgPath, dir string) string {
-	if dir == "." {
-		return module.String()
-	}
-	return module.String() + "/" + dir
-}
-
 // DiagnosticsTruncated is the shared optional diagnostics view, scoped to whatever the
 // carrying tool read. See the package doc's output convention. Diagnostics
 // is capped at diagLimit (default 20, tunable via -diagnostics-limit);

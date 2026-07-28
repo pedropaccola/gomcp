@@ -12,7 +12,7 @@ import (
 func TestViewDiagnosticsPackageScoped(t *testing.T) {
 	ws := workspace.NewWorkspace()
 	ws.Reset("test.mod", token.NewFileSet(), map[address.PkgPath]*workspace.Unit{})
-	wp := workspace.NewPackage("pkg", "pkg", "test.mod/pkg", nil, nil, false)
+	wp := workspace.NewPackage("pkg", "test.mod/pkg", nil, nil, false)
 	wp.Diags = append(wp.Diags, workspace.Diagnostic{Kind: workspace.DiagParse, Msg: "boom"})
 	ws.InstallUnit("test.mod/pkg", workspace.NewUnit(wp, nil))
 	v := NewView(ws, context.Background())
@@ -25,9 +25,9 @@ func TestViewDiagnosticsPackageScoped(t *testing.T) {
 func TestViewAllDiagnosticsAggregatesEveryUnit(t *testing.T) {
 	ws := workspace.NewWorkspace()
 	ws.Reset("test.mod", token.NewFileSet(), map[address.PkgPath]*workspace.Unit{})
-	p1 := workspace.NewPackage("a", "a", "test.mod/a", nil, nil, false)
+	p1 := workspace.NewPackage("a", "test.mod/a", nil, nil, false)
 	p1.Diags = append(p1.Diags, workspace.Diagnostic{Kind: workspace.DiagParse, Msg: "a-broke"})
-	p2 := workspace.NewPackage("b", "b", "test.mod/b", nil, nil, false)
+	p2 := workspace.NewPackage("b", "test.mod/b", nil, nil, false)
 	p2.Diags = append(p2.Diags, workspace.Diagnostic{Kind: workspace.DiagParse, Msg: "b-broke"})
 	ws.InstallUnit("test.mod/a", workspace.NewUnit(p1, nil))
 	ws.InstallUnit("test.mod/b", workspace.NewUnit(p2, nil))

@@ -187,7 +187,7 @@ func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg address.PkgPath,
 		}
 	}
 	slices.SortFunc(refs, func(a, b addrRef) int {
-		if c := cmp.Compare(a.Pkg.Path, b.Pkg.Path); c != 0 {
+		if c := cmp.Compare(a.Addr, b.Addr); c != 0 {
 			return c
 		}
 		if c := cmp.Compare(a.Pkg.Name, b.Pkg.Name); c != 0 {

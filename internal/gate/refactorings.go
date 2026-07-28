@@ -163,7 +163,6 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 			continue
 		}
 		moved := orig.CloneShell()
-		moved.Path = newDir
 		moved.PkgPath = address.PkgPath(strings.Replace(string(orig.PkgPath), string(oldPkg), string(newPkg), 1))
 		if renameName {
 			moved.Name = newBase + strings.TrimPrefix(orig.Name, oldBase)

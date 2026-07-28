@@ -98,11 +98,7 @@ func (e *Engine) load(ctx context.Context, overlay map[string][]byte) (*token.Fi
 // srcPkg.PkgPath itself only for Package.PkgPath, since the XTest
 // variant's own PkgPath differs from the shared unit key (see loadInto).
 func (e *Engine) buildPackage(srcPkg *packages.Package, canonicalPkg address.PkgPath, fset *token.FileSet, overlay map[string][]byte) (*workspace.Package, error) {
-	relPath, err := e.relativePath(srcPkg.Dir)
-	if err != nil {
-		return nil, fmt.Errorf("package mapping failure for %s: %w", srcPkg.Dir, err)
-	}
-	pkg := workspace.NewPackage(srcPkg.Name, relPath, address.PkgPath(srcPkg.PkgPath), srcPkg.Types, srcPkg.TypesInfo, false)
+	pkg := workspace.NewPackage(srcPkg.Name, address.PkgPath(srcPkg.PkgPath), srcPkg.Types, srcPkg.TypesInfo, false)
 
 	for _, astFile := range srcPkg.Syntax {
 		absFilePath := fset.File(astFile.FileStart).Name()
@@ -225,7 +221,7 @@ func (e *Engine) LoadExternal(ctx context.Context, pkg address.PkgPath) error {
 // runs with no lock held and the published cache can move on beneath it.
 func (e *Engine) buildExternal(srcPkg *packages.Package, fset *token.FileSet) (*workspace.Package, error) {
 	pkgPath := address.PkgPath(srcPkg.PkgPath)
-	pkg := workspace.NewPackage(srcPkg.Name, "", pkgPath, srcPkg.Types, nil, true)
+	pkg := workspace.NewPackage(srcPkg.Name, pkgPath, srcPkg.Types, nil, true)
 	for _, astFile := range srcPkg.Syntax {
 		abs := fset.File(astFile.FileStart).Name()
 		src, err := os.ReadFile(abs)
