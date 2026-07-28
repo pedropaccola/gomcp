@@ -3,7 +3,6 @@ package gate
 import (
 	"fmt"
 	"go/token"
-	"strings"
 
 	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/workspace"
@@ -168,18 +167,9 @@ func (tx *Tx) MoveSymbol(pkg address.PkgPath, key string, newPkgPath address.Pkg
 // relocateSymbol is MoveSymbol's file-relocation half: extract key's
 // declaration from srcPkg and splice it into a file of destPkg (destPkg
 // equals srcPkg for a same-package move). destPkg must already exist.
-// Cross-package relocation is refused when Workspace.DetectMoveConflicts
-// can prove in advance it would break the workspace — checked against
-// every key Workspace.PositionDependentGroupMembers says will actually
-// move, not just the one named, since a position-dependent const group
-// moves as a whole and the safety check must see exactly what
-// relocateDeclaration is about to act on. Otherwise every surviving
-// reference across the move boundary has its qualifier fixed up first
-// (Workspace.ComputeQualifierFixups), so both the declaration's callers
-// and the declaration's own outbound references keep resolving from
-// their new vantage point — see applyQualifierFixups and
-// relocateDeclaration for the shared mechanics MoveSymbolGroup also
-// composes on. Private: composed by MoveSymbol, never called standalone.
+// Composes on Workspace.RelocateSymbols for the actual mechanics — see
+// its own doc comment for the conflict/qualifier-fixup guarantees.
+// Private: composed by MoveSymbol, never called standalone.
 func (tx *Tx) relocateSymbol(srcPkg, destPkg address.PkgPath, key, fileName string) error {
 	destOwner, ok := tx.ws.ProdPackage(destPkg)
 	if !ok {
@@ -189,17 +179,12 @@ func (tx *Tx) relocateSymbol(srcPkg, destPkg address.PkgPath, key, fileName stri
 	if err != nil {
 		return err
 	}
-	movingKeys, err := tx.ws.PositionDependentGroupMembers(srcPkg, key)
+	touched, err := tx.ws.RelocateSymbols(srcPkg, destPkg, []string{key}, destPath)
 	if err != nil {
 		return err
 	}
-	if conflicts := tx.ws.DetectMoveConflicts(srcPkg, destPkg, movingKeys); len(conflicts) > 0 {
-		return fmt.Errorf("moving %q to %q would break the workspace: %s", key, destPkg, strings.Join(conflicts, "; "))
-	}
-	if err := tx.applyQualifierFixups(srcPkg, destPkg, movingKeys); err != nil {
-		return err
-	}
-	return tx.relocateDeclaration(srcPkg, destPkg, key, destPath)
+	tx.markChanged(touched...)
+	return nil
 }
 
 // renameSymbol renames key to newName everywhere: the defining identifier,
@@ -243,40 +228,6 @@ func (tx *Tx) renameSymbol(pkg address.PkgPath, key, newName string) error {
 	return tx.applyFileSplices(edits)
 }
 
-// applyQualifierFixups computes and applies the splices Workspace.
-// QualifierFixups says are needed for movingKeys leaving srcPkg for
-// destPkg — a no-op for a same-package move. Shared by relocateSymbol
-// and MoveSymbolGroup so a batch of several keys gets exactly one
-// fixup pass over the whole set, not one per key.
-func (tx *Tx) applyQualifierFixups(srcPkg, destPkg address.PkgPath, movingKeys []string) error {
-	if srcPkg == destPkg {
-		return nil
-	}
-	fixups, err := tx.ws.ComputeQualifierFixups(srcPkg, destPkg, movingKeys)
-	if err != nil {
-		return err
-	}
-	if len(fixups) == 0 {
-		return nil
-	}
-	return tx.applyFileSplices(fixups)
-}
-
-// relocateDeclaration extracts key's own declaration from srcPkg and
-// splices it into destPath (already resolved, already confirmed to
-// belong to destPkg) — callers (relocateSymbol, MoveSymbolGroup) are
-// responsible for DetectMoveConflicts and applyQualifierFixups first,
-// and only once, up front. Private: composed by relocateSymbol and
-// MoveSymbolGroup.
-func (tx *Tx) relocateDeclaration(srcPkg, destPkg address.PkgPath, key string, destPath address.FilePath) error {
-	touched, err := tx.ws.RelocateDeclaration(srcPkg, destPkg, key, destPath)
-	if err != nil {
-		return err
-	}
-	tx.markChanged(touched...)
-	return nil
-}
-
 // MoveSymbolGroup relocates several symbols from pkg to the same
 // destination file in one transaction — the batch counterpart to
 // MoveSymbol's single-key path, for moving a type together with its
@@ -284,19 +235,8 @@ func (tx *Tx) relocateDeclaration(srcPkg, destPkg address.PkgPath, key string, d
 // consolidation step first. Deliberately narrower than MoveSymbol: no
 // combined rename, since renaming applies per-symbol and combining it
 // with an N-symbol batch multiplies the interface for a combination
-// nobody's asked for — rename first with MoveSymbol, then move. Every
-// key's own position-dependent group (Workspace.
-// PositionDependentGroupMembers) is unioned into the moving set before
-// DetectMoveConflicts sees any of it, so a batch that happens to include
-// an iota member is exactly as safe as the single-key path. Extraction
-// then collapses to one representative key per position-dependent group
-// — ExtractDeclaration already pulls a whole such group's text from any
-// one member, so calling relocateDeclaration for every member of the
-// same group would try to re-resolve siblings the first call already
-// spliced away. Types are placed before their own methods regardless of
-// input order, so InsertOffset's "attach to your receiver" placement
-// resolves correctly for a method landing right after the type it just
-// moved in with.
+// nobody's asked for — rename first with MoveSymbol, then move. Composes
+// on Workspace.RelocateSymbols for the actual mechanics.
 func (tx *Tx) MoveSymbolGroup(pkg address.PkgPath, keys []string, newPkgPath address.PkgPath, newFileName string) error {
 	if len(keys) < 2 {
 		return fmt.Errorf("MoveSymbolGroup needs at least two symbol_keys; refactor_move_symbol's single-key path already covers one")
@@ -313,59 +253,10 @@ func (tx *Tx) MoveSymbolGroup(pkg address.PkgPath, keys []string, newPkgPath add
 	if err != nil {
 		return err
 	}
-
-	seen := make(map[string]bool, len(keys))
-	var movingKeys []string
-	for _, key := range keys {
-		members, err := tx.ws.PositionDependentGroupMembers(pkg, key)
-		if err != nil {
-			return err
-		}
-		for _, m := range members {
-			if !seen[m] {
-				seen[m] = true
-				movingKeys = append(movingKeys, m)
-			}
-		}
-	}
-	if conflicts := tx.ws.DetectMoveConflicts(pkg, destPkg, movingKeys); len(conflicts) > 0 {
-		return fmt.Errorf("moving %v to %q would break the workspace: %s", keys, destPkg, strings.Join(conflicts, "; "))
-	}
-	if err := tx.applyQualifierFixups(pkg, destPkg, movingKeys); err != nil {
+	touched, err := tx.ws.RelocateSymbols(pkg, destPkg, keys, destPath)
+	if err != nil {
 		return err
 	}
-
-	claimed := make(map[string]bool, len(movingKeys))
-	var representatives []string
-	for _, key := range movingKeys {
-		if claimed[key] {
-			continue
-		}
-		group, err := tx.ws.PositionDependentGroupMembers(pkg, key)
-		if err != nil {
-			return err
-		}
-		for _, m := range group {
-			claimed[m] = true
-		}
-		representatives = append(representatives, key)
-	}
-
-	ordered := make([]string, 0, len(representatives))
-	for _, key := range representatives {
-		if sym, _, ok := tx.ws.ResolveSymbol(pkg, key); ok && sym.Kind == workspace.KindType {
-			ordered = append(ordered, key)
-		}
-	}
-	for _, key := range representatives {
-		if sym, _, ok := tx.ws.ResolveSymbol(pkg, key); ok && sym.Kind != workspace.KindType {
-			ordered = append(ordered, key)
-		}
-	}
-	for _, key := range ordered {
-		if err := tx.relocateDeclaration(pkg, destPkg, key, destPath); err != nil {
-			return err
-		}
-	}
+	tx.markChanged(touched...)
 	return nil
 }

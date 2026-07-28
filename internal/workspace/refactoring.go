@@ -841,6 +841,89 @@ func (w *Workspace) MovePackage(oldPkg, newPkg address.PkgPath, renameName bool,
 	return touched, nil
 }
 
+// RelocateSymbols relocates every key in keys (plus each key's own
+// position-dependent group members) from srcPkg to a file at destPath
+// (already confirmed to belong to destPkg) — the one door for a symbol
+// relocation, whether one key or many. DetectMoveConflicts and
+// ComputeQualifierFixups/ApplyFileSplices run exactly once, against the
+// whole moving set, before anything is relocated — never per-key, since
+// an already-relocated key no longer resolves from srcPkg, and a
+// conflict check repeated mid-batch would incorrectly see a sibling
+// still waiting its turn as left behind. Types are placed before their
+// own methods regardless of input order, so InsertOffset's "attach to
+// your receiver" placement resolves correctly for a method landing
+// right after the type it just moved in with. Returns every path
+// written.
+func (w *Workspace) RelocateSymbols(srcPkg, destPkg address.PkgPath, keys []string, destPath address.FilePath) ([]address.FilePath, error) {
+	seen := make(map[string]bool, len(keys))
+	var movingKeys []string
+	for _, key := range keys {
+		members, err := w.PositionDependentGroupMembers(srcPkg, key)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range members {
+			if !seen[m] {
+				seen[m] = true
+				movingKeys = append(movingKeys, m)
+			}
+		}
+	}
+	if conflicts := w.DetectMoveConflicts(srcPkg, destPkg, movingKeys); len(conflicts) > 0 {
+		return nil, fmt.Errorf("moving %v to %q would break the workspace: %s", keys, destPkg, strings.Join(conflicts, "; "))
+	}
+	var touched []address.FilePath
+	if srcPkg != destPkg {
+		fixups, err := w.ComputeQualifierFixups(srcPkg, destPkg, movingKeys)
+		if err != nil {
+			return nil, err
+		}
+		if len(fixups) > 0 {
+			fixupTouched, err := w.ApplyFileSplices(fixups)
+			if err != nil {
+				return nil, err
+			}
+			touched = append(touched, fixupTouched...)
+		}
+	}
+
+	claimed := make(map[string]bool, len(movingKeys))
+	var representatives []string
+	for _, key := range movingKeys {
+		if claimed[key] {
+			continue
+		}
+		group, err := w.PositionDependentGroupMembers(srcPkg, key)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range group {
+			claimed[m] = true
+		}
+		representatives = append(representatives, key)
+	}
+
+	ordered := make([]string, 0, len(representatives))
+	for _, key := range representatives {
+		if sym, _, ok := w.ResolveSymbol(srcPkg, key); ok && sym.Kind == KindType {
+			ordered = append(ordered, key)
+		}
+	}
+	for _, key := range representatives {
+		if sym, _, ok := w.ResolveSymbol(srcPkg, key); ok && sym.Kind != KindType {
+			ordered = append(ordered, key)
+		}
+	}
+	for _, key := range ordered {
+		keyTouched, err := w.RelocateDeclaration(srcPkg, destPkg, key, destPath)
+		if err != nil {
+			return nil, err
+		}
+		touched = append(touched, keyTouched...)
+	}
+	return touched, nil
+}
+
 // symbolRef pairs a referencing symbol with its owning package — the
 // Aggregate-internal shape referencesTo collects, mirroring dto.Match's
 // shape on the other side of the boundary.
