@@ -6,8 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pedropaccola/gomcp/internal/dto"
-	"github.com/pedropaccola/gomcp/internal/engine"
-	"github.com/pedropaccola/gomcp/internal/gate"
+	"github.com/pedropaccola/gomcp/internal/store"
 )
 
 // DescribeFileInput is one or more files to describe, in one round trip,
@@ -86,7 +85,7 @@ type DescribePackageResult struct {
 	DiagnosticsTruncated
 }
 
-func describePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[DescribePackageInput, DescribePackageOutput] {
+func describePackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DescribePackageInput, DescribePackageOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DescribePackageInput) (*mcp.CallToolResult, DescribePackageOutput, error) {
 		if len(in.Describes) == 0 {
 			return nil, DescribePackageOutput{}, fmt.Errorf("describes must not be empty")
@@ -94,7 +93,7 @@ func describePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Des
 		n := len(in.Describes)
 		out := DescribePackageOutput{Results: make([]DescribePackageResult, n)}
 		for i, entry := range in.Describes {
-			err := readPackage(ctx, eng, entry.PkgPath, func(v *gate.View, pkg dto.Package) error {
+			err := readPackage(ctx, eng, entry.PkgPath, func(v *store.View, pkg dto.Package) error {
 				res := &out.Results[i]
 				if doc := pkg.Doc; doc != "" {
 					res.Doc = new(string)
@@ -115,7 +114,7 @@ func describePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Des
 	}
 }
 
-func describeFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[DescribeFileInput, DescribeFileOutput] {
+func describeFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DescribeFileInput, DescribeFileOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DescribeFileInput) (*mcp.CallToolResult, DescribeFileOutput, error) {
 		if len(in.Describes) == 0 {
 			return nil, DescribeFileOutput{}, fmt.Errorf("describes must not be empty")
@@ -123,7 +122,7 @@ func describeFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Descri
 		n := len(in.Describes)
 		out := DescribeFileOutput{Results: make([]DescribeFileResult, n)}
 		for i, entry := range in.Describes {
-			err := readFile(ctx, eng, entry.PkgPath, entry.FileName, func(v *gate.View, target dto.File, pkg dto.Package) error {
+			err := readFile(ctx, eng, entry.PkgPath, entry.FileName, func(v *store.View, target dto.File, pkg dto.Package) error {
 				res := &out.Results[i]
 				if doc := target.Doc; doc != "" {
 					res.Doc = new(string)
@@ -140,7 +139,7 @@ func describeFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Descri
 	}
 }
 
-func describeSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[DescribeSymbolInput, DescribeSymbolOutput] {
+func describeSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DescribeSymbolInput, DescribeSymbolOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DescribeSymbolInput) (*mcp.CallToolResult, DescribeSymbolOutput, error) {
 		if len(in.Describes) == 0 {
 			return nil, DescribeSymbolOutput{}, fmt.Errorf("describes must not be empty")
@@ -148,7 +147,7 @@ func describeSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Desc
 		n := len(in.Describes)
 		out := DescribeSymbolOutput{Results: make([]DescribeSymbolResult, n)}
 		for i, entry := range in.Describes {
-			err := readSymbol(ctx, eng, entry.PkgPath, entry.SymbolKey, func(v *gate.View, sym dto.Symbol, owner dto.Package) error {
+			err := readSymbol(ctx, eng, entry.PkgPath, entry.SymbolKey, func(v *store.View, sym dto.Symbol, owner dto.Package) error {
 				src, ok := v.DeclSource(owner.Path, sym.Key)
 				if !ok {
 					return fmt.Errorf("source extraction failed for %q", entry.SymbolKey)

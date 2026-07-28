@@ -28,7 +28,7 @@ package tools
 
 import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/pedropaccola/gomcp/internal/engine"
+	"github.com/pedropaccola/gomcp/internal/store"
 )
 
 // reads annotates a read-only tool: the workspace is a closed world, and
@@ -62,7 +62,7 @@ func mutates(title string, destructive bool) *mcp.ToolAnnotations {
 // diagnostics rendered in every scoped DiagBlock (list_*/describe_*
 // output, mutation echoes); negative values fall back to the default
 // (20). The diagnostics tool itself is never capped.
-func Register(server *mcp.Server, eng *engine.Engine, diagLimit int) {
+func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 	cfg := newToolConfig(diagLimit)
 
 	// Enumerators

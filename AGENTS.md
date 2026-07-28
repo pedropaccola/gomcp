@@ -25,26 +25,31 @@ the package design; ROADMAP.md tracks agreed-but-deferred work.
     cmd/gomcp/          entrypoint: flags, workspace root, MCP stdio server
     internal/address/   shared leaf vocabulary (RelativePath, PkgPath,
                         CleanPath), depended on directly by workspace,
-                        dto, gate, engine, and tools
+                        dto, disk, store, and tools
     internal/workspace/ the trusted core: model vocabulary and the
                         Workspace, mutable only through its named
                         primitives, one concept per file
     internal/dto/       shared read/write vocabulary (Symbol, Package,
                         File, Diagnostic, Match, SymbolKind, EditReport):
                         pure shapes, no logic
-    internal/gate/      the model's gates: View (reads) and Tx (writes),
+    internal/disk/      the go/packages.Load pipeline and raw filesystem
+                        contact: Loader holds no lock and no workspace
+                        state, just RootDir/Logf, so store calls into it
+                        while store's own lock is held
+    internal/store/     the Repository plus the read/write boundary onto
+                        it: the concurrency contract, sequencing the disk
+                        boundary under its own lock (delegating the work
+                        to disk.Loader), and View (reads)/Tx (writes),
                         each split one semantic category per file
-    internal/engine/    the Repository: the go/packages.Load pipeline,
-                        the concurrency contract, the disk boundary, and
-                        the composition root building gate.View/Tx
     internal/tools/     presentation layer: MCP tools, split the same way
-                        as gate (read/write handlers, one category per
-                        file, a shared.go for helpers called from both)
+                        as store's View/Tx (read/write handlers, one
+                        category per file, a shared.go for helpers
+                        called from both)
     internal/testutil/  go/types-backed Workspace fixture builders shared
-                        by gate's tests (workspace's own tests keep a
+                        by store's tests (workspace's own tests keep a
                         local copy — see Testing below for why)
-    internal/enginefixture/  sandbox-bootstrapping Engine fixture shared
-                        by tools's tests (engine's own tests keep a local
+    internal/storefixture/  sandbox-bootstrapping Store fixture shared
+                        by tools's tests (store's own tests keep a local
                         copy, same reason)
     testdata/sandbox/   fixture module for semantic and mutation tests
 
@@ -72,14 +77,14 @@ tidy`) is authoritative.
 
 ## Testing
 
-- A bare `_test.go` file is a real unit test: no `sandboxEngine`, no
+- A bare `_test.go` file is a real unit test: no `sandboxStore`, no
   `go/packages.Load`, built from a hand-constructed `Workspace` fixture
   (`simpleFixture` for AST/index-only business rules, `typesFixture` for
   the handful needing real `go/types` identity — `MoveConflicts`,
   `QualifierFixups`, `RenameSplices`, `PackageMoveSplices`,
   `SymbolsImplementing`, `SymbolsReferencing`) — one file per production
   file, same name. A `_integration_test.go` suffix means it bootstraps a
-  real engine against `testdata/sandbox` and exercises the full
+  real store against `testdata/sandbox` and exercises the full
   `go/packages.Load` pipeline; these are grouped by verb/category (one
   file per tool/verb family), not by production file, since they exercise
   the seam between packages rather than one package's own rules.
@@ -88,19 +93,25 @@ tidy`) is authoritative.
   to a temp dir first (`copySandbox`). Each package's own shared helpers
   live in its `testutil_test.go` with `testing.TB` signatures so
   benchmarks reuse them.
-- `simpleFixture`/`typesFixture` and `moduleRoot`/`sandboxEngine` each
-  have one canonical implementation and one local copy, not two
-  independent copies: `internal/testutil` and `internal/enginefixture`
-  hold the canonical versions for gate's and tools's `testutil_test.go`
-  (thin wrappers delegating out) to call. `internal/workspace`'s and
-  `internal/engine`'s own copies stay local implementations, not
-  wrappers — a package's *internal* test files (`package workspace`, not
-  `package workspace_test`) can't import anything that imports that same
-  package, even transitively (`engine` imports `gate`, so a fixture
-  package reaching `engine` can never be imported from `gate`'s or
-  `engine`'s own test files), and `go test` rejects it as an import
-  cycle. Don't try to route workspace's or engine's own fixtures through
-  the shared packages — it doesn't compile.
+- Two independent fixture families follow the same shared-vs-local split,
+  for the same reason: a package's own *internal* test files (`package
+  X`, not `package X_test`) can't import anything that transitively
+  imports `X` itself, and `go test` rejects it as an import cycle.
+  `internal/testutil` holds the canonical go/types-backed Workspace
+  builders (`SimpleFixture`/`TypesFixture`, workspace-only dependency):
+  `store`'s own `viewFixture`/`viewTypesFixture` are thin wrappers
+  calling them (no cycle, since `testutil` doesn't import `store`), but
+  `workspace`'s own `simpleFixture`/`typesFixture` stay full local
+  implementations, since `testutil` importing `workspace` would make
+  `workspace`'s own test files importing `testutil` a self-cycle.
+  `internal/storefixture` holds the canonical sandbox-bootstrapping
+  builders (`ModuleRoot`/`SandboxStore`, which construct a real
+  `*store.Store`): `tools`'s own `moduleRoot`/`sandboxStore` are thin
+  wrappers calling them, but `store`'s own copies stay local
+  implementations for the mirror-image reason — `storefixture` imports
+  `store`, so `store`'s own test files importing `storefixture` would be
+  the same self-cycle. Don't try to route either package's own fixtures
+  through the shared one — it doesn't compile.
 - The sandbox exists to be broken: it deliberately covers grouped decls,
   iota, init funcs, generics, in-package and external test files, aliased
   imports, and a permanently type-broken package. When adding a feature,
@@ -111,9 +122,9 @@ tidy`) is authoritative.
   iteration.
 - All go tooling is standardized through the `Makefile`: `make tidy`
   (format, tidy modules), `make vet`, `make test`, `make test-race` (use
-  whenever a change touches `Engine`'s lock or anything concurrent),
+  whenever a change touches `Store`'s lock or anything concurrent),
   `make test-short`, `make bench` (per-phase load timing logs via the
-  engine's `logf`, `-verbose` on the binary; current numbers recorded in
+  store's `logf`, `-verbose` on the binary; current numbers recorded in
   ROADMAP.md). Verify with `make tidy` and `make test` before calling
   anything done. Tests shell out to `go list` and type-check real
   modules — expect seconds, not milliseconds.

@@ -8,7 +8,7 @@ import (
 )
 
 func TestDescribeFileBatch(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 	_, out, err := describeFile(eng, testCfg())(context.Background(), nil, DescribeFileInput{
 		Describes: []DescribeFileEntry{
 			{PkgPath: "shapes", FileName: "shapes.go"},
@@ -36,7 +36,7 @@ func TestDescribeFileBatch(t *testing.T) {
 }
 
 func TestDescribePackageBatch(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 	_, out, err := describePackage(eng, testCfg())(context.Background(), nil, DescribePackageInput{
 		Describes: []DescribePackageEntry{
 			{PkgPath: "shapes"},
@@ -64,7 +64,7 @@ func TestDescribePackageBatch(t *testing.T) {
 }
 
 func TestDescribeSymbolBatch(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 	_, out, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		Describes: []DescribeSymbolEntry{
 			{PkgPath: "shapes", SymbolKey: "Circle"},
@@ -95,7 +95,7 @@ func TestDescribeSymbolBatch(t *testing.T) {
 }
 
 func TestDescribeSymbolEveryKind(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 
 	_, out, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		Describes: []DescribeSymbolEntry{{PkgPath: "shapes", SymbolKey: "Circle"}},
@@ -167,7 +167,7 @@ func TestDescribeSymbolEveryKind(t *testing.T) {
 }
 
 func TestPackageDocTools(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 
 	_, out, err := describePackage(eng, testCfg())(context.Background(), nil, DescribePackageInput{
 		Describes: []DescribePackageEntry{{PkgPath: "shapes"}},

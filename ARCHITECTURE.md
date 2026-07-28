@@ -49,33 +49,40 @@ documented on the type that actually implements it.
   carry no identity and no logic. It's a leaf on purpose — nothing about
   its shape can leak `workspace`'s internal representation, since it
   doesn't import `workspace` at all.
-- **`gate`** is the query/command boundary onto the Aggregate: `View` is
-  a query object (one read snapshot, scoped to a single `Engine.Read`
-  call), `Tx` is a unit of work (one write transaction, scoped to a
-  single `Engine.Edit` call, embedding `View` so writes compose on the
-  same reads). Neither owns a consistency rule itself — each resolves an
-  address, asks `workspace` for the decision, and applies what it
-  returns.
-- **`engine`** is the **Repository** (the seam between the in-memory
-  Aggregate and disk) plus the concurrency contract wrapping it:
-  `Engine.ws` is a plain `*workspace.Workspace` guarded by `Engine.mu`, a
+- **`store`** is the **Repository** (the seam between the in-memory
+  Aggregate and disk) plus the query/command boundary onto it:
+  `Store.ws` is a plain `*workspace.Workspace` guarded by `Store.mu`, a
   `sync.RWMutex`. `Read` holds the read lock for its whole call — any
   number of Reads run concurrently with each other, but wait out an
   in-flight writer — while `Edit`/`Flush`/`Bootstrap`/`Reload` hold the
   write lock and serialize as the sole writer, building the next version
   off to the side (via `workspace`'s own copy-on-write clone) before
-  installing it with one assignment. A post-edit recheck is scoped to
-  dirty packages and their transitive importers (`Workspace.
-  RecheckScope`), not the whole module. Full mechanism on `Engine`'s own
-  doc comment.
+  installing it with one assignment. `Read`/`Edit` construct and scope
+  the actual query/command objects: `View` is a query object (one read
+  snapshot, scoped to a single `Read` call), `Tx` is a unit of work (one
+  write transaction, scoped to a single `Edit` call, embedding `View` so
+  writes compose on the same reads). Neither owns a consistency rule
+  itself — each resolves an address, asks `workspace` for the decision,
+  and applies what it returns. A post-edit recheck is scoped to dirty
+  packages and their transitive importers (`Workspace.RecheckScope`),
+  not the whole module. `Store` never touches the filesystem or
+  `go/packages` itself — it sequences the disk boundary under its own
+  lock and delegates the actual work to `disk.Loader`. Full mechanism on
+  `Store`'s own doc comment.
+- **`disk`** is the go/packages.Load pipeline and the filesystem's other
+  door: `Loader` holds no lock and no workspace state of its own — just
+  `RootDir`/`Logf` — so `store` calls into it while `store`'s own lock is
+  held, the same way `store` calls into `workspace`'s primitives. Nothing
+  about this seam changes *when* the lock is held, only *where* the code
+  that runs while holding it lives.
 
 ## Where the invariants live
 
 The load-bearing invariants (canonical bytes, derived state that's rebuilt
 rather than patched, sorted-only enumeration, error ⇒ untouched, pointers
-scoped to their gate) are documented on the types and methods that hold
-them, not here — `workspace.File`, `Package.RebuildIndex`, `gate.View`,
-`gate.Tx`, `Engine.Edit` are the ones worth reading first. Same for the
+scoped to their call) are documented on the types and methods that hold
+them, not here — `workspace.File`, `Package.RebuildIndex`, `store.View`,
+`store.Tx`, `Store.Edit` are the ones worth reading first. Same for the
 per-layer naming grammars: `Tx`'s verb categories and `View`'s
 resolver→enumerator→scanner layering are on their own type docs; the
 address conventions (`package` vs `file` arguments, import-path vs

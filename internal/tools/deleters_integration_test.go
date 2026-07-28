@@ -8,7 +8,7 @@ import (
 )
 
 func TestDeleteFileBatchAbortsWhollyOnFailure(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 	_, _, err := deleteFile(eng, testCfg())(context.Background(), nil, DeleteFileInput{
 		Deletes: []DeleteFileEntry{
 			{PkgPath: "shapes", FileName: "shapes.go"},
@@ -34,7 +34,7 @@ func TestDeleteSymbolBatchDuplicateIsHarmless(t *testing.T) {
 	// KindSquare's delete already collapses the whole iota group, taking
 	// KindCircle with it; a later entry naming KindCircle must not abort
 	// the batch just because the first entry already satisfied it.
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 	_, out, err := deleteSymbol(eng, testCfg())(context.Background(), nil, DeleteSymbolInput{
 		Deletes: []DeleteSymbolEntry{
 			{PkgPath: "shapes", SymbolKey: "KindSquare"},
@@ -50,7 +50,7 @@ func TestDeleteSymbolBatchDuplicateIsHarmless(t *testing.T) {
 }
 
 func TestDeleteTools(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 
 	_, out, err := deleteSymbol(eng, testCfg())(context.Background(), nil, DeleteSymbolInput{
 		Deletes: []DeleteSymbolEntry{{PkgPath: "shapes", SymbolKey: "Circle"}},

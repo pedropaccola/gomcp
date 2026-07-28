@@ -13,7 +13,7 @@ import (
 // cannot be turned into a JSON schema.
 func TestRegister(t *testing.T) {
 	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0"}, nil)
-	Register(server, sandboxEngine(t), 20)
+	Register(server, sandboxStore(t), 20)
 }
 
 // TestToolAnnotations asserts the annotations exactly as a client sees them
@@ -21,7 +21,7 @@ func TestRegister(t *testing.T) {
 // only Creators are non-destructive among the mutators.
 func TestToolAnnotations(t *testing.T) {
 	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0"}, nil)
-	Register(server, sandboxEngine(t), 20)
+	Register(server, sandboxStore(t), 20)
 
 	clientTransport, serverTransport := mcp.NewInMemoryTransports()
 	if _, err := server.Connect(context.Background(), serverTransport, nil); err != nil {

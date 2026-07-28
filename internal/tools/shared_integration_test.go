@@ -7,7 +7,7 @@ import (
 )
 
 func TestAddressForms(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 
 	// Package arguments never accept file names, on any tool.
 	if _, _, err := listSymbols(eng, testCfg())(context.Background(), nil, ListSymbolsInput{

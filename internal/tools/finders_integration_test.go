@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pedropaccola/gomcp/internal/gate"
+	"github.com/pedropaccola/gomcp/internal/store"
 )
 
 func TestSemanticFinders(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 
 	_, impl, err := searchImplementors(eng)(context.Background(), nil, SearchImplementorsInput{
 		PkgPath: "shapes", SymbolKey: "Shape",
@@ -42,7 +42,7 @@ func TestSemanticFinders(t *testing.T) {
 }
 
 func TestFindersAndDiagnostics(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 
 	_, like, err := searchDeclarationsLike(eng)(context.Background(), nil, SearchLikeInput{Name: "area"})
 	if err != nil {
@@ -81,9 +81,9 @@ func TestFindersAndDiagnostics(t *testing.T) {
 // Embedded correctly, by forcing a full recheck itself rather than
 // silently trusting a mixed-generation answer.
 func TestSearchImplementorsSurvivesNarrowRecheck(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 
-	if _, err := eng.Edit(context.Background(), func(tx *gate.Tx) error {
+	if _, err := eng.Edit(context.Background(), func(tx *store.Tx) error {
 		return tx.EditSymbol("example.com/sandbox/mvdest", "Existing", "func Existing() int { return 1 }")
 	}); err != nil {
 		t.Fatalf("Edit(mvdest): %v", err)

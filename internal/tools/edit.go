@@ -6,8 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pedropaccola/gomcp/internal/address"
-	"github.com/pedropaccola/gomcp/internal/engine"
-	"github.com/pedropaccola/gomcp/internal/gate"
+	"github.com/pedropaccola/gomcp/internal/store"
 )
 
 // WriteOutput is the shared echo of every write tool (creators, editors,
@@ -26,7 +25,7 @@ type WriteOutput struct {
 
 // runEdit is the composite every write handler flows through: one
 // transaction, echoed as files changed plus the diagnostics delta.
-func runEdit(ctx context.Context, eng *engine.Engine, cfg *toolConfig, fn func(*gate.Tx) error) (*mcp.CallToolResult, WriteOutput, error) {
+func runEdit(ctx context.Context, eng *store.Store, cfg *toolConfig, fn func(*store.Tx) error) (*mcp.CallToolResult, WriteOutput, error) {
 	var out WriteOutput
 	report, err := eng.Edit(ctx, fn)
 	if err != nil {
@@ -48,11 +47,11 @@ func runEdit(ctx context.Context, eng *engine.Engine, cfg *toolConfig, fn func(*
 }
 
 // writeWorkspacePkg validates and canonicalizes a package address for the
-// mutation handlers — the write-side gate: dependencies are refused, the
-// workspace is the only mutable world. Takes a *gate.View (never eng
-// *engine.Engine directly) so it's safe to call from inside a Read/Edit
-// closure too — View never acquires the gate lock itself.
-func writeWorkspacePkg(v *gate.View, addr string) (address.PkgPath, error) {
+// mutation handlers — the write-side check: dependencies are refused, the
+// workspace is the only mutable world. Takes a *store.View (never eng
+// *store.Store directly) so it's safe to call from inside a Read/Edit
+// closure too — View never acquires the store lock itself.
+func writeWorkspacePkg(v *store.View, addr string) (address.PkgPath, error) {
 	canon, err := address.NewPkgPath(v.Module(), addr)
 	if err != nil {
 		return "", err

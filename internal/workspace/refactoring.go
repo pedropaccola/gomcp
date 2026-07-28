@@ -25,9 +25,9 @@ type Splice struct {
 
 // span is a byte-offset range [start, end) into a file's canonical Src —
 // the internal coordinate offsetSpan produces, immediately turned into
-// either extracted text or a Splice. gate no longer keeps its own copy:
-// View.offsetSpan/Tx.leadingDocWord return the raw (start, end int)
-// pair directly, and every mutation-facing edit is a Splice.
+// either extracted text or a Splice. store no longer keeps its own
+// copy: View.offsetSpan/Tx.leadingDocWord return the raw (start, end
+// int) pair directly, and every mutation-facing edit is a Splice.
 type span struct{ start, end int }
 
 // keyOf computes obj's ObjectKey, or ok=false when obj carries no
@@ -1017,8 +1017,8 @@ func (p *Package) symbolAt(pos token.Pos) (*Symbol, bool) {
 }
 
 // DefiningIdent returns the identifier that declares s.
-// Exported so gate's rename verb shares this instead of keeping its own
-// copy — a pure method over Symbol's own already-exported Decl()/
+// Exported so store's rename verb shares this instead of keeping its
+// own copy — a pure method over Symbol's own already-exported Decl()/
 // Spec(), no workspace-internal state involved.
 func (s *Symbol) DefiningIdent() *ast.Ident {
 	if fn, ok := s.Decl().(*ast.FuncDecl); ok {

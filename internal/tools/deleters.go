@@ -5,8 +5,7 @@ import (
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/pedropaccola/gomcp/internal/engine"
-	"github.com/pedropaccola/gomcp/internal/gate"
+	"github.com/pedropaccola/gomcp/internal/store"
 )
 
 type DeleteFileEntry struct {
@@ -47,13 +46,13 @@ type DeleteSymbolInput struct {
 	Deletes []DeleteSymbolEntry `json:"deletes"`
 }
 
-func deleteSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[DeleteSymbolInput, WriteOutput] {
+func deleteSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeleteSymbolInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteSymbolInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Deletes) == 0 {
 			return nil, WriteOutput{}, fmt.Errorf("deletes must not be empty")
 		}
 		n := len(in.Deletes)
-		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
 			for i, entry := range in.Deletes {
 				pkg, err := writeWorkspacePkg(tx.View, entry.PkgPath)
 				if err != nil {
@@ -68,13 +67,13 @@ func deleteSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Delete
 	}
 }
 
-func deleteFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[DeleteFileInput, WriteOutput] {
+func deleteFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeleteFileInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteFileInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Deletes) == 0 {
 			return nil, WriteOutput{}, fmt.Errorf("deletes must not be empty")
 		}
 		n := len(in.Deletes)
-		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
 			for i, entry := range in.Deletes {
 				pkg, err := writeWorkspacePkg(tx.View, entry.PkgPath)
 				if err != nil {
@@ -89,13 +88,13 @@ func deleteFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[DeleteFi
 	}
 }
 
-func deletePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[DeletePackageInput, WriteOutput] {
+func deletePackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeletePackageInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeletePackageInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Deletes) == 0 {
 			return nil, WriteOutput{}, fmt.Errorf("deletes must not be empty")
 		}
 		n := len(in.Deletes)
-		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
 			for i, entry := range in.Deletes {
 				pkg, err := writeWorkspacePkg(tx.View, entry.PkgPath)
 				if err != nil {

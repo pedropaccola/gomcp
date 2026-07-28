@@ -3,8 +3,8 @@ package tools
 import (
 	"testing"
 
-	"github.com/pedropaccola/gomcp/internal/engine"
-	"github.com/pedropaccola/gomcp/internal/enginefixture"
+	"github.com/pedropaccola/gomcp/internal/store"
+	"github.com/pedropaccola/gomcp/internal/storefixture"
 )
 
 // testCfg returns a toolConfig for tests that call a handler factory
@@ -15,10 +15,10 @@ func testCfg() *toolConfig {
 
 func moduleRoot(tb testing.TB) string {
 	tb.Helper()
-	return enginefixture.ModuleRoot(tb)
+	return storefixture.ModuleRoot(tb)
 }
 
-func sandboxEngine(tb testing.TB) *engine.Engine {
+func sandboxStore(tb testing.TB) *store.Store {
 	tb.Helper()
-	return enginefixture.SandboxEngine(tb)
+	return storefixture.SandboxStore(tb)
 }

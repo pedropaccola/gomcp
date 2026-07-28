@@ -6,8 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pedropaccola/gomcp/internal/address"
-	"github.com/pedropaccola/gomcp/internal/engine"
-	"github.com/pedropaccola/gomcp/internal/gate"
+	"github.com/pedropaccola/gomcp/internal/store"
 )
 
 type EditFileEntry struct {
@@ -40,13 +39,13 @@ type EditSymbolInput struct {
 	Edits []EditSymbolEntry `json:"edits"`
 }
 
-func editFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[EditFileInput, WriteOutput] {
+func editFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[EditFileInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in EditFileInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Edits) == 0 {
 			return nil, WriteOutput{}, fmt.Errorf("edits must not be empty")
 		}
 		n := len(in.Edits)
-		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
 			pkgs := make([]address.PkgPath, n)
 			seen := make(map[string]bool, n)
 			for i, entry := range in.Edits {
@@ -71,13 +70,13 @@ func editFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[EditFileIn
 	}
 }
 
-func editSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[EditSymbolInput, WriteOutput] {
+func editSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[EditSymbolInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in EditSymbolInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Edits) == 0 {
 			return nil, WriteOutput{}, fmt.Errorf("edits must not be empty")
 		}
 		n := len(in.Edits)
-		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
 			pkgs := make([]address.PkgPath, n)
 			seen := make(map[string]bool, n)
 			for i, entry := range in.Edits {

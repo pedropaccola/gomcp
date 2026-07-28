@@ -13,7 +13,7 @@ import (
 // rebuilt in this one, so types.Implements can't be trusted across that
 // boundary the way ObjectKey-based matching can (see ObjectKey's own doc
 // comment). Callers should force a full recheck and retry — in
-// internal/engine, Engine.EnsureFullyChecked does this.
+// internal/store, Store.EnsureFullyChecked does this.
 var ErrNarrowlyChecked = errors.New("workspace was narrowly rechecked: SymbolsImplementing needs a full recheck first")
 
 // ComputeRecheckScope computes the set of packages a recheck must re-type-check

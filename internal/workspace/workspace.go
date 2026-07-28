@@ -26,7 +26,7 @@ import (
 // un-forked again the moment a later Clone hands it to the next.
 //
 // Not safe for concurrent use: every method assumes exclusive access,
-// synchronized externally — internal/engine.Engine's own mutex is the
+// synchronized externally — internal/store.Store's own mutex is the
 // only caller that does this today.
 type Workspace struct {
 	module      address.PkgPath

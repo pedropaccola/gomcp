@@ -9,8 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/dto"
-	"github.com/pedropaccola/gomcp/internal/engine"
-	"github.com/pedropaccola/gomcp/internal/gate"
+	"github.com/pedropaccola/gomcp/internal/store"
 )
 
 type MatchEntry struct {
@@ -41,10 +40,10 @@ type SearchSourceInput struct {
 	Regexp string `json:"regexp"`
 }
 
-func searchDeclarationsLike(eng *engine.Engine) mcp.ToolHandlerFor[SearchLikeInput, SearchOutput] {
+func searchDeclarationsLike(eng *store.Store) mcp.ToolHandlerFor[SearchLikeInput, SearchOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in SearchLikeInput) (*mcp.CallToolResult, SearchOutput, error) {
 		var out SearchOutput
-		err := eng.Read(ctx, func(v *gate.View) error {
+		err := eng.Read(ctx, func(v *store.View) error {
 			out.Matches = newMatchEntries(v.SymbolsLike(in.Name))
 			return nil
 		})
@@ -52,14 +51,14 @@ func searchDeclarationsLike(eng *engine.Engine) mcp.ToolHandlerFor[SearchLikeInp
 	}
 }
 
-func searchSource(eng *engine.Engine) mcp.ToolHandlerFor[SearchSourceInput, SearchOutput] {
+func searchSource(eng *store.Store) mcp.ToolHandlerFor[SearchSourceInput, SearchOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in SearchSourceInput) (*mcp.CallToolResult, SearchOutput, error) {
 		var out SearchOutput
 		re, err := regexp.Compile(in.Regexp)
 		if err != nil {
 			return nil, out, fmt.Errorf("invalid regular expression: %w", err)
 		}
-		err = eng.Read(ctx, func(v *gate.View) error {
+		err = eng.Read(ctx, func(v *store.View) error {
 			out.Matches = newMatchEntries(v.SymbolsRegexp(re))
 			return nil
 		})
@@ -67,11 +66,11 @@ func searchSource(eng *engine.Engine) mcp.ToolHandlerFor[SearchSourceInput, Sear
 	}
 }
 
-func searchImplementors(eng *engine.Engine) mcp.ToolHandlerFor[SearchImplementorsInput, SearchOutput] {
+func searchImplementors(eng *store.Store) mcp.ToolHandlerFor[SearchImplementorsInput, SearchOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in SearchImplementorsInput) (*mcp.CallToolResult, SearchOutput, error) {
 		var out SearchOutput
 		search := func() error {
-			return eng.Read(ctx, func(v *gate.View) error {
+			return eng.Read(ctx, func(v *store.View) error {
 				_, owner, err := resolveSymbol(v, in.PkgPath, in.SymbolKey, dto.KindType)
 				if err != nil {
 					return err
@@ -88,7 +87,7 @@ func searchImplementors(eng *engine.Engine) mcp.ToolHandlerFor[SearchImplementor
 		// A narrowly-checked generation (Recheck v2) can't answer this scan
 		// safely — force the one full recheck this needs and retry, rather
 		// than pay it on every edit for every other read.
-		if errors.Is(err, gate.ErrNarrowlyChecked) {
+		if errors.Is(err, store.ErrNarrowlyChecked) {
 			if fullErr := eng.EnsureFullyChecked(ctx); fullErr != nil {
 				return nil, out, fullErr
 			}
@@ -98,10 +97,10 @@ func searchImplementors(eng *engine.Engine) mcp.ToolHandlerFor[SearchImplementor
 	}
 }
 
-func searchReferences(eng *engine.Engine) mcp.ToolHandlerFor[SearchReferencesInput, SearchOutput] {
+func searchReferences(eng *store.Store) mcp.ToolHandlerFor[SearchReferencesInput, SearchOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in SearchReferencesInput) (*mcp.CallToolResult, SearchOutput, error) {
 		var out SearchOutput
-		err := eng.Read(ctx, func(v *gate.View) error {
+		err := eng.Read(ctx, func(v *store.View) error {
 			_, owner, err := resolveAnySymbol(v, in.PkgPath, in.SymbolKey)
 			if err != nil {
 				return err
@@ -120,7 +119,7 @@ func searchReferences(eng *engine.Engine) mcp.ToolHandlerFor[SearchReferencesInp
 // resolveAnySymbol resolves a workspace package address and symbol key —
 // the semantic finders' gate: dependencies are excluded, since their type
 // universe cannot be matched exactly against the workspace's.
-func resolveAnySymbol(v *gate.View, addr, key string) (dto.Symbol, dto.Package, error) {
+func resolveAnySymbol(v *store.View, addr, key string) (dto.Symbol, dto.Package, error) {
 	pkg, err := address.NewPkgPath(v.Module(), addr)
 	if err != nil {
 		return dto.Symbol{}, dto.Package{}, err
@@ -135,7 +134,7 @@ func resolveAnySymbol(v *gate.View, addr, key string) (dto.Symbol, dto.Package, 
 }
 
 // resolveSymbol is resolveAnySymbol plus kind checking.
-func resolveSymbol(v *gate.View, dir, key string, want dto.SymbolKind) (dto.Symbol, dto.Package, error) {
+func resolveSymbol(v *store.View, dir, key string, want dto.SymbolKind) (dto.Symbol, dto.Package, error) {
 	sym, owner, err := resolveAnySymbol(v, dir, key)
 	if err != nil {
 		return dto.Symbol{}, dto.Package{}, err

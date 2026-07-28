@@ -5,8 +5,7 @@ import (
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/pedropaccola/gomcp/internal/engine"
-	"github.com/pedropaccola/gomcp/internal/gate"
+	"github.com/pedropaccola/gomcp/internal/store"
 )
 
 type CreateFileEntry struct {
@@ -47,13 +46,13 @@ type CreateSymbolInput struct {
 	Creates []CreateSymbolEntry `json:"creates"`
 }
 
-func createPackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[CreatePackageInput, WriteOutput] {
+func createPackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[CreatePackageInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreatePackageInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Creates) == 0 {
 			return nil, WriteOutput{}, fmt.Errorf("creates must not be empty")
 		}
 		n := len(in.Creates)
-		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
 			for i, entry := range in.Creates {
 				pkg, err := writeWorkspacePkg(tx.View, entry.PkgPath)
 				if err != nil {
@@ -68,13 +67,13 @@ func createPackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Creat
 	}
 }
 
-func createFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[CreateFileInput, WriteOutput] {
+func createFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[CreateFileInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateFileInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Creates) == 0 {
 			return nil, WriteOutput{}, fmt.Errorf("creates must not be empty")
 		}
 		n := len(in.Creates)
-		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
 			for i, entry := range in.Creates {
 				pkg, err := writeWorkspacePkg(tx.View, entry.PkgPath)
 				if err != nil {
@@ -89,13 +88,13 @@ func createFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[CreateFi
 	}
 }
 
-func createSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[CreateSymbolInput, WriteOutput] {
+func createSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[CreateSymbolInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateSymbolInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Creates) == 0 {
 			return nil, WriteOutput{}, fmt.Errorf("creates must not be empty")
 		}
 		n := len(in.Creates)
-		return runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
+		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
 			for i, entry := range in.Creates {
 				pkg, err := writeWorkspacePkg(tx.View, entry.PkgPath)
 				if err != nil {

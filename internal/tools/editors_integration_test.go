@@ -8,7 +8,7 @@ import (
 )
 
 func TestEditFileBatch(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 	_, out, err := editFile(eng, testCfg())(context.Background(), nil, EditFileInput{
 		Edits: []EditFileEntry{
 			{PkgPath: "shapes", FileName: "shapes.go", Doc: new("Updated shapes doc.")},
@@ -25,7 +25,7 @@ func TestEditFileBatch(t *testing.T) {
 }
 
 func TestEditFileBatchRefusesDuplicateTarget(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 	_, _, err := editFile(eng, testCfg())(context.Background(), nil, EditFileInput{
 		Edits: []EditFileEntry{
 			{PkgPath: "shapes", FileName: "shapes.go", Doc: new("First.")},
@@ -38,7 +38,7 @@ func TestEditFileBatchRefusesDuplicateTarget(t *testing.T) {
 }
 
 func TestEditSymbolBatchAbortsWhollyOnFailure(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 	_, _, err := editSymbol(eng, testCfg())(context.Background(), nil, EditSymbolInput{
 		Edits: []EditSymbolEntry{
 			{PkgPath: "shapes", SymbolKey: "NotShape", Source: "type NotShape struct{ X int }"},
@@ -57,7 +57,7 @@ func TestEditSymbolBatchAbortsWhollyOnFailure(t *testing.T) {
 }
 
 func TestEditSymbolBatchRefusesDuplicateTarget(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 	_, _, err := editSymbol(eng, testCfg())(context.Background(), nil, EditSymbolInput{
 		Edits: []EditSymbolEntry{
 			{PkgPath: "shapes", SymbolKey: "NotShape", Source: "type NotShape struct{ X int }"},
@@ -76,14 +76,14 @@ func TestEditSymbolBatchRefusesDuplicateTarget(t *testing.T) {
 }
 
 func TestEditSymbolBatchRefusesEmpty(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 	if _, _, err := editSymbol(eng, testCfg())(context.Background(), nil, EditSymbolInput{}); err == nil {
 		t.Error("an empty batch must be refused")
 	}
 }
 
 func TestEditSymbolMultiEntry(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 	_, out, err := editSymbol(eng, testCfg())(context.Background(), nil, EditSymbolInput{
 		Edits: []EditSymbolEntry{
 			{PkgPath: "shapes", SymbolKey: "NotShape", Source: "type NotShape struct{ X int }"},
@@ -111,7 +111,7 @@ func TestEditSymbolMultiEntry(t *testing.T) {
 }
 
 func TestMutationTools(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 
 	_, created, err := createSymbol(eng, testCfg())(context.Background(), nil, CreateSymbolInput{
 		Creates: []CreateSymbolEntry{{

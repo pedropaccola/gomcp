@@ -7,7 +7,7 @@ import (
 )
 
 func TestExternalReadToolsAndRefusals(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 
 	_, out, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		Describes: []DescribeSymbolEntry{{PkgPath: "io", SymbolKey: "Reader"}},

@@ -8,7 +8,7 @@ import (
 )
 
 func TestCreateFileBatchAbortsWhollyOnFailure(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 	_, _, err := createFile(eng, testCfg())(context.Background(), nil, CreateFileInput{
 		Creates: []CreateFileEntry{
 			{PkgPath: "shapes", FileName: "first.go"},
@@ -31,7 +31,7 @@ func TestCreateFileBatchAbortsWhollyOnFailure(t *testing.T) {
 }
 
 func TestCreatePackageBatch(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 	_, out, err := createPackage(eng, testCfg())(context.Background(), nil, CreatePackageInput{
 		Creates: []CreatePackageEntry{
 			{PkgPath: "widgets"},
@@ -48,7 +48,7 @@ func TestCreatePackageBatch(t *testing.T) {
 }
 
 func TestCreateSymbolBatchAbortsWhollyOnFailure(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 	_, _, err := createSymbol(eng, testCfg())(context.Background(), nil, CreateSymbolInput{
 		Creates: []CreateSymbolEntry{
 			{PkgPath: "shapes", FileName: "batch.go", Source: "func Foo() {}"},
@@ -66,14 +66,14 @@ func TestCreateSymbolBatchAbortsWhollyOnFailure(t *testing.T) {
 }
 
 func TestCreateSymbolBatchRefusesEmpty(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 	if _, _, err := createSymbol(eng, testCfg())(context.Background(), nil, CreateSymbolInput{}); err == nil {
 		t.Error("an empty batch must be refused")
 	}
 }
 
 func TestCreateSymbolMultiEntry(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 	_, out, err := createSymbol(eng, testCfg())(context.Background(), nil, CreateSymbolInput{
 		Creates: []CreateSymbolEntry{
 			{PkgPath: "shapes", FileName: "batch.go", Source: "func Foo() {}"},

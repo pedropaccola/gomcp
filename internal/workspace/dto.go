@@ -42,7 +42,7 @@ func (w *Workspace) Package(pkg address.PkgPath) (dto.Package, bool) {
 }
 
 // ExternalPackage resolves a dependency resident in the external cache;
-// LoadExternal fills the cache outside the read gate.
+// LoadExternal fills the cache outside a Read call.
 func (w *Workspace) ExternalPackage(pkg address.PkgPath) (dto.Package, bool) {
 	p, ok := w.LookupExternal(pkg)
 	if !ok {

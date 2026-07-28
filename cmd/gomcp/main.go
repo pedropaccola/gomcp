@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/pedropaccola/gomcp/internal/engine"
+	"github.com/pedropaccola/gomcp/internal/store"
 	"github.com/pedropaccola/gomcp/internal/tools"
 )
 
@@ -71,7 +71,7 @@ func main() {
 		logf = log.Printf
 	}
 
-	eng := engine.NewEngine(absCwd, logf)
+	eng := store.NewStore(absCwd, logf)
 
 	server := mcp.NewServer(
 		&mcp.Implementation{

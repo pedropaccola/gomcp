@@ -8,7 +8,7 @@ import (
 )
 
 func TestMoveFileEchoKeepsNonVacatedSource(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 	_, out, err := moveFile(eng, testCfg())(context.Background(), nil, MoveFileInput{
 		PkgPath: "mvsrc", FileName: "standalone.go", NewPkgPath: new("mvdest"),
 	})
@@ -24,7 +24,7 @@ func TestMoveFileEchoKeepsNonVacatedSource(t *testing.T) {
 }
 
 func TestMoveFileEchoKeepsSamePackageRenameTogether(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 	_, out, err := moveFile(eng, testCfg())(context.Background(), nil, MoveFileInput{
 		PkgPath: "shapes", FileName: "groups.go", NewFileName: new("groups2.go"),
 	})
@@ -38,7 +38,7 @@ func TestMoveFileEchoKeepsSamePackageRenameTogether(t *testing.T) {
 }
 
 func TestMoveFileEchoOmitsVacatedSource(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 	_, out, err := moveFile(eng, testCfg())(context.Background(), nil, MoveFileInput{
 		PkgPath: "mvalpha", FileName: "mvalpha.go", NewPkgPath: new("mvbeta"),
 	})
@@ -54,7 +54,7 @@ func TestMoveFileEchoOmitsVacatedSource(t *testing.T) {
 }
 
 func TestMovePackageEchoOmitsVacatedSource(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 	_, out, err := movePackage(eng, testCfg())(context.Background(), nil, MovePackageInput{
 		PkgPath: "shapes", NewPkgPath: "geo",
 	})
@@ -70,7 +70,7 @@ func TestMovePackageEchoOmitsVacatedSource(t *testing.T) {
 }
 
 func TestMoveSymbolInputWiring(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 
 	if _, _, err := moveSymbol(eng, testCfg())(context.Background(), nil, MoveSymbolInput{
 		PkgPath: "shapes", SymbolKey: "NotShape", NewSymbolKey: new("AlsoNotShape"),
@@ -92,7 +92,7 @@ func TestMoveSymbolInputWiring(t *testing.T) {
 }
 
 func TestMoveSymbolInputWiringSymbolKeysBatch(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 
 	if _, _, err := moveSymbol(eng, testCfg())(context.Background(), nil, MoveSymbolInput{
 		PkgPath: "mvsrc", SymbolKeys: []string{"Box", "Box.M", "Box.AreaOfBox"},

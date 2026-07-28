@@ -16,7 +16,7 @@ func isSoloGroup(gen *ast.GenDecl, grouped bool) bool {
 
 // GroupUsesIota reports whether any value expression in a grouped
 // declaration references iota, making member meaning position-dependent.
-// Exported so gate shares this instead of keeping its own copy — a pure
+// Exported so store shares this instead of keeping its own copy — a pure
 // function over the standard library's own *ast.GenDecl, no workspace
 // state involved.
 func GroupUsesIota(gen *ast.GenDecl) bool {
@@ -161,8 +161,8 @@ func (w *Workspace) PositionDependentGroupMembers(pkg address.PkgPath, key strin
 
 // GroupOf reports whether s lives inside a grouped declaration
 // (const/var/type block with parentheses) and returns that declaration.
-// Exported so gate shares this instead of keeping its own copy — a pure
-// method over Symbol's own already-exported Decl(), no
+// Exported so store shares this instead of keeping its own copy — a
+// pure method over Symbol's own already-exported Decl(), no
 // workspace-internal state involved.
 func (s *Symbol) GroupOf() (*ast.GenDecl, bool) {
 	gen, ok := s.Decl().(*ast.GenDecl)

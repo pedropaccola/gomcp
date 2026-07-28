@@ -40,8 +40,8 @@ func SimpleFixture(tb testing.TB, src string) *workspace.Workspace {
 // ComputeRenameSplices, ComputePackageMoveSplices, SymbolsImplementing,
 // SymbolsReferencing). Each entry in srcs is one package's single file,
 // keyed by its full import path — workspace callers use a bare path
-// directly, gate callers pre-qualify each key under "test.mod/" to match
-// a real workspace address's module+directory shape; packages may
+// directly, store callers pre-qualify each key under "test.mod/" to
+// match a real workspace address's module+directory shape; packages may
 // reference each other by that same key, type-checked in dependency
 // order as each is first imported, falling back to the standard importer
 // for anything not in srcs.

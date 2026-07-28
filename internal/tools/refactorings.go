@@ -6,8 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pedropaccola/gomcp/internal/address"
-	"github.com/pedropaccola/gomcp/internal/engine"
-	"github.com/pedropaccola/gomcp/internal/gate"
+	"github.com/pedropaccola/gomcp/internal/store"
 )
 
 type MoveFileInput struct {
@@ -31,9 +30,9 @@ type MoveSymbolInput struct {
 	NewSymbolKey *string  `json:"new_symbol_key,omitempty"`
 }
 
-func moveSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveSymbolInput, WriteOutput] {
+func moveSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[MoveSymbolInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in MoveSymbolInput) (*mcp.CallToolResult, WriteOutput, error) {
-		_, out, err := runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
+		_, out, err := runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
 			pkg, err := writeWorkspacePkg(tx.View, in.PkgPath)
 			if err != nil {
 				return err
@@ -68,9 +67,9 @@ func moveSymbol(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveSymb
 	}
 }
 
-func moveFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveFileInput, WriteOutput] {
+func moveFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[MoveFileInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in MoveFileInput) (*mcp.CallToolResult, WriteOutput, error) {
-		_, out, err := runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
+		_, out, err := runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
 			pkg, err := writeWorkspacePkg(tx.View, in.PkgPath)
 			if err != nil {
 				return err
@@ -92,9 +91,9 @@ func moveFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MoveFileIn
 	}
 }
 
-func movePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MovePackageInput, WriteOutput] {
+func movePackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[MovePackageInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in MovePackageInput) (*mcp.CallToolResult, WriteOutput, error) {
-		_, out, err := runEdit(ctx, eng, cfg, func(tx *gate.Tx) error {
+		_, out, err := runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
 			pkg, err := writeWorkspacePkg(tx.View, in.PkgPath)
 			if err != nil {
 				return err
@@ -118,11 +117,11 @@ func movePackage(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[MovePac
 // move whose old address is now fully empty, not merely modified, so
 // listing it beside the destination would read as "still lives here"
 // when the package is actually gone.
-func pruneVacatedPackages(ctx context.Context, eng *engine.Engine, files map[string][]string) map[string][]string {
+func pruneVacatedPackages(ctx context.Context, eng *store.Store, files map[string][]string) map[string][]string {
 	if len(files) == 0 {
 		return files
 	}
-	eng.Read(ctx, func(v *gate.View) error {
+	eng.Read(ctx, func(v *store.View) error {
 		for addr := range files {
 			if _, ok := v.Package(address.PkgPath(addr)); !ok {
 				delete(files, addr)

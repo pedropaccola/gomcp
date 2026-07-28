@@ -4,8 +4,7 @@ import (
 	"context"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/pedropaccola/gomcp/internal/engine"
-	"github.com/pedropaccola/gomcp/internal/gate"
+	"github.com/pedropaccola/gomcp/internal/store"
 )
 
 type FlushInput struct{}
@@ -25,7 +24,7 @@ type ReloadOutput struct {
 	DiagnosticsTruncated
 }
 
-func flush(eng *engine.Engine) mcp.ToolHandlerFor[FlushInput, FlushOutput] {
+func flush(eng *store.Store) mcp.ToolHandlerFor[FlushInput, FlushOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, _ FlushInput) (*mcp.CallToolResult, FlushOutput, error) {
 		written, removed, err := eng.Flush()
 		return nil, FlushOutput{
@@ -35,7 +34,7 @@ func flush(eng *engine.Engine) mcp.ToolHandlerFor[FlushInput, FlushOutput] {
 	}
 }
 
-func reload(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ReloadInput, ReloadOutput] {
+func reload(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ReloadInput, ReloadOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, _ ReloadInput) (*mcp.CallToolResult, ReloadOutput, error) {
 		var out ReloadOutput
 		discarded, err := eng.Reload(ctx)
@@ -43,7 +42,7 @@ func reload(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ReloadInput,
 			return nil, out, err
 		}
 		out.FilesDiscarded = filesByPackage(discarded)
-		err = eng.Read(ctx, func(v *gate.View) error {
+		err = eng.Read(ctx, func(v *store.View) error {
 			out.DiagnosticsTruncated = newDiagnosticsTruncated(v.AllDiagnostics(), cfg.diagLimit)
 			return nil
 		})

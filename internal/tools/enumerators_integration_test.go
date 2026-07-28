@@ -8,7 +8,7 @@ import (
 )
 
 func TestListPackages(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 	_, out, err := listPackages(eng, testCfg())(context.Background(), nil, ListPackagesInput{})
 	if err != nil {
 		t.Fatalf("list_packages: %v", err)
@@ -28,7 +28,7 @@ func TestListPackages(t *testing.T) {
 }
 
 func TestListSymbolsAndFiles(t *testing.T) {
-	eng := sandboxEngine(t)
+	eng := sandboxStore(t)
 
 	_, files, err := listFiles(eng, testCfg())(context.Background(), nil, ListFilesInput{PkgPath: "shapes"})
 	if err != nil {
