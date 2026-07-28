@@ -79,3 +79,15 @@ func methodSignatures(v *gate.View, pkg dto.Package, typeName string) []string {
 	}
 	return out
 }
+
+// readFile is readPackage plus file resolution: gate.View.File resolves
+// a bare filename against the already-resolved package.
+func readFile(ctx context.Context, eng *engine.Engine, addr, fileName string, fn func(*gate.View, dto.File, dto.Package) error) error {
+	return readPackage(ctx, eng, addr, func(v *gate.View, pkg dto.Package) error {
+		file, err := v.File(pkg, fileName)
+		if err != nil {
+			return err
+		}
+		return fn(v, file, pkg)
+	})
+}

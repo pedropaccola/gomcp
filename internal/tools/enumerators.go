@@ -2,11 +2,9 @@ package tools
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/dto"
 	"github.com/pedropaccola/gomcp/internal/engine"
 	"github.com/pedropaccola/gomcp/internal/gate"
@@ -89,19 +87,11 @@ func listSymbols(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[ListSym
 		err := readPackage(ctx, eng, in.PkgPath, func(v *gate.View, pkg dto.Package) error {
 			var target *dto.File
 			if fileName := optStr(in.FileName); fileName != "" {
-				fp, err := address.NewFilePath(v.Module(), pkg.Path, fileName)
+				f, err := v.File(pkg, fileName)
 				if err != nil {
 					return err
 				}
-				for _, f := range pkg.Files {
-					if f.Path == fp {
-						target = &f
-						break
-					}
-				}
-				if target == nil {
-					return fmt.Errorf("no file %q in package %q", fp, in.PkgPath)
-				}
+				target = &f
 			}
 			syms := pkg.Symbols
 			out.Symbols = make([]SymbolEntry, 0, len(syms))

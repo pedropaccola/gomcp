@@ -1,6 +1,7 @@
 package gate
 
 import (
+	"fmt"
 	"go/token"
 
 	"github.com/pedropaccola/gomcp/internal/address"
@@ -35,4 +36,17 @@ func (v *View) Symbol(pkg address.PkgPath, key string) (dto.Symbol, dto.Package,
 // cache's for dependencies, the workspace FileSet otherwise.
 func (v *View) fsetOf(pkg *workspace.Package) *token.FileSet {
 	return v.ws.FsetOf(pkg)
+}
+
+// File resolves a bare filename against an already-resolved package's own
+// files.
+func (v *View) File(pkg dto.Package, fileName string) (dto.File, error) {
+	fp, err := address.NewFilePath(v.Module(), pkg.Path, fileName)
+	if err != nil {
+		return dto.File{}, err
+	}
+	if file, ok := pkg.File(fp); ok {
+		return file, nil
+	}
+	return dto.File{}, fmt.Errorf("no file %q in package %q: call list_files for valid names", fp.Base(), pkg.Path.Base())
 }

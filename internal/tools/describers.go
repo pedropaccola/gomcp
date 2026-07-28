@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/dto"
 	"github.com/pedropaccola/gomcp/internal/engine"
 	"github.com/pedropaccola/gomcp/internal/gate"
@@ -124,21 +123,7 @@ func describeFile(eng *engine.Engine, cfg *toolConfig) mcp.ToolHandlerFor[Descri
 		n := len(in.Describes)
 		out := DescribeFileOutput{Results: make([]DescribeFileResult, n)}
 		for i, entry := range in.Describes {
-			err := readPackage(ctx, eng, entry.PkgPath, func(v *gate.View, pkg dto.Package) error {
-				fp, err := address.NewFilePath(v.Module(), pkg.Path, entry.FileName)
-				if err != nil {
-					return err
-				}
-				var target *dto.File
-				for _, f := range pkg.Files {
-					if f.Path == fp {
-						target = &f
-						break
-					}
-				}
-				if target == nil {
-					return fmt.Errorf("no file %q in package %q", fp, entry.PkgPath)
-				}
+			err := readFile(ctx, eng, entry.PkgPath, entry.FileName, func(v *gate.View, target dto.File, pkg dto.Package) error {
 				res := &out.Results[i]
 				if doc := target.Doc; doc != "" {
 					res.Doc = new(string)

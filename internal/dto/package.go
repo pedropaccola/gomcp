@@ -25,3 +25,13 @@ func (p Package) Symbol(key string) (Symbol, bool) {
 	}
 	return Symbol{}, false
 }
+
+// File resolves one file by path within the package.
+func (p Package) File(path address.FilePath) (File, bool) {
+	for _, f := range p.Files {
+		if f.Path == path {
+			return f, true
+		}
+	}
+	return File{}, false
+}
