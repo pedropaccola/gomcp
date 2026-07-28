@@ -106,7 +106,7 @@ func assertModelEqualsDisk(tb testing.TB, e *Engine) {
 	}
 
 	got, want := e.ws, fresh.ws
-	gotView, wantView := gate.NewView(e.RootDir, got, context.Background()), gate.NewView(fresh.RootDir, want, context.Background())
+	gotView, wantView := gate.NewView(got, context.Background()), gate.NewView(want, context.Background())
 
 	gotKeys, wantKeys := got.UnitKeys(), want.UnitKeys()
 	if !slices.Equal(gotKeys, wantKeys) {

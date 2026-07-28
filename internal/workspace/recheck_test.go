@@ -15,7 +15,7 @@ func TestRecheckScopeIsTransitive(t *testing.T) {
 	}
 	mustSwap := func(pkg address.PkgPath, dir, src string) {
 		t.Helper()
-		if err := w.SwapFile(pkg, false, address.FilePath(string(pkg)+"/"+dir+".go"), dir+".go", []byte(src)); err != nil {
+		if err := w.SwapFile(pkg, false, address.FilePath(string(pkg)+"/"+dir+".go"), []byte(src)); err != nil {
 			t.Fatalf("SwapFile(%s): %v", pkg, err)
 		}
 	}
@@ -39,7 +39,7 @@ func TestRecheckScopeIgnoresExternalImports(t *testing.T) {
 	w := NewWorkspace()
 	w.Reset("test.mod", token.NewFileSet(), map[address.PkgPath]*Unit{})
 	w.InstallUnit("test.mod/a", NewUnit(&Package{Name: "a", Path: "a", PkgPath: "test.mod/a"}, nil))
-	if err := w.SwapFile("test.mod/a", false, "a/a.go", "a.go", []byte("package a\n\nimport \"fmt\"\n\nvar _ = fmt.Sprint\n")); err != nil {
+	if err := w.SwapFile("test.mod/a", false, "a/a.go", []byte("package a\n\nimport \"fmt\"\n\nvar _ = fmt.Sprint\n")); err != nil {
 		t.Fatalf("SwapFile: %v", err)
 	}
 

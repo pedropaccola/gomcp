@@ -276,7 +276,7 @@ func (e *Engine) fetchExternal(ctx context.Context, pkg address.PkgPath, fset *t
 func (e *Engine) Read(ctx context.Context, fn func(*gate.View) error) error {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return fn(gate.NewView(e.RootDir, e.ws, ctx))
+	return fn(gate.NewView(e.ws, ctx))
 }
 
 // Edit runs fn against a cloned workspace and commits it with a full
@@ -294,7 +294,7 @@ func (e *Engine) Edit(ctx context.Context, fn func(*gate.Tx) error) (*dto.EditRe
 
 	candidate := e.ws.Clone()
 
-	view := gate.NewView(e.RootDir, candidate, ctx)
+	view := gate.NewView(candidate, ctx)
 	before := view.AllDiagnostics()
 
 	tx := gate.NewTx(view)

@@ -13,7 +13,6 @@ import (
 	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/dto"
 	"github.com/pedropaccola/gomcp/internal/workspace"
-	"golang.org/x/tools/imports"
 )
 
 // applyFileSplices groups splices by file and installs each file's result,
@@ -39,23 +38,18 @@ func (tx *Tx) applyFileSplices(splices []workspace.Splice) error {
 	return nil
 }
 
-// installFile is the goimports half of the content pipeline: format the
-// candidate bytes, then hand them to the workspace's parse-enforcing
-// SwapFile — the one door through which file content enters the model.
-// addr/isXTest select the package to swap into, resolved fresh by
-// SwapFile itself rather than trusted from a pointer the caller might
-// have resolved before an intervening mutation. Every fallible step
-// precedes the swap; an error means state is untouched.
-func (tx *Tx) installFile(addr address.PkgPath, isXTest bool, path address.FilePath, candidate []byte) error {
-	abs := filepath.Join(tx.rootDir, string(path))
-	formatted, err := imports.Process(abs, candidate, nil)
-	if err != nil {
-		return fmt.Errorf("%s does not format: %w", path, err)
-	}
-	if err := tx.ws.SwapFile(addr, isXTest, path, abs, formatted); err != nil {
+// installFile is the one door through which file content enters the
+// model on the mutation path: hand candidate bytes to the workspace's
+// formatting, parse-enforcing SwapFile, then record the touch. addr/
+// isXTest select the package to swap into, resolved fresh by SwapFile
+// itself rather than trusted from a pointer the caller might have
+// resolved before an intervening mutation. Every fallible step precedes
+// the swap; an error means state is untouched.
+func (tx *Tx) installFile(addr address.PkgPath, isXTest bool, newPath address.FilePath, candidate []byte) error {
+	if err := tx.ws.SwapFile(addr, isXTest, newPath, candidate); err != nil {
 		return err
 	}
-	tx.touch(path)
+	tx.touch(newPath)
 	return nil
 }
 

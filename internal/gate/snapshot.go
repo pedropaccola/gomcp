@@ -22,9 +22,8 @@ import (
 // comes from the Read call that created this View; scanners.go's
 // long-running scans check it for cancellation, nothing else does.
 type View struct {
-	rootDir string // absolute workspace root, joined against a relative path for goimports
-	ws      *workspace.Workspace
-	ctx     context.Context
+	ws  *workspace.Workspace
+	ctx context.Context
 }
 
 // Tx is a mutable view over a cloned workspace, embedding View so every
@@ -59,10 +58,10 @@ func (tx *Tx) ChangedKeys() []address.FilePath {
 	return sortedKeys(tx.changed)
 }
 
-// NewView constructs a View over ws, rooted at rootDir. Engine's Read and
-// Edit are the only callers.
-func NewView(rootDir string, ws *workspace.Workspace, ctx context.Context) *View {
-	return &View{rootDir: rootDir, ws: ws, ctx: ctx}
+// NewView constructs a View over ws. Engine's Read and Edit are the only
+// callers.
+func NewView(ws *workspace.Workspace, ctx context.Context) *View {
+	return &View{ws: ws, ctx: ctx}
 }
 
 // NewTx constructs a Tx over view. Engine.Edit is the only caller.

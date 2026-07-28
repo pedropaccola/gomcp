@@ -27,7 +27,7 @@ func simpleFixture(tb testing.TB, src string) *Workspace {
 	w := NewWorkspace()
 	w.Reset("test.mod", token.NewFileSet(), map[address.PkgPath]*Unit{})
 	w.InstallUnit("test.mod/pkg", NewUnit(&Package{Name: "pkg", Path: "pkg", PkgPath: "test.mod/pkg"}, nil))
-	if err := w.SwapFile("test.mod/pkg", false, "test.mod/pkg/pkg.go", "pkg.go", []byte(src)); err != nil {
+	if err := w.SwapFile("test.mod/pkg", false, "test.mod/pkg/pkg.go", []byte(src)); err != nil {
 		tb.Fatalf("fixture SwapFile: %v", err)
 	}
 	return w

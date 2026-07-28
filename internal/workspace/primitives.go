@@ -6,6 +6,7 @@ import (
 	"maps"
 
 	"github.com/pedropaccola/gomcp/internal/address"
+	"golang.org/x/tools/imports"
 )
 
 // Clone copies the mutable model for a transaction: units, packages, and
@@ -24,22 +25,30 @@ func (w *Workspace) Clone() *Workspace {
 }
 
 // SwapFile is the one way file content enters the model on the mutation
-// path: parse the candidate bytes (they must already be formatted), install
-// a fresh dirty File, clear any tombstone at the path, and rebuild the
-// owner's index. Every fallible step precedes the swap — an error means the
-// model is untouched.
-func (w *Workspace) SwapFile(addr address.PkgPath, isXTest bool, path address.FilePath, filename string, src []byte) error {
-	astFile, err := parser.ParseFile(w.fset, filename, src, parser.ParseComments|parser.SkipObjectResolution)
+// path: goimports-format the candidate bytes against newPath's own
+// address (no real filesystem is consulted — goimports classifies
+// imports purely from the filename's shape), parse the formatted
+// result, install a fresh dirty File, clear any tombstone at newPath,
+// and rebuild the owner's index. Formatting happens here, not at the
+// caller — nothing outside workspace needs to know goimports exists.
+// Every fallible step precedes the swap — an error means the model is
+// untouched.
+func (w *Workspace) SwapFile(addr address.PkgPath, isXTest bool, newPath address.FilePath, src []byte) error {
+	formatted, err := imports.Process(newPath.String(), src, nil)
 	if err != nil {
-		return fmt.Errorf("%s does not parse: %w", path, err)
+		return fmt.Errorf("%s does not format: %w", newPath, err)
+	}
+	astFile, err := parser.ParseFile(w.fset, newPath.String(), formatted, parser.ParseComments|parser.SkipObjectResolution)
+	if err != nil {
+		return fmt.Errorf("%s does not parse: %w", newPath, err)
 	}
 	pkg := w.ensurePackageForked(addr, isXTest)
 	if pkg.files == nil {
 		pkg.files = make(map[address.FilePath]*File)
 	}
-	pkg.files[path] = newFile(path, src, astFile, true)
+	pkg.files[newPath] = newFile(newPath, formatted, astFile, true)
 	w.ensureRemovedForked()
-	delete(w.removed, path)
+	delete(w.removed, newPath)
 	pkg.RebuildIndex()
 	return nil
 }

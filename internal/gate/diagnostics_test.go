@@ -15,7 +15,7 @@ func TestViewDiagnosticsPackageScoped(t *testing.T) {
 	wp := workspace.NewPackage("pkg", "pkg", "test.mod/pkg", nil, nil, false)
 	wp.Diags = append(wp.Diags, workspace.Diagnostic{Kind: workspace.DiagParse, Msg: "boom"})
 	ws.InstallUnit("test.mod/pkg", workspace.NewUnit(wp, nil))
-	v := NewView(t.TempDir(), ws, context.Background())
+	v := NewView(ws, context.Background())
 	diags := v.Diagnostics("test.mod/pkg")
 	if len(diags) != 1 || diags[0].Msg != "boom" {
 		t.Errorf("Diagnostics(test.mod/pkg) = %+v, want one boom diagnostic", diags)
@@ -31,7 +31,7 @@ func TestViewAllDiagnosticsAggregatesEveryUnit(t *testing.T) {
 	p2.Diags = append(p2.Diags, workspace.Diagnostic{Kind: workspace.DiagParse, Msg: "b-broke"})
 	ws.InstallUnit("test.mod/a", workspace.NewUnit(p1, nil))
 	ws.InstallUnit("test.mod/b", workspace.NewUnit(p2, nil))
-	v := NewView(t.TempDir(), ws, context.Background())
+	v := NewView(ws, context.Background())
 	diags := v.AllDiagnostics()
 	if len(diags) != 2 {
 		t.Errorf("AllDiagnostics() = %+v, want both units' diagnostics", diags)

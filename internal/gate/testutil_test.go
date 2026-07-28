@@ -22,36 +22,32 @@ type funcImporter func(path string) (*types.Package, error)
 func (f funcImporter) Import(path string) (*types.Package, error) { return f(path) }
 
 // gateFixture builds a single-package Workspace with no type information,
-// wrapped in a View backed by a real (empty) temp directory — the
-// unit-test fixture for gate's read pass-throughs and Tx's pipeline
-// mechanics (goimports formatting, SwapFile, touch-tracking), with no
-// real go/packages.Load. tb.TempDir gives installFile's goimports pass a
-// genuine, existing directory to resolve against without needing a real
-// module on disk.
+// wrapped in a View — the unit-test fixture for gate's read pass-throughs
+// and Tx's pipeline mechanics (goimports formatting, SwapFile,
+// touch-tracking), with no real go/packages.Load and no real filesystem.
 func gateFixture(tb testing.TB, src string) *View {
 	tb.Helper()
 	ws := workspace.NewWorkspace()
 	ws.Reset("test.mod", token.NewFileSet(), map[address.PkgPath]*workspace.Unit{})
 	ws.InstallUnit("test.mod/pkg", workspace.NewUnit(workspace.NewPackage("pkg", "pkg", "test.mod/pkg", nil, nil, false), nil))
-	if err := ws.SwapFile("test.mod/pkg", false, "test.mod/pkg/pkg.go", "pkg.go", []byte(src)); err != nil {
+	if err := ws.SwapFile("test.mod/pkg", false, "test.mod/pkg/pkg.go", []byte(src)); err != nil {
 		tb.Fatalf("gateFixture: SwapFile: %v", err)
 	}
-	return NewView(tb.TempDir(), ws, context.Background())
+	return NewView(ws, context.Background())
 }
 
 // gateTypesFixture builds a multi-package Workspace with real go/types
-// information, wrapped in a View backed by a real (empty) temp directory
-// — the fixture for gate verbs whose underlying workspace analysis
-// (MoveSymbol's rename, MoveFile's cross-package checks) needs real type
-// identity, not just AST/index data. Mirrors workspace's own typesFixture
-// exactly, since gate has no access to workspace's unexported test
-// helpers from outside the package, with one addition: gate's write
-// pipeline resolves a package's directory from its PkgPath by stripping
-// the module prefix (View.dirOf), so each entry's key is a bare
-// directory name installed under the "test.mod/" module — not a raw
-// import path the way workspace's own typesFixture uses it — and a
-// cross-package reference in fixture source must import the full
-// "test.mod/<key>" path to resolve.
+// information, wrapped in a View — the fixture for gate verbs whose
+// underlying workspace analysis (MoveSymbol's rename, MoveFile's
+// cross-package checks) needs real type identity, not just AST/index
+// data. Mirrors workspace's own typesFixture exactly, since gate has no
+// access to workspace's unexported test helpers from outside the
+// package, with one addition: gate's write pipeline resolves a package's
+// directory from its PkgPath by stripping the module prefix (View.dirOf),
+// so each entry's key is a bare directory name installed under the
+// "test.mod/" module — not a raw import path the way workspace's own
+// typesFixture uses it — and a cross-package reference in fixture source
+// must import the full "test.mod/<key>" path to resolve.
 func gateTypesFixture(tb testing.TB, srcs map[string]string) *View {
 	tb.Helper()
 	fset := token.NewFileSet()
@@ -105,5 +101,5 @@ func gateTypesFixture(tb testing.TB, srcs map[string]string) *View {
 		wp.RebuildIndex()
 		ws.InstallUnit(address.PkgPath(fullPath), workspace.NewUnit(wp, nil))
 	}
-	return NewView(tb.TempDir(), ws, context.Background())
+	return NewView(ws, context.Background())
 }
