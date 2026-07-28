@@ -40,6 +40,12 @@ the package design; ROADMAP.md tracks agreed-but-deferred work.
     internal/tools/     presentation layer: MCP tools, split the same way
                         as gate (read/write handlers, one category per
                         file, a shared.go for helpers called from both)
+    internal/testutil/  go/types-backed Workspace fixture builders shared
+                        by gate's tests (workspace's own tests keep a
+                        local copy — see Testing below for why)
+    internal/enginefixture/  sandbox-bootstrapping Engine fixture shared
+                        by tools's tests (engine's own tests keep a local
+                        copy, same reason)
     testdata/sandbox/   fixture module for semantic and mutation tests
 
 Every file's own doc comment gives the exact category breakdown for its
@@ -68,20 +74,33 @@ tidy`) is authoritative.
 
 - A bare `_test.go` file is a real unit test: no `sandboxEngine`, no
   `go/packages.Load`, built from a hand-constructed `Workspace` fixture
-  (`internal/workspace/testutil_test.go`'s `simpleFixture` for AST/index-
-  only business rules, `typesFixture` for the handful needing real
-  `go/types` identity — `MoveConflicts`, `QualifierFixups`,
-  `RenameSplices`, `PackageMoveSplices`, `SymbolsImplementing`,
-  `SymbolsReferencing`) — one file per production file, same name. A
-  `_integration_test.go` suffix means it bootstraps a real engine against
-  `testdata/sandbox` and exercises the full `go/packages.Load` pipeline;
-  these are grouped by verb/category (one file per tool/verb family), not
-  by production file, since they exercise the seam between packages
-  rather than one package's own rules.
+  (`simpleFixture` for AST/index-only business rules, `typesFixture` for
+  the handful needing real `go/types` identity — `MoveConflicts`,
+  `QualifierFixups`, `RenameSplices`, `PackageMoveSplices`,
+  `SymbolsImplementing`, `SymbolsReferencing`) — one file per production
+  file, same name. A `_integration_test.go` suffix means it bootstraps a
+  real engine against `testdata/sandbox` and exercises the full
+  `go/packages.Load` pipeline; these are grouped by verb/category (one
+  file per tool/verb family), not by production file, since they exercise
+  the seam between packages rather than one package's own rules.
 - Everything runs against `testdata/sandbox` (bootstrapped in-memory;
   mutations never touch its disk). Tests that Flush must copy the sandbox
-  to a temp dir first (`copySandbox`). Shared helpers live in
-  `testutil_test.go` with `testing.TB` signatures so benchmarks reuse them.
+  to a temp dir first (`copySandbox`). Each package's own shared helpers
+  live in its `testutil_test.go` with `testing.TB` signatures so
+  benchmarks reuse them.
+- `simpleFixture`/`typesFixture` and `moduleRoot`/`sandboxEngine` each
+  have one canonical implementation and one local copy, not two
+  independent copies: `internal/testutil` and `internal/enginefixture`
+  hold the canonical versions for gate's and tools's `testutil_test.go`
+  (thin wrappers delegating out) to call. `internal/workspace`'s and
+  `internal/engine`'s own copies stay local implementations, not
+  wrappers — a package's *internal* test files (`package workspace`, not
+  `package workspace_test`) can't import anything that imports that same
+  package, even transitively (`engine` imports `gate`, so a fixture
+  package reaching `engine` can never be imported from `gate`'s or
+  `engine`'s own test files), and `go test` rejects it as an import
+  cycle. Don't try to route workspace's or engine's own fixtures through
+  the shared packages — it doesn't compile.
 - The sandbox exists to be broken: it deliberately covers grouped decls,
   iota, init funcs, generics, in-package and external test files, aliased
   imports, and a permanently type-broken package. When adding a feature,
