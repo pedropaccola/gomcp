@@ -28,11 +28,8 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 	if !ok {
 		return fmt.Errorf("no package at %q", pkg)
 	}
-	for i, owner := range []*workspace.Package{unit.Prod(), unit.XTest()} {
-		if owner == nil {
-			continue
-		}
-		isXTest := i == 1
+	for _, owner := range unit.Members() {
+		isXTest := owner == unit.XTest()
 		path, err := address.NewFilePath(tx.ws.Module(), owner.PkgPath, fileName)
 		if err != nil {
 			return err
@@ -42,7 +39,7 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 		}
 		destOwner := owner
 		if newPkgPath != "" {
-			destOwner, ok = tx.resolvePackage(newPkgPath)
+			destOwner, ok = tx.ws.ProdPackage(newPkgPath)
 			if !ok {
 				return fmt.Errorf("no package at %q: create_package first", newPkgPath)
 			}
@@ -87,12 +84,12 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 			if isXTest {
 				owner, ok = tx.resolveXTest(pkg)
 			} else {
-				owner, ok = tx.resolvePackage(pkg)
+				owner, ok = tx.ws.ProdPackage(pkg)
 			}
 			if !ok {
 				return fmt.Errorf("internal error: %q vanished after qualifier fixups", pkg)
 			}
-			destOwner, ok = tx.resolvePackage(newPkgPath)
+			destOwner, ok = tx.ws.ProdPackage(newPkgPath)
 			if !ok {
 				return fmt.Errorf("internal error: %q vanished after qualifier fixups", newPkgPath)
 			}
@@ -153,20 +150,22 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 	// observed, since NewUnit is the only way to construct one at all.
 	type half struct {
 		orig, moved *workspace.Package
+		isXTest     bool
 	}
-	halves := [2]half{}
-	for i, orig := range []*workspace.Package{unit.Prod(), unit.XTest()} {
-		if orig == nil {
-			continue
+	var halves []half
+	var prodMoved, xtestMoved *workspace.Package
+	for _, orig := range unit.Members() {
+		moved := orig.Relocated(oldPkg, newPkg, renameName)
+		isXTest := orig == unit.XTest()
+		halves = append(halves, half{orig: orig, moved: moved, isXTest: isXTest})
+		if isXTest {
+			xtestMoved = moved
+		} else {
+			prodMoved = moved
 		}
-		halves[i] = half{orig: orig, moved: orig.Relocated(oldPkg, newPkg, renameName)}
 	}
-	tx.ws.InstallUnit(newPkg, workspace.NewUnit(halves[0].moved, halves[1].moved))
-	for i, h := range halves {
-		if h.orig == nil {
-			continue
-		}
-		isXTest := i == 1
+	tx.ws.InstallUnit(newPkg, workspace.NewUnit(prodMoved, xtestMoved))
+	for _, h := range halves {
 		for _, file := range h.orig.Files() {
 			newPath := newPkg.File(file.Path.Base())
 			tx.ws.Tombstone(oldPkg, file.Path, h.orig.Name)
@@ -187,7 +186,7 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 				}
 				candidate = workspace.ApplySplices(file.Src(), fileSplices)
 			}
-			if err := tx.installFile(newPkg, isXTest, newPath, candidate); err != nil {
+			if err := tx.installFile(newPkg, h.isXTest, newPath, candidate); err != nil {
 				return err
 			}
 		}
@@ -232,7 +231,7 @@ func (tx *Tx) MoveSymbol(pkg address.PkgPath, key string, newPkgPath address.Pkg
 		if err != nil {
 			return err
 		}
-		sym, _, ok := tx.resolveSymbol(pkg, key)
+		sym, _, ok := tx.ws.ResolveSymbol(pkg, key)
 		if !ok {
 			return fmt.Errorf("no symbol %q in %q", key, pkg)
 		}
@@ -275,7 +274,7 @@ func (tx *Tx) MoveSymbol(pkg address.PkgPath, key string, newPkgPath address.Pkg
 // relocateDeclaration for the shared mechanics MoveSymbolGroup also
 // composes on. Private: composed by MoveSymbol, never called standalone.
 func (tx *Tx) relocateSymbol(srcPkg, destPkg address.PkgPath, key, fileName string) error {
-	destOwner, ok := tx.resolvePackage(destPkg)
+	destOwner, ok := tx.ws.ProdPackage(destPkg)
 	if !ok {
 		return fmt.Errorf("no package at %q: create_package first", destPkg)
 	}
@@ -307,7 +306,7 @@ func (tx *Tx) renameSymbol(pkg address.PkgPath, key, newName string) error {
 	if !token.IsIdentifier(newName) {
 		return fmt.Errorf("%q is not a valid identifier", newName)
 	}
-	sym, owner, ok := tx.resolveSymbol(pkg, key)
+	sym, owner, ok := tx.ws.ResolveSymbol(pkg, key)
 	if !ok {
 		return fmt.Errorf("no symbol %q in %q", key, pkg)
 	}
@@ -370,11 +369,11 @@ func (tx *Tx) applyQualifierFixups(srcPkg, destPkg address.PkgPath, movingKeys [
 // a pointer a caller might be holding from before an earlier key's own
 // installFile in the same batch forked the package out from under it.
 func (tx *Tx) relocateDeclaration(srcPkg, destPkg address.PkgPath, key string, destPath address.FilePath) error {
-	sym, owner, ok := tx.resolveSymbol(srcPkg, key)
+	sym, owner, ok := tx.ws.ResolveSymbol(srcPkg, key)
 	if !ok {
 		return fmt.Errorf("no symbol %q in %q", key, srcPkg)
 	}
-	destOwner, ok := tx.resolvePackage(destPkg)
+	destOwner, ok := tx.ws.ProdPackage(destPkg)
 	if !ok {
 		return fmt.Errorf("no package at %q: create_package first", destPkg)
 	}
@@ -447,7 +446,7 @@ func (tx *Tx) MoveSymbolGroup(pkg address.PkgPath, keys []string, newPkgPath add
 	if newPkgPath != "" {
 		destPkg = newPkgPath
 	}
-	destOwner, ok := tx.resolvePackage(destPkg)
+	destOwner, ok := tx.ws.ProdPackage(destPkg)
 	if !ok {
 		return fmt.Errorf("no package at %q: create_package first", destPkg)
 	}
@@ -495,12 +494,12 @@ func (tx *Tx) MoveSymbolGroup(pkg address.PkgPath, keys []string, newPkgPath add
 
 	ordered := make([]string, 0, len(representatives))
 	for _, key := range representatives {
-		if sym, _, ok := tx.resolveSymbol(pkg, key); ok && sym.Kind == workspace.KindType {
+		if sym, _, ok := tx.ws.ResolveSymbol(pkg, key); ok && sym.Kind == workspace.KindType {
 			ordered = append(ordered, key)
 		}
 	}
 	for _, key := range representatives {
-		if sym, _, ok := tx.resolveSymbol(pkg, key); ok && sym.Kind != workspace.KindType {
+		if sym, _, ok := tx.ws.ResolveSymbol(pkg, key); ok && sym.Kind != workspace.KindType {
 			ordered = append(ordered, key)
 		}
 	}

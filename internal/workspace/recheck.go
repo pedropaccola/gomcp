@@ -31,10 +31,7 @@ func (w *Workspace) ComputeRecheckScope(dirty map[address.PkgPath]bool) map[addr
 	importedBy := make(map[address.PkgPath][]address.PkgPath) // imported -> importing unit addresses
 	for _, addr := range w.UnitKeys() {
 		unit, _ := w.Unit(addr)
-		for _, pkg := range []*Package{unit.Prod(), unit.XTest()} {
-			if pkg == nil {
-				continue
-			}
+		for _, pkg := range unit.Members() {
 			for _, file := range pkg.Files() {
 				for _, imp := range file.Ast().Imports {
 					path, err := strconv.Unquote(imp.Path.Value)

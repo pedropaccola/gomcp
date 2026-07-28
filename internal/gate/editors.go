@@ -14,7 +14,7 @@ import (
 // untouched. The one sanctioned door into floating-comment space: every
 // other comment stays unaddressable by design.
 func (tx *Tx) EditFile(pkg address.PkgPath, name, doc string) error {
-	p, ok := tx.resolvePackage(pkg)
+	p, ok := tx.ws.ProdPackage(pkg)
 	if !ok {
 		return fmt.Errorf("no package at %q", pkg)
 	}

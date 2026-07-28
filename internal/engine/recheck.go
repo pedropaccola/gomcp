@@ -51,10 +51,7 @@ func (e *Engine) recheckScopedLocked(ctx context.Context, ws *workspace.Workspac
 			continue
 		}
 		if unit, ok := ws.Unit(pkg); ok {
-			for _, p := range []*workspace.Package{unit.Prod(), unit.XTest()} {
-				if p == nil {
-					continue
-				}
+			for _, p := range unit.Members() {
 				if file, ok := p.File(path); ok {
 					overlay[e.absPath(path)] = file.Src()
 					dirty[path] = pkg
@@ -84,10 +81,7 @@ func (e *Engine) recheckScopedLocked(ctx context.Context, ws *workspace.Workspac
 	for _, addr := range ws.UnitKeys() {
 		unit, _ := ws.Unit(addr)
 		if scope[addr] {
-			for _, pkg := range []*workspace.Package{unit.Prod(), unit.XTest()} {
-				if pkg == nil {
-					continue
-				}
+			for _, pkg := range unit.Members() {
 				for _, file := range pkg.Files() {
 					if tf := oldFset.File(file.Ast().Pos()); tf != nil {
 						oldFset.RemoveFile(tf)
@@ -97,10 +91,7 @@ func (e *Engine) recheckScopedLocked(ctx context.Context, ws *workspace.Workspac
 			continue
 		}
 		kept[addr] = unit
-		for _, pkg := range []*workspace.Package{unit.Prod(), unit.XTest()} {
-			if pkg == nil {
-				continue
-			}
+		for _, pkg := range unit.Members() {
 			for _, file := range pkg.Files() {
 				if tf := oldFset.File(file.Ast().Pos()); tf != nil {
 					newFset.AddExistingFiles(tf)
@@ -149,10 +140,7 @@ func changedSet(ws *workspace.Workspace) map[address.FilePath]address.PkgPath {
 	out := make(map[address.FilePath]address.PkgPath)
 	for _, addr := range ws.UnitKeys() {
 		unit, _ := ws.Unit(addr)
-		for _, pkg := range []*workspace.Package{unit.Prod(), unit.XTest()} {
-			if pkg == nil {
-				continue
-			}
+		for _, pkg := range unit.Members() {
 			for _, file := range pkg.Files() {
 				if file.IsDirty() {
 					out[file.Path] = addr

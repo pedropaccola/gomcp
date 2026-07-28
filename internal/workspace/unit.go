@@ -21,10 +21,7 @@ type Unit struct {
 // rather than mutates in place, since a File may still be shared with
 // another Workspace generation via Clone.
 func (u *Unit) MarkDirty(path address.FilePath) {
-	for _, p := range []*Package{u.prod, u.xtest} {
-		if p == nil {
-			continue
-		}
+	for _, p := range u.Members() {
 		if file, ok := p.files[path]; ok {
 			cp := *file
 			cp.dirty = true
@@ -52,6 +49,22 @@ func (u *Unit) Dir() address.PkgPath {
 		return u.prod.PkgPath
 	}
 	return address.PkgPath(strings.TrimSuffix(string(u.xtest.PkgPath), "_test"))
+}
+
+// Members returns the unit's non-nil packages, Prod before XTest — 1 or 2
+// entries, never both nil (a Unit with neither is pruned). Compacted: a
+// caller that needs to know which entry is which compares against XTest()
+// directly (identity, not position) rather than trusting an index, since
+// the position of a given half shifts once the other is absent.
+func (u *Unit) Members() []*Package {
+	var out []*Package
+	if u.prod != nil {
+		out = append(out, u.prod)
+	}
+	if u.xtest != nil {
+		out = append(out, u.xtest)
+	}
+	return out
 }
 
 // NewUnit assembles a Unit from its two halves atomically — the only

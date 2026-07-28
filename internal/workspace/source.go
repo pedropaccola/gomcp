@@ -11,7 +11,7 @@ import (
 // declaration, doc comment included. For a symbol inside a grouped decl
 // this is the entire group; see SpecSource for the narrow slice.
 func (w *Workspace) DeclSource(pkg address.PkgPath, key string) (string, bool) {
-	sym, owner, ok := w.resolveSymbol(pkg, key)
+	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return "", false
 	}
@@ -28,7 +28,7 @@ func (w *Workspace) DeclSource(pkg address.PkgPath, key string) (string, bool) {
 // rendered as written inside the group (without the group's keyword).
 // Falls back to DeclSource when the symbol has no spec.
 func (w *Workspace) SpecSource(pkg address.PkgPath, key string) (string, bool) {
-	sym, owner, ok := w.resolveSymbol(pkg, key)
+	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return "", false
 	}
@@ -44,7 +44,7 @@ func (w *Workspace) SpecSource(pkg address.PkgPath, key string) (string, bool) {
 // body. Comma-ok is false for every other symbol kind; compose
 // SpecSource there.
 func (w *Workspace) Signature(pkg address.PkgPath, key string) (string, bool) {
-	sym, owner, ok := w.resolveSymbol(pkg, key)
+	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return "", false
 	}

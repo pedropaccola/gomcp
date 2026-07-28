@@ -79,7 +79,7 @@ func (w *Workspace) trimSpecName(owner *Package, sym *Symbol, spec *ast.ValueSpe
 // treat that as success, not an error. Aggregate-owned analysis, same
 // rationale as DetectMoveConflicts: key is resolved fresh here.
 func (w *Workspace) ComputeDeletionSplices(pkg address.PkgPath, key string) (splices []Splice, found bool, err error) {
-	sym, owner, ok := w.resolveSymbol(pkg, key)
+	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return nil, false, nil
 	}

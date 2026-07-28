@@ -12,7 +12,7 @@ import (
 // CreateFile adds an empty file to an existing package, optionally seeded
 // with a package doc comment.
 func (tx *Tx) CreateFile(pkg address.PkgPath, name, doc string) error {
-	p, ok := tx.resolvePackage(pkg)
+	p, ok := tx.ws.ProdPackage(pkg)
 	if !ok {
 		return fmt.Errorf("no package at %q: create_package first", pkg)
 	}
@@ -62,7 +62,7 @@ func (tx *Tx) CreatePackage(pkg address.PkgPath, name string) error {
 // receiver; otherwise it falls to the standard const/var region, same as
 // an untyped iota group always does.
 func (tx *Tx) CreateSymbol(pkg address.PkgPath, fileName, src string) error {
-	p, ok := tx.resolvePackage(pkg)
+	p, ok := tx.ws.ProdPackage(pkg)
 	if !ok {
 		return fmt.Errorf("no package at %q: create_package first", pkg)
 	}

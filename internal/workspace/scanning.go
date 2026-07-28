@@ -36,10 +36,7 @@ func (w *Workspace) symbolsWhere(ctx context.Context, pred func(*Package, *Symbo
 			return out
 		}
 		unit, _ := w.Unit(addr)
-		for _, pkg := range []*Package{unit.Prod(), unit.XTest()} {
-			if pkg == nil {
-				continue
-			}
+		for _, pkg := range unit.Members() {
 			for _, sym := range pkg.Symbols() {
 				if pred(pkg, sym) {
 					out = append(out, SymbolMatch{Pkg: addr, Key: sym.Key()})
@@ -101,7 +98,7 @@ func (w *Workspace) SymbolsImplementing(ctx context.Context, pkg address.PkgPath
 	if w.narrowlyChecked {
 		return nil, ErrNarrowlyChecked
 	}
-	sym, owner, ok := w.resolveSymbol(pkg, key)
+	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return nil, fmt.Errorf("no symbol %q in %q", key, pkg)
 	}
@@ -145,7 +142,7 @@ func (w *Workspace) SymbolsImplementing(ctx context.Context, pkg address.PkgPath
 // must record the canonical address, not an XTest package's own
 // possibly-augmented PkgPath.
 func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg address.PkgPath, key string) ([]SymbolMatch, error) {
-	sym, owner, ok := w.resolveSymbol(pkg, key)
+	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return nil, fmt.Errorf("no symbol %q in %q", key, pkg)
 	}
@@ -165,8 +162,8 @@ func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg address.PkgPath,
 			return nil, err
 		}
 		unit, _ := w.Unit(addr)
-		for _, p := range []*Package{unit.Prod(), unit.XTest()} {
-			if p == nil || p.TypesInfo() == nil {
+		for _, p := range unit.Members() {
+			if p.TypesInfo() == nil {
 				continue
 			}
 			for ident, obj := range p.TypesInfo().Uses {

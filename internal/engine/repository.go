@@ -24,11 +24,8 @@ func (e *Engine) Flush() (written, removed []address.FilePath, err error) {
 	candidate := e.ws.Clone()
 	for _, addr := range candidate.UnitKeys() {
 		unit, _ := candidate.Unit(addr)
-		for i, pkg := range []*workspace.Package{unit.Prod(), unit.XTest()} {
-			if pkg == nil {
-				continue
-			}
-			isXTest := i == 1
+		for _, pkg := range unit.Members() {
+			isXTest := pkg == unit.XTest()
 			for _, file := range pkg.Files() {
 				if !file.IsDirty() {
 					continue
@@ -74,10 +71,7 @@ func (e *Engine) Reload(ctx context.Context) ([]address.FilePath, error) {
 	var discarded []address.FilePath
 	for _, addr := range orig.UnitKeys() {
 		unit, _ := orig.Unit(addr)
-		for _, pkg := range []*workspace.Package{unit.Prod(), unit.XTest()} {
-			if pkg == nil {
-				continue
-			}
+		for _, pkg := range unit.Members() {
 			for _, file := range pkg.Files() {
 				if file.IsDirty() {
 					discarded = append(discarded, file.Path)

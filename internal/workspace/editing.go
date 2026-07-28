@@ -14,7 +14,7 @@ import (
 // replacement itself lands in. Aggregate-owned analysis, same rationale
 // as DetectMoveConflicts: key is resolved fresh here.
 func (w *Workspace) ComputeEditPlan(pkg address.PkgPath, key string) (wasPositionDependent bool, groupTok token.Token, target Splice, err error) {
-	sym, owner, ok := w.resolveSymbol(pkg, key)
+	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return false, token.ILLEGAL, Splice{}, fmt.Errorf("no symbol %q in %q", key, pkg)
 	}
@@ -49,7 +49,7 @@ func (w *Workspace) ComputeEditPlan(pkg address.PkgPath, key string) (wasPositio
 // count when key is itself position-dependent, since resubmitting the
 // whole group necessarily re-mentions every member.
 func (w *Workspace) DetectEditCollisions(pkg address.PkgPath, key string, newKeys []string) []string {
-	sym, owner, ok := w.resolveSymbol(pkg, key)
+	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return nil
 	}

@@ -37,7 +37,7 @@ func newDTOPackage(p *Package, dir address.PkgPath) dto.Package {
 
 // Package resolves a canonical package address to its production package.
 func (w *Workspace) Package(pkg address.PkgPath) (dto.Package, bool) {
-	p, ok := w.prodPackage(pkg)
+	p, ok := w.ProdPackage(pkg)
 	if !ok {
 		return dto.Package{}, false
 	}
@@ -58,7 +58,7 @@ func (w *Workspace) ExternalPackage(pkg address.PkgPath) (dto.Package, bool) {
 // to the symbol and its owning package, checking Prod before XTest before
 // falling back to the external dependency cache.
 func (w *Workspace) Symbol(pkg address.PkgPath, key string) (dto.Symbol, dto.Package, bool) {
-	sym, owner, ok := w.resolveSymbol(pkg, key)
+	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return dto.Symbol{}, dto.Package{}, false
 	}

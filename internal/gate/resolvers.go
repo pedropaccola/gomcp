@@ -48,10 +48,7 @@ func (v *View) fsetOf(pkg *workspace.Package) *token.FileSet {
 func (v *View) resolveFileByPath(path address.FilePath) (*workspace.File, *workspace.Package, bool) {
 	pkgPath := address.PkgPath(filepath.Dir(string(path)))
 	if unit, ok := v.ws.Unit(pkgPath); ok {
-		for _, pkg := range []*workspace.Package{unit.Prod(), unit.XTest()} {
-			if pkg == nil {
-				continue
-			}
+		for _, pkg := range unit.Members() {
 			if file, ok := pkg.File(path); ok {
 				return file, pkg, true
 			}
@@ -60,45 +57,6 @@ func (v *View) resolveFileByPath(path address.FilePath) (*workspace.File, *works
 	if pkg, ok := v.ws.LookupExternal(pkgPath); ok {
 		if file, ok := pkg.File(path); ok {
 			return file, pkg, true
-		}
-	}
-	return nil, nil, false
-}
-
-// resolvePackage resolves a canonical package address to its production
-// package, in the workspace's own model type — the internal resolver real
-// work (splicing, type lookups) composes on.
-func (v *View) resolvePackage(pkg address.PkgPath) (*workspace.Package, bool) {
-	unit, ok := v.ws.Unit(pkg)
-	if !ok {
-		return nil, false
-	}
-	prod := unit.Prod()
-	if prod == nil {
-		return nil, false
-	}
-	return prod, true
-}
-
-// resolveSymbol resolves a package address and symbol key ("Name" or
-// "Recv.Name") to the symbol and its owning package, in the workspace's
-// own model types, checking Prod before XTest before falling back to the
-// external cache — the one resolver every address-based lookup composes
-// on, so dependency symbols work everywhere a workspace symbol does.
-func (v *View) resolveSymbol(pkg address.PkgPath, key string) (*workspace.Symbol, *workspace.Package, bool) {
-	if unit, ok := v.ws.Unit(pkg); ok {
-		for _, p := range []*workspace.Package{unit.Prod(), unit.XTest()} {
-			if p == nil {
-				continue
-			}
-			if sym, ok := p.Symbol(key); ok {
-				return sym, p, true
-			}
-		}
-	}
-	if p, ok := v.ws.LookupExternal(pkg); ok {
-		if sym, ok := p.Symbol(key); ok {
-			return sym, p, true
 		}
 	}
 	return nil, nil, false

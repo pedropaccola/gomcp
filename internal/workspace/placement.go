@@ -137,10 +137,7 @@ func (w *Workspace) resolveFile(pkg address.PkgPath, path address.FilePath) (*Fi
 	if !ok {
 		return nil, nil, false
 	}
-	for _, p := range []*Package{unit.Prod(), unit.XTest()} {
-		if p == nil {
-			continue
-		}
+	for _, p := range unit.Members() {
 		if file, ok := p.File(path); ok {
 			return file, p, true
 		}

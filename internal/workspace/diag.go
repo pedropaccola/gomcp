@@ -48,7 +48,7 @@ func (d Diagnostic) String() string {
 // included. A positional view, never the inventory: diagnostics outside
 // every declaration remain visible only at file scope and coarser.
 func (w *Workspace) SymbolDiagnostics(pkg address.PkgPath, key string) []Diagnostic {
-	sym, owner, ok := w.resolveSymbol(pkg, key)
+	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return nil
 	}

@@ -92,7 +92,7 @@ func (w *Workspace) specSpan(pkg *Package, sym *Symbol) (span, bool) {
 // DetectMoveConflicts: key is resolved fresh here, not accepted as a
 // pointer a caller might already be holding.
 func (w *Workspace) ExtractDeclaration(pkg address.PkgPath, key string) (string, Splice, error) {
-	sym, owner, ok := w.resolveSymbol(pkg, key)
+	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return "", Splice{}, fmt.Errorf("no symbol %q in %q", key, pkg)
 	}
@@ -142,7 +142,7 @@ func (w *Workspace) ExtractDeclaration(pkg address.PkgPath, key string) (string,
 // const groups, are grouped in source for readability only — nothing
 // about them requires moving together, so they are never expanded here.
 func (w *Workspace) PositionDependentGroupMembers(pkg address.PkgPath, key string) ([]string, error) {
-	sym, owner, ok := w.resolveSymbol(pkg, key)
+	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return nil, fmt.Errorf("no symbol %q in %q", key, pkg)
 	}

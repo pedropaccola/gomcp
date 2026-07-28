@@ -60,8 +60,8 @@ func recvNameOfType(t types.Type) string {
 	return ""
 }
 
-// prodPackage resolves a workspace address to its production package.
-func (w *Workspace) prodPackage(pkg address.PkgPath) (*Package, bool) {
+// ProdPackage resolves a workspace address to its production package.
+func (w *Workspace) ProdPackage(pkg address.PkgPath) (*Package, bool) {
 	unit, ok := w.Unit(pkg)
 	if !ok || unit.Prod() == nil {
 		return nil, false
@@ -69,17 +69,14 @@ func (w *Workspace) prodPackage(pkg address.PkgPath) (*Package, bool) {
 	return unit.Prod(), true
 }
 
-// resolveSymbol resolves a package address and symbol key ("Name" or
+// ResolveSymbol resolves a package address and symbol key ("Name" or
 // "Recv.Name") to the symbol and its owning package, checking Prod before
 // XTest before falling back to the external dependency cache — the one
 // resolver every address-based lookup in this package composes on, so
 // dependency symbols work everywhere a workspace symbol does.
-func (w *Workspace) resolveSymbol(pkg address.PkgPath, key string) (*Symbol, *Package, bool) {
+func (w *Workspace) ResolveSymbol(pkg address.PkgPath, key string) (*Symbol, *Package, bool) {
 	if unit, ok := w.Unit(pkg); ok {
-		for _, p := range []*Package{unit.Prod(), unit.XTest()} {
-			if p == nil {
-				continue
-			}
+		for _, p := range unit.Members() {
 			if sym, ok := p.Symbol(key); ok {
 				return sym, p, true
 			}
@@ -185,7 +182,7 @@ func (w *Workspace) DetectMoveConflicts(srcPkg, destPkg address.PkgPath, movingK
 	}
 	moving := make([]resolved, 0, len(movingKeys))
 	for _, key := range movingKeys {
-		if sym, owner, ok := w.resolveSymbol(srcPkg, key); ok {
+		if sym, owner, ok := w.ResolveSymbol(srcPkg, key); ok {
 			moving = append(moving, resolved{sym, owner})
 		}
 	}
@@ -201,7 +198,7 @@ func (w *Workspace) DetectMoveConflicts(srcPkg, destPkg address.PkgPath, movingK
 	}
 
 	var conflicts []string
-	destOwner, destExists := w.prodPackage(destPkg)
+	destOwner, destExists := w.ProdPackage(destPkg)
 	for _, m := range moving {
 		sym := m.sym
 		if sym.Kind == KindMethod && !movingNames[sym.Recv] {
@@ -217,7 +214,7 @@ func (w *Workspace) DetectMoveConflicts(srcPkg, destPkg address.PkgPath, movingK
 		}
 	}
 
-	srcOwner, ok := w.prodPackage(srcPkg)
+	srcOwner, ok := w.ProdPackage(srcPkg)
 	if ok {
 		for _, s := range srcOwner.Symbols() {
 			k, _ := keyOf(srcOwner.objectOf(s))
@@ -316,11 +313,11 @@ func (w *Workspace) DetectMoveConflicts(srcPkg, destPkg address.PkgPath, movingK
 // reverse — the two are always called back-to-back on the same
 // relocation.
 func (w *Workspace) ComputeQualifierFixups(srcPkg, destPkg address.PkgPath, movingKeys []string) ([]Splice, error) {
-	destOwner, ok := w.prodPackage(destPkg)
+	destOwner, ok := w.ProdPackage(destPkg)
 	if !ok {
 		return nil, fmt.Errorf("no package at %q", destPkg)
 	}
-	srcOwner, ok := w.prodPackage(srcPkg)
+	srcOwner, ok := w.ProdPackage(srcPkg)
 	if !ok {
 		return nil, fmt.Errorf("no package at %q", srcPkg)
 	}
@@ -330,7 +327,7 @@ func (w *Workspace) ComputeQualifierFixups(srcPkg, destPkg address.PkgPath, movi
 	}
 	moving := make([]resolved, 0, len(movingKeys))
 	for _, key := range movingKeys {
-		if sym, owner, ok := w.resolveSymbol(srcPkg, key); ok {
+		if sym, owner, ok := w.ResolveSymbol(srcPkg, key); ok {
 			moving = append(moving, resolved{sym, owner})
 		}
 	}
@@ -428,7 +425,7 @@ func (w *Workspace) ComputeQualifierFixups(srcPkg, destPkg address.PkgPath, movi
 // resolved fresh here, not accepted as a pointer a caller might already
 // be holding.
 func (w *Workspace) ComputeRenameSplices(pkg address.PkgPath, key, newName string) ([]Splice, error) {
-	sym, owner, ok := w.resolveSymbol(pkg, key)
+	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return nil, fmt.Errorf("no symbol %q in %q", key, pkg)
 	}
@@ -471,7 +468,7 @@ func (w *Workspace) ComputeRenameSplices(pkg address.PkgPath, key, newName strin
 // since it imports its own Prod sibling. Aggregate-owned analysis, same
 // rationale as DetectMoveConflicts.
 func (w *Workspace) ComputePackageMoveSplices(oldPkg, newPkg address.PkgPath, renameName bool, oldBase, newBase string) []Splice {
-	prodOwner, _ := w.prodPackage(oldPkg)
+	prodOwner, _ := w.ProdPackage(oldPkg)
 	oldImport, newImport := string(oldPkg), string(newPkg)
 	var edits []Splice
 	for _, pkg := range w.allPackages() {
@@ -516,7 +513,7 @@ func (w *Workspace) ComputePackageMoveSplices(oldPkg, newPkg address.PkgPath, re
 // Recv must match; a non-method's newKey must be a bare identifier,
 // since there is no receiver to qualify it with.
 func (w *Workspace) ValidateNewName(pkg address.PkgPath, key, newKey string) (newName string, err error) {
-	sym, _, ok := w.resolveSymbol(pkg, key)
+	sym, _, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return "", fmt.Errorf("no symbol %q in %q", key, pkg)
 	}

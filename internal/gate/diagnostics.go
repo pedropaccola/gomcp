@@ -26,10 +26,7 @@ func (v *View) Diagnostics(pkg address.PkgPath) []dto.Diagnostic {
 		return nil
 	}
 	var out []workspace.Diagnostic
-	for _, p := range []*workspace.Package{unit.Prod(), unit.XTest()} {
-		if p == nil {
-			continue
-		}
+	for _, p := range unit.Members() {
 		out = append(out, p.Diags...)
 		for _, file := range p.Files() {
 			out = append(out, file.Diags...)

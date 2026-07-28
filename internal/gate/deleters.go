@@ -16,10 +16,7 @@ func (tx *Tx) DeleteFile(pkg address.PkgPath, name string) error {
 	if !ok {
 		return nil
 	}
-	for i, owner := range []*workspace.Package{unit.Prod(), unit.XTest()} {
-		if owner == nil {
-			continue
-		}
+	for _, owner := range unit.Members() {
 		path, err := address.NewFilePath(tx.ws.Module(), owner.PkgPath, name)
 		if err != nil {
 			return err
@@ -27,7 +24,7 @@ func (tx *Tx) DeleteFile(pkg address.PkgPath, name string) error {
 		if _, ok := owner.File(path); !ok {
 			continue
 		}
-		tx.ws.DropFile(pkg, i == 1, path)
+		tx.ws.DropFile(pkg, owner == unit.XTest(), path)
 		tx.markChanged(path)
 		return nil
 	}
@@ -41,10 +38,7 @@ func (tx *Tx) DeletePackage(pkg address.PkgPath) error {
 	if !ok {
 		return nil
 	}
-	for _, p := range []*workspace.Package{unit.Prod(), unit.XTest()} {
-		if p == nil {
-			continue
-		}
+	for _, p := range unit.Members() {
 		for _, file := range p.Files() {
 			tx.ws.Tombstone(pkg, file.Path, p.Name)
 			tx.markChanged(file.Path)
