@@ -32,8 +32,7 @@
     ],
     "ask": [
       "Edit(**/*.go)",
-      "Read(**/*.go)",
-      "Write(**/*.go)"
+      "Read(**/*.go)"
     ]
   },
   "enabledMcpjsonServers": [

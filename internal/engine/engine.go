@@ -71,18 +71,6 @@ func (e *Engine) Bootstrap(ctx context.Context) error {
 	return nil
 }
 
-// ModulePath returns the workspace's module path. Takes a brief read
-// lock — safe to call from outside any Read or Edit call, but never from
-// inside one: nesting RLock under Edit's write Lock (or under Read's own
-// RLock, if a writer is queued in between) would deadlock. No current
-// caller does this — each calls ModulePath after its Read/Edit/Flush/
-// Reload call has already returned.
-func (e *Engine) ModulePath() address.PkgPath {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return e.ws.Module()
-}
-
 // load runs the full pipeline against disk plus an optional overlay of
 // in-memory contents, for the whole module — the shared entry point for
 // Bootstrap and Reload.
