@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/pedropaccola/gomcp/internal/dto"
+	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/store"
 )
 
@@ -68,12 +68,13 @@ func listPackages(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListPack
 func listFiles(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListFilesInput, ListFilesOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListFilesInput) (*mcp.CallToolResult, ListFilesOutput, error) {
 		var out ListFilesOutput
-		err := readPackage(ctx, eng, in.PkgPath, func(v *store.View, pkg dto.Package) error {
-			out.Files = make([]string, 0, len(pkg.Files))
-			for _, file := range pkg.Files {
-				out.Files = append(out.Files, file.Path.Base())
+		err := readPackage(ctx, eng, in.PkgPath, func(v *store.View, pkg address.PkgPath) error {
+			files, _ := v.PackageFiles(pkg)
+			out.Files = make([]string, 0, len(files))
+			for _, f := range files {
+				out.Files = append(out.Files, f.Base())
 			}
-			out.DiagnosticsTruncated = newDiagnosticsTruncated(v.Diagnostics(pkg.Path), cfg.diagLimit)
+			out.DiagnosticsTruncated = newDiagnosticsTruncated(v.Diagnostics(pkg), cfg.diagLimit)
 			return nil
 		})
 		return nil, out, err
@@ -83,30 +84,30 @@ func listFiles(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListFilesIn
 func listSymbols(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListSymbolsInput, ListSymbolsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListSymbolsInput) (*mcp.CallToolResult, ListSymbolsOutput, error) {
 		var out ListSymbolsOutput
-		err := readPackage(ctx, eng, in.PkgPath, func(v *store.View, pkg dto.Package) error {
-			var target *dto.File
+		err := readPackage(ctx, eng, in.PkgPath, func(v *store.View, pkg address.PkgPath) error {
+			var targetFile address.FilePath
 			if fileName := optStr(in.FileName); fileName != "" {
-				f, err := v.File(pkg, fileName)
+				fp, err := v.ResolveFile(pkg, fileName)
 				if err != nil {
 					return err
 				}
-				target = &f
+				targetFile = fp
 			}
-			syms := pkg.Symbols
+			syms, _ := v.PackageSymbols(pkg)
 			out.Symbols = make([]SymbolEntry, 0, len(syms))
 			for _, sym := range syms {
-				if target != nil && sym.File != target.Path {
+				if targetFile != "" && sym.File != targetFile {
 					continue
 				}
 				out.Symbols = append(out.Symbols, SymbolEntry{
 					SymbolKey: sym.Key,
-					Kind:      sym.Kind.String(),
+					Kind:      sym.Kind,
 					Summary:   summarize(v, pkg, sym),
 				})
 			}
-			diags := v.Diagnostics(pkg.Path)
-			if target != nil {
-				diags = diagsForFile(diags, target.Path)
+			diags := v.Diagnostics(pkg)
+			if targetFile != "" {
+				diags = diagsForFile(diags, targetFile)
 			}
 			out.DiagnosticsTruncated = newDiagnosticsTruncated(diags, cfg.diagLimit)
 			return nil
@@ -118,11 +119,11 @@ func listSymbols(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListSymbo
 func listMethods(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListMethodsInput, ListMethodsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListMethodsInput) (*mcp.CallToolResult, ListMethodsOutput, error) {
 		var out ListMethodsOutput
-		err := readPackage(ctx, eng, in.PkgPath, func(v *store.View, pkg dto.Package) error {
+		err := readPackage(ctx, eng, in.PkgPath, func(v *store.View, pkg address.PkgPath) error {
 			out.Methods = methodSignatures(v, pkg, in.SymbolKey)
-			var diags []dto.Diagnostic
+			var diags []store.Diagnostic
 			for _, m := range v.Methods(pkg, in.SymbolKey) {
-				diags = append(diags, v.SymbolDiagnostics(pkg.Path, m.Key)...)
+				diags = append(diags, v.SymbolDiagnostics(pkg, m.Key)...)
 			}
 			out.DiagnosticsTruncated = newDiagnosticsTruncated(diags, cfg.diagLimit)
 			return nil
@@ -134,11 +135,11 @@ func listMethods(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListMetho
 // summarize renders a symbol's one-line summary: the signature for funcs and
 // methods, the trimmed first declaration line — doc comment skipped — for
 // everything else.
-func summarize(v *store.View, owner dto.Package, sym dto.Symbol) string {
-	if sig, ok := v.Signature(owner.Path, sym.Key); ok {
+func summarize(v *store.View, pkg address.PkgPath, sym store.Symbol) string {
+	if sig, ok := v.Signature(pkg, sym.Key); ok {
 		return sig
 	}
-	if src, ok := v.SpecSource(owner.Path, sym.Key); ok {
+	if src, ok := v.SpecSource(pkg, sym.Key); ok {
 		for _, line := range strings.Split(src, "\n") {
 			trimmed := strings.TrimSpace(line)
 			if len(trimmed) == 0 || strings.HasPrefix(trimmed, "//") {
@@ -147,5 +148,5 @@ func summarize(v *store.View, owner dto.Package, sym dto.Symbol) string {
 			return strings.TrimRight(trimmed, " \t{")
 		}
 	}
-	return sym.Kind.String() + " " + sym.Key
+	return sym.Kind + " " + sym.Key
 }

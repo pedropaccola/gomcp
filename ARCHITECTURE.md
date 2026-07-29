@@ -44,11 +44,6 @@ documented on the type that actually implements it.
   Clone()` shares every `Package`/`Unit` until something inside it is
   actually touched, forking lazily per generation rather than copying
   eagerly.
-- **`dto`** is the DDD **Value Object** vocabulary crossing every
-  boundary: `Symbol`/`Package`/`File`/`Diagnostic`/`Match`/`EditReport`
-  carry no identity and no logic. It's a leaf on purpose — nothing about
-  its shape can leak `workspace`'s internal representation, since it
-  doesn't import `workspace` at all.
 - **`store`** is the **Repository** (the seam between the in-memory
   Aggregate and disk) plus the query/command boundary onto it:
   `Store.ws` is a plain `*workspace.Workspace` guarded by `Store.mu`, a
@@ -68,7 +63,14 @@ documented on the type that actually implements it.
   not the whole module. `Store` never touches the filesystem or
   `go/packages` itself — it sequences the disk boundary under its own
   lock and delegates the actual work to `disk.Loader`. Full mechanism on
-  `Store`'s own doc comment.
+  `Store`'s own doc comment. `store` also owns the Value Object
+  vocabulary that used to live in a separate `internal/dto` package:
+  `store.Symbol`/`Diagnostic`/`EditReport` are `store`'s own
+  declarations, each narrowed to what an actual `tools` call site reads
+  rather than mirroring `workspace`'s field list wholesale. `store.Match`
+  is the one exception — a temporary alias to `workspace.SymbolMatch`,
+  tracked for removal once the `PackageID` identity work in
+  `NOTES-address-identity.md` lands.
 - **`disk`** is the go/packages.Load pipeline and the filesystem's other
   door: `Loader` holds no lock and no workspace state of its own — just
   `RootDir`/`Logf` — so `store` calls into it while `store`'s own lock is
@@ -83,10 +85,10 @@ rather than patched, sorted-only enumeration, error ⇒ untouched, pointers
 scoped to their call) are documented on the types and methods that hold
 them, not here — `workspace.File`, `Package.RebuildIndex`, `store.View`,
 `store.Tx`, `Store.Edit` are the ones worth reading first. Same for the
-per-layer naming grammars: `Tx`'s verb categories and `View`'s
-resolver→enumerator→scanner layering are on their own type docs; the
-address conventions (`package` vs `file` arguments, import-path vs
-workspace-relative spelling) are on `canonPkg`/`fileArg`
+per-layer naming grammars: `Tx`'s verb categories and `View`'s narrow
+address-keyed accessors versus its whole-workspace scanners are on their
+own type docs; the address conventions (`package` vs `file` arguments,
+import-path vs workspace-relative spelling) are on `canonPkg`/`fileArg`
 (`internal/tools/shared.go`). Read the relevant type's doc comment before
 extending it, rather than working from a second-hand summary that can go
 stale on its own.

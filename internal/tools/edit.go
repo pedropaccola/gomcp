@@ -56,7 +56,7 @@ func writeWorkspacePkg(v *store.View, addr string) (address.PkgPath, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, ok := v.ExternalPackage(address.PkgPath(addr)); ok {
+	if v.HasExternalPackage(address.PkgPath(addr)) {
 		return "", fmt.Errorf("dependency %q is read-only", addr)
 	}
 	return canon, nil

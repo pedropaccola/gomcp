@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pedropaccola/gomcp/internal/dto"
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
@@ -17,7 +16,7 @@ import (
 // iota (only meaningful for a const-group fragment).
 type fragment struct {
 	keys     []string
-	kind     dto.SymbolKind
+	kind     workspace.SymbolKind
 	recv     string
 	usesIota bool
 }
@@ -29,12 +28,12 @@ func classifyFragment(astFile *ast.File) fragment {
 	inits := workspace.IndexAST("fragment.go", astFile, symbols)
 	frag := fragment{keys: sortedKeys(symbols)}
 	for _, key := range frag.keys {
-		frag.kind = dto.SymbolKind(symbols[key].Kind)
+		frag.kind = symbols[key].Kind
 		frag.recv = symbols[key].Recv
 	}
 	for range inits {
 		frag.keys = append(frag.keys, "init")
-		frag.kind = dto.KindFunc
+		frag.kind = workspace.KindFunc
 	}
 	if len(astFile.Decls) == 1 {
 		if gen, ok := astFile.Decls[0].(*ast.GenDecl); ok && gen.Tok == token.CONST {

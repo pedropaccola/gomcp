@@ -12,15 +12,15 @@ import (
 // not escape that closure. ws is the exact snapshot this View was built
 // against — the published Workspace during a Read, or the transaction's
 // own candidate during an Edit — and every method resolves through it
-// directly. Its methods live in resolvers.go (X(addr) (..., bool): one
-// resource by address, comma-ok, never error), enumerators.go (Xs(scope):
-// a scope's resources, always sorted), scanners.go (workspace-wide
-// matches; semantic scanners need type information and return an error
-// rather than approximate), source.go (exact byte slices of Src, never
-// re-printed), and diagnostics.go (problem reports aggregated per scope).
-// Scanners compose on enumerators, and both compose on resolvers. ctx
-// comes from the Read call that created this View; scanners.go's
-// long-running scans check it for cancellation, nothing else does.
+// directly. Its read methods live in view.go: narrow, address-keyed
+// accessors (HasPackage, PackageDoc, PackageFiles, PackageSymbols,
+// Symbol, Methods, ResolveType, ResolveFile, FileDoc, DeclSource,
+// SpecSource, Signature) each derived from an actual tools call site, and
+// the Symbols* scanners, which need type information and return an error
+// rather than approximate when the current generation can't answer
+// safely. Diagnostics aggregation lives separately in
+// view_diagnostics.go. ctx comes from the Read call that created this
+// View; the scanners check it for cancellation, nothing else does.
 type View struct {
 	ws  *workspace.Workspace
 	ctx context.Context
@@ -30,15 +30,17 @@ type View struct {
 // lookup composes inside a transaction; mid-Tx reads are parse-fresh but
 // type-stale until the commit-time recheck. Every content mutation is a
 // byte-span splice on a file's canonical Src (pipeline.go) — the AST
-// locates spans but is never re-printed, so comments cannot drift. Verbs
-// live in creators.go (fail if the address already exists; can never
-// destroy), editors.go (fail if the address doesn't exist; delete
-// included), and refactorings.go (structure-preserving, refused whenever
-// preservation cannot be guaranteed — a verb belongs here only if it has
-// exactly one mechanically correct resolution everywhere it applies;
-// otherwise it's an Editor, however tempting the automation looks);
-// fragments.go and extraction.go hold the machinery those verbs compose
-// on. Flush and Reload, the disk boundary, live on Store, one layer up.
+// locates spans but is never re-printed, so comments cannot drift. Every
+// verb lives in tx.go, grouped by the same three shapes the tests are
+// still split by (creators fail if the address already exists and can
+// never destroy; editors fail if the address doesn't exist, delete
+// included; refactorings are structure-preserving, refused whenever
+// preservation cannot be guaranteed — a verb belongs there only if it has
+// exactly one mechanically correct resolution everywhere it applies,
+// otherwise it's an editor, however tempting the automation looks);
+// fragments.go holds the agent-source parsing/classification machinery
+// those verbs compose on. Flush and Reload, the disk boundary, live on
+// Store, one layer up.
 type Tx struct {
 	*View
 	changed map[address.FilePath]bool // paths this transaction touched

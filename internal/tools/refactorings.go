@@ -123,7 +123,7 @@ func pruneVacatedPackages(ctx context.Context, eng *store.Store, files map[strin
 	}
 	eng.Read(ctx, func(v *store.View) error {
 		for addr := range files {
-			if _, ok := v.Package(address.PkgPath(addr)); !ok {
+			if !v.HasPackage(address.PkgPath(addr)) {
 				delete(files, addr)
 			}
 		}

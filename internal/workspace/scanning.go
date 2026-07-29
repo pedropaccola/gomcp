@@ -12,12 +12,15 @@ import (
 	"github.com/pedropaccola/gomcp/internal/address"
 )
 
-// SymbolMatch identifies one scan hit by address — a package and a symbol
-// key, not a pointer, safe to return across the Aggregate boundary.
-// Callers needing more resolve it fresh from the address.
+// SymbolMatch identifies one scan hit by address — a package, a symbol
+// key, and its kind — not a pointer, safe to return across the Aggregate
+// boundary. Kind is captured here (scanning already holds the *Symbol)
+// so callers don't need a second resolve just to know it. Callers
+// needing more resolve it fresh from the address.
 type SymbolMatch struct {
-	Pkg address.PkgPath
-	Key string
+	Pkg  address.PkgPath
+	Key  string
+	Kind SymbolKind
 }
 
 // symbolsWhere scans every symbol in the workspace and collects those for
@@ -39,7 +42,7 @@ func (w *Workspace) symbolsWhere(ctx context.Context, pred func(*Package, *Symbo
 		for _, pkg := range unit.Members() {
 			for _, sym := range pkg.Symbols() {
 				if pred(pkg, sym) {
-					out = append(out, SymbolMatch{Pkg: addr, Key: sym.Key()})
+					out = append(out, SymbolMatch{Pkg: addr, Key: sym.Key(), Kind: sym.Kind})
 				}
 			}
 		}
@@ -194,7 +197,7 @@ func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg address.PkgPath,
 	})
 	out := make([]SymbolMatch, len(refs))
 	for i, ref := range refs {
-		out[i] = SymbolMatch{Pkg: ref.Addr, Key: ref.Sym.Key()}
+		out[i] = SymbolMatch{Pkg: ref.Addr, Key: ref.Sym.Key(), Kind: ref.Sym.Kind}
 	}
 	return out, nil
 }

@@ -158,18 +158,21 @@ func TestExternalLoading(t *testing.T) {
 		t.Fatalf("LoadExternal(io): %v", err)
 	}
 	err := e.Read(context.Background(), func(v *View) error {
-		pkg, ok := v.ExternalPackage("io")
-		if !ok {
+		if !v.HasExternalPackage("io") {
 			t.Fatal("io missing from the external cache")
 		}
-		if _, ok := pkg.Symbol("Reader"); !ok {
+		if _, _, ok := v.Symbol("io", "Reader"); !ok {
 			t.Fatal("io.Reader not indexed")
 		}
-		src, ok := v.DeclSource(pkg.Path, "Reader")
+		src, ok := v.DeclSource("io", "Reader")
 		if !ok || !strings.Contains(src, "Read(p []byte) (n int, err error)") {
 			t.Errorf("DeclSource(io.Reader) = %q, %v", src, ok)
 		}
-		for _, sym := range pkg.Symbols {
+		syms, ok := v.PackageSymbols("io")
+		if !ok {
+			t.Fatal("io package symbols not found")
+		}
+		for _, sym := range syms {
 			if r := sym.Key[0]; r >= 'a' && r <= 'z' {
 				t.Errorf("unexported symbol %q leaked into the external index", sym.Key)
 			}
@@ -203,7 +206,7 @@ func TestExternalRefusalsAndReset(t *testing.T) {
 		t.Fatalf("Reload: %v", err)
 	}
 	e.Read(context.Background(), func(v *View) error {
-		if _, ok := v.ExternalPackage("io"); ok {
+		if v.HasExternalPackage("io") {
 			t.Error("external cache survived reload")
 		}
 		return nil
@@ -235,11 +238,10 @@ func TestLoadExternalConcurrent(t *testing.T) {
 		}
 	}
 	err := e.Read(context.Background(), func(v *View) error {
-		pkg, ok := v.ExternalPackage("io")
-		if !ok {
+		if !v.HasExternalPackage("io") {
 			t.Fatal("io missing from the external cache after concurrent loads")
 		}
-		if _, ok := pkg.Symbol("Reader"); !ok {
+		if _, _, ok := v.Symbol("io", "Reader"); !ok {
 			t.Error("io.Reader not indexed after concurrent loads")
 		}
 		return nil

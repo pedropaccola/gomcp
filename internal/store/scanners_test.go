@@ -13,7 +13,7 @@ func TestViewSymbolsImplementing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SymbolsImplementing: %v", err)
 	}
-	if len(matches) != 1 || matches[0].Symbol.Key != "Circle" {
+	if len(matches) != 1 || matches[0].Key != "Circle" {
 		t.Errorf("SymbolsImplementing(Shape) = %+v, want only Circle", matches)
 	}
 }
@@ -21,7 +21,7 @@ func TestViewSymbolsImplementing(t *testing.T) {
 func TestViewSymbolsLike(t *testing.T) {
 	v := viewFixture(t, "package pkg\n\nfunc FooBar() {}\n\nfunc Baz() {}\n")
 	matches := v.SymbolsLike("Foo")
-	if len(matches) != 1 || matches[0].Symbol.Key != "FooBar" {
+	if len(matches) != 1 || matches[0].Key != "FooBar" {
 		t.Errorf("SymbolsLike(Foo) = %+v, want a single match on FooBar", matches)
 	}
 }
@@ -34,7 +34,7 @@ func TestViewSymbolsReferencing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SymbolsReferencing: %v", err)
 	}
-	if len(matches) != 1 || matches[0].Symbol.Key != "Bar" {
+	if len(matches) != 1 || matches[0].Key != "Bar" {
 		t.Errorf("SymbolsReferencing(Foo) = %+v, want only Bar", matches)
 	}
 }
@@ -42,7 +42,7 @@ func TestViewSymbolsReferencing(t *testing.T) {
 func TestViewSymbolsRegexp(t *testing.T) {
 	v := viewFixture(t, "package pkg\n\nfunc FooBar() {}\n\nfunc Baz() {}\n")
 	matches := v.SymbolsRegexp(regexp.MustCompile("func Baz"))
-	if len(matches) != 1 || matches[0].Symbol.Key != "Baz" {
+	if len(matches) != 1 || matches[0].Key != "Baz" {
 		t.Errorf("SymbolsRegexp(func Baz) = %+v, want only Baz", matches)
 	}
 }

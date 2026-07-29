@@ -26,10 +26,10 @@ func TestTxMovePackage(t *testing.T) {
 	if err := tx.MovePackage("test.mod/pkg", "test.mod/moved"); err != nil {
 		t.Fatalf("MovePackage: %v", err)
 	}
-	if _, ok := v.Package("test.mod/pkg"); ok {
+	if v.HasPackage("test.mod/pkg") {
 		t.Error("test.mod/pkg must be gone after MovePackage")
 	}
-	if _, ok := v.Package("test.mod/moved"); !ok {
+	if !v.HasPackage("test.mod/moved") {
 		t.Error("test.mod/moved must exist after MovePackage")
 	}
 }

@@ -2,7 +2,7 @@ package tools
 
 import (
 	"github.com/pedropaccola/gomcp/internal/address"
-	"github.com/pedropaccola/gomcp/internal/dto"
+	"github.com/pedropaccola/gomcp/internal/store"
 )
 
 // toolConfig holds process-wide tool configuration set once at Register
@@ -17,7 +17,7 @@ type toolConfig struct {
 }
 
 // newDiagnosticEntry renders one diagnostic into its wire-facing shape.
-func newDiagnosticEntry(d dto.Diagnostic) DiagnosticEntry {
+func newDiagnosticEntry(d store.Diagnostic) DiagnosticEntry {
 	e := DiagnosticEntry{
 		Kind:    d.Kind.String(),
 		Message: d.Msg,
@@ -62,7 +62,7 @@ type DiagnosticEntry struct {
 }
 
 // diagsForFile narrows a package's diagnostics down to one file's own.
-func diagsForFile(diags []dto.Diagnostic, path address.FilePath) []dto.Diagnostic {
+func diagsForFile(diags []store.Diagnostic, path address.FilePath) []store.Diagnostic {
 	out := diags[:0:0]
 	for _, d := range diags {
 		if d.File == path {
@@ -96,7 +96,7 @@ func newToolConfig(diagLimit int) *toolConfig {
 // newDiagnosticsTruncated converts and caps diags to at most limit
 // entries, returning the view: the entries shown and, when any were cut,
 // how many.
-func newDiagnosticsTruncated(diags []dto.Diagnostic, limit int) DiagnosticsTruncated {
+func newDiagnosticsTruncated(diags []store.Diagnostic, limit int) DiagnosticsTruncated {
 	if len(diags) == 0 {
 		return DiagnosticsTruncated{}
 	}

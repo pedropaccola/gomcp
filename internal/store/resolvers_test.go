@@ -3,26 +3,22 @@ package store
 import (
 	"testing"
 
-	"github.com/pedropaccola/gomcp/internal/dto"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 func TestViewPackage(t *testing.T) {
 	v := viewFixture(t, "package pkg\n\nfunc Foo() {}\n")
-	pkg, ok := v.Package("test.mod/pkg")
-	if !ok {
+	if !v.HasPackage("test.mod/pkg") {
 		t.Fatal("Package(test.mod/pkg) not found")
 	}
-	if pkg.Path != "test.mod/pkg" {
-		t.Errorf("pkg.Path = %q, want test.mod/pkg", pkg.Path)
-	}
-	if _, ok := pkg.Symbol("Foo"); !ok {
-		t.Errorf("pkg.Symbol(Foo) not found in %+v", pkg)
+	if _, _, ok := v.Symbol("test.mod/pkg", "Foo"); !ok {
+		t.Error("Symbol(Foo) not found")
 	}
 }
 
 func TestViewPackageNotFound(t *testing.T) {
 	v := viewFixture(t, "package pkg\n")
-	if _, ok := v.Package("test.mod/nosuch"); ok {
+	if v.HasPackage("test.mod/nosuch") {
 		t.Error("Package(test.mod/nosuch) = ok, want not found")
 	}
 }
@@ -33,10 +29,10 @@ func TestViewSymbol(t *testing.T) {
 	if !ok {
 		t.Fatal("Symbol(Foo) not found")
 	}
-	if sym.Key != "Foo" || sym.Kind != dto.KindFunc {
+	if sym.Key != "Foo" || sym.Kind != workspace.KindFunc.String() {
 		t.Errorf("Symbol(Foo) = %+v, want key Foo kind Func", sym)
 	}
-	if pkg.Path != "test.mod/pkg" {
+	if pkg != "test.mod/pkg" {
 		t.Errorf("owning pkg = %+v, want test.mod/pkg", pkg)
 	}
 }

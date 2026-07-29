@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/pedropaccola/gomcp/internal/dto"
+	"github.com/pedropaccola/gomcp/internal/store"
 )
 
 func TestDiagBlockTruncation(t *testing.T) {
-	diags := make([]dto.Diagnostic, 5)
+	diags := make([]store.Diagnostic, 5)
 	for i := range diags {
-		diags[i] = dto.Diagnostic{Msg: fmt.Sprintf("problem %d", i)}
+		diags[i] = store.Diagnostic{Msg: fmt.Sprintf("problem %d", i)}
 	}
 
 	block := newDiagnosticsTruncated(diags, 3)

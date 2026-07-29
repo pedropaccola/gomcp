@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/pedropaccola/gomcp/internal/address"
-	"github.com/pedropaccola/gomcp/internal/dto"
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
@@ -75,7 +74,7 @@ func (tx *Tx) RepairMissingImports() bool {
 
 	needed := make(map[address.FilePath]map[string]bool) // file -> import paths
 	for _, diag := range tx.AllDiagnostics() {
-		if diag.Kind != dto.DiagType || diag.File == "" {
+		if diag.Kind != workspace.DiagType || diag.File == "" {
 			continue
 		}
 		name, found := strings.CutPrefix(diag.Msg, "undefined: ")

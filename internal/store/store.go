@@ -4,18 +4,17 @@
 // contact to disk.Loader; Store.Read/Edit construct a View or Tx and
 // scope it to the concurrency contract (Store.mu, a plain sync.RWMutex),
 // and View/Tx are the query/command surface those calls hand out — View
-// exposes read-only queries over one workspace snapshot, translated to
-// dto's shared vocabulary, and Tx (embedding View) adds the mutation
-// verbs that turn the Aggregate's decisions into byte-span splices. Both
-// are valid only for the single Read or Edit call that constructs and
-// scopes them — never held past it. The model itself — units,
-// tombstones, position tables, the dependency cache — lives behind
-// workspace.Workspace; reads and writes against it flow through View/Tx,
-// never through this package's other types. View's read methods live in
-// view.go, with diagnostics aggregation split out to view_diagnostics.go;
-// Tx's verbs split one file per semantic category (creators, editors,
-// deleters, refactorings), with pipeline.go and fragments.go holding the
-// machinery those verbs compose on.
+// exposes narrow, address-keyed read-only queries over one workspace
+// snapshot, and Tx (embedding View) adds the mutation verbs that turn the
+// Aggregate's decisions into byte-span splices. Both are valid only for
+// the single Read or Edit call that constructs and scopes them — never
+// held past it. The model itself — units, tombstones, position tables,
+// the dependency cache — lives behind workspace.Workspace; reads and
+// writes against it flow through View/Tx, never through this package's
+// other types. View's read methods live in view.go, with diagnostics
+// aggregation split out to view_diagnostics.go; Tx's verbs all live in
+// tx.go, with pipeline.go and fragments.go holding the machinery those
+// verbs compose on.
 package store
 
 import (
@@ -24,7 +23,6 @@ import (
 
 	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/disk"
-	"github.com/pedropaccola/gomcp/internal/dto"
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
@@ -150,7 +148,7 @@ func (e *Store) Read(ctx context.Context, fn func(*View) error) error {
 // a tooling hiccup. The candidate is built and rechecked entirely off to
 // the side, under mu's write lock the whole time, so a concurrent Read
 // never observes a half-applied edit.
-func (e *Store) Edit(ctx context.Context, fn func(*Tx) error) (*dto.EditReport, error) {
+func (e *Store) Edit(ctx context.Context, fn func(*Tx) error) (*EditReport, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -164,9 +162,9 @@ func (e *Store) Edit(ctx context.Context, fn func(*Tx) error) (*dto.EditReport, 
 		return nil, err
 	}
 
-	stale := func(err error) *dto.EditReport {
+	stale := func(err error) *EditReport {
 		e.ws = candidate
-		return &dto.EditReport{Changed: tx.ChangedKeys(), Stale: true, Note: err.Error()}
+		return &EditReport{Changed: tx.ChangedKeys(), Stale: true, Note: err.Error()}
 	}
 	if err := e.recheckNarrowLocked(ctx, candidate); err != nil {
 		return stale(err), nil
@@ -181,7 +179,7 @@ func (e *Store) Edit(ctx context.Context, fn func(*Tx) error) (*dto.EditReport, 
 	}
 
 	e.ws = candidate
-	report := &dto.EditReport{Changed: tx.ChangedKeys()}
+	report := &EditReport{Changed: tx.ChangedKeys()}
 	report.Delta, report.Resolved, report.Unrelated = diffDiagnostics(before, view.AllDiagnostics())
 	return report, nil
 }
@@ -204,4 +202,15 @@ func (e *Store) EnsureFullyChecked(ctx context.Context) error {
 	}
 	e.ws = candidate
 	return nil
+}
+
+// EditReport is the echo of a committed transaction: store's own copy,
+// relocated next to Store.Edit, its sole constructor.
+type EditReport struct {
+	Changed   []address.FilePath // files created, modified, moved, or deleted by this Tx
+	Delta     []Diagnostic       // diagnostics introduced by this transaction
+	Resolved  []Diagnostic       // pre-existing diagnostics this transaction fixed
+	Unrelated int                // pre-existing diagnostics this transaction left untouched
+	Stale     bool               // recheck failed: state applied, Delta unavailable
+	Note      string             // human-readable recheck failure, when Stale
 }

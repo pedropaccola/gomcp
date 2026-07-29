@@ -19,7 +19,7 @@ func TestTxDeletePackage(t *testing.T) {
 	if err := tx.DeletePackage("test.mod/pkg"); err != nil {
 		t.Fatalf("DeletePackage: %v", err)
 	}
-	if _, ok := v.Package("test.mod/pkg"); ok {
+	if v.HasPackage("test.mod/pkg") {
 		t.Error("test.mod/pkg must be gone after DeletePackage")
 	}
 }

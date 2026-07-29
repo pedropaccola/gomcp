@@ -25,13 +25,10 @@ the package design; ROADMAP.md tracks agreed-but-deferred work.
     cmd/gomcp/          entrypoint: flags, workspace root, MCP stdio server
     internal/address/   shared leaf vocabulary (RelativePath, PkgPath,
                         CleanPath), depended on directly by workspace,
-                        dto, disk, store, and tools
+                        disk, store, and tools
     internal/workspace/ the trusted core: model vocabulary and the
                         Workspace, mutable only through its named
                         primitives, one concept per file
-    internal/dto/       shared read/write vocabulary (Symbol, Package,
-                        File, Diagnostic, Match, SymbolKind, EditReport):
-                        pure shapes, no logic
     internal/disk/      the go/packages.Load pipeline and raw filesystem
                         contact: Loader holds no lock and no workspace
                         state, just RootDir/Logf, so store calls into it
@@ -39,12 +36,17 @@ the package design; ROADMAP.md tracks agreed-but-deferred work.
     internal/store/     the Repository plus the read/write boundary onto
                         it: the concurrency contract, sequencing the disk
                         boundary under its own lock (delegating the work
-                        to disk.Loader), and View (reads)/Tx (writes),
-                        each split one semantic category per file
-    internal/tools/     presentation layer: MCP tools, split the same way
-                        as store's View/Tx (read/write handlers, one
-                        category per file, a shared.go for helpers
-                        called from both)
+                        to disk.Loader), and View (reads, view.go, with
+                        diagnostics aggregation split out to
+                        view_diagnostics.go) / Tx (writes, tx.go) — the
+                        query/command surface, owning its own narrow
+                        Symbol/Diagnostic/EditReport output types instead
+                        of a separate shared-vocabulary package
+    internal/tools/     presentation layer: MCP tools, read/write handlers
+                        split one category per file (creators, deleters,
+                        describers, editors, enumerators, finders,
+                        refactorings), a shared.go for helpers called
+                        from both sides
     internal/testutil/  go/types-backed Workspace fixture builders shared
                         by store's tests (workspace's own tests keep a
                         local copy — see Testing below for why)

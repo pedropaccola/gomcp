@@ -6,7 +6,6 @@ import (
 	"slices"
 
 	"github.com/pedropaccola/gomcp/internal/address"
-	"github.com/pedropaccola/gomcp/internal/dto"
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
@@ -94,9 +93,9 @@ func (tx *Tx) CreateSymbol(pkg address.PkgPath, fileName, src string) error {
 		return tx.installFile(canon, isXTest, path, candidate)
 	}
 
-	if (frag.kind == dto.KindConst || frag.kind == dto.KindVar) && !frag.usesIota {
+	if (frag.kind == workspace.KindConst || frag.kind == workspace.KindVar) && !frag.usesIota {
 		tok := token.CONST
-		if frag.kind == dto.KindVar {
+		if frag.kind == workspace.KindVar {
 			tok = token.VAR
 		}
 		if at, ok := tx.ws.MergeableGroupInsertOffset(canon, path, tok); ok {
@@ -112,11 +111,11 @@ func (tx *Tx) CreateSymbol(pkg address.PkgPath, fileName, src string) error {
 		}
 	}
 
-	at, ok := tx.ws.InsertOffset(canon, path, workspace.SymbolKind(frag.kind), frag.recv)
+	at, ok := tx.ws.InsertOffset(canon, path, frag.kind, frag.recv)
 	if !ok {
 		return fmt.Errorf("cannot locate insertion point in %q", path)
 	}
-	if frag.kind == dto.KindConst && frag.usesIota {
+	if frag.kind == workspace.KindConst && frag.usesIota {
 		if _, typeName, terr := constVarEntries(src); terr == nil && typeName != "" {
 			if anchor, ok := tx.ws.TypeDeclOffset(canon, path, typeName); ok {
 				at = anchor

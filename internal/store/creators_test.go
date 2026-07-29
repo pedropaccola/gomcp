@@ -8,12 +8,12 @@ func TestTxCreateFile(t *testing.T) {
 	if err := tx.CreateFile("test.mod/pkg", "extra.go", ""); err != nil {
 		t.Fatalf("CreateFile: %v", err)
 	}
-	pkg, ok := v.Package("test.mod/pkg")
+	files, ok := v.PackageFiles("test.mod/pkg")
 	if !ok {
 		t.Fatal("test.mod/pkg not found")
 	}
-	if len(pkg.Files) != 2 {
-		t.Errorf("pkg.Files = %+v, want the original file plus extra.go", pkg.Files)
+	if len(files) != 2 {
+		t.Errorf("files = %+v, want the original file plus extra.go", files)
 	}
 }
 
@@ -31,12 +31,12 @@ func TestTxCreatePackage(t *testing.T) {
 	if err := tx.CreatePackage("test.mod/newpkg", ""); err != nil {
 		t.Fatalf("CreatePackage: %v", err)
 	}
-	pkg, ok := v.Package("test.mod/newpkg")
+	files, ok := v.PackageFiles("test.mod/newpkg")
 	if !ok {
 		t.Fatal("newpkg not found after CreatePackage")
 	}
-	if len(pkg.Files) != 1 {
-		t.Errorf("newpkg.Files = %+v, want exactly one seeded file", pkg.Files)
+	if len(files) != 1 {
+		t.Errorf("newpkg files = %+v, want exactly one seeded file", files)
 	}
 }
 
@@ -77,12 +77,12 @@ func TestTxCreateFileXTest(t *testing.T) {
 	if err := tx.CreateFile("test.mod/pkg_test", "extra_test.go", ""); err != nil {
 		t.Fatalf("CreateFile: %v", err)
 	}
-	pkg, ok := v.Package("test.mod/pkg")
+	files, ok := v.PackageFiles("test.mod/pkg")
 	if !ok {
 		t.Fatal("test.mod/pkg not found")
 	}
-	if len(pkg.Files) != 1 {
-		t.Errorf("Prod pkg.Files = %+v, want the original file alone", pkg.Files)
+	if len(files) != 1 {
+		t.Errorf("Prod files = %+v, want the original file alone", files)
 	}
 	unit, ok := v.ws.Unit("test.mod/pkg")
 	if !ok {

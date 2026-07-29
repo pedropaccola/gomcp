@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/pedropaccola/gomcp/internal/address"
-	"github.com/pedropaccola/gomcp/internal/dto"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 func TestCreateSymbolAndRollback(t *testing.T) {
@@ -65,12 +65,12 @@ func TestReplaceSymbolBlastRadiusAndHealing(t *testing.T) {
 	report := mustEdit(t, e, func(tx *Tx) error {
 		return tx.EditSymbol(spkg("shapes"), "Circle", "type Circle struct{ Radius float64 }")
 	})
-	if !slices.ContainsFunc(report.Delta, func(d dto.Diagnostic) bool {
-		return d.Kind == dto.DiagType && strings.Contains(string(d.File), "use/use.go")
+	if !slices.ContainsFunc(report.Delta, func(d Diagnostic) bool {
+		return d.Kind == workspace.DiagType && strings.Contains(string(d.File), "use/use.go")
 	}) {
 		t.Errorf("renaming Circle's field must break use/use.go in the delta: %v", deltaStrings(report))
 	}
-	if slices.ContainsFunc(report.Delta, func(d dto.Diagnostic) bool { return d.Kind == dto.DiagList }) {
+	if slices.ContainsFunc(report.Delta, func(d Diagnostic) bool { return d.Kind == workspace.DiagList }) {
 		t.Errorf("relayed go list compiler output must be filtered: %v", deltaStrings(report))
 	}
 
@@ -489,10 +489,12 @@ func TestCreateFileWithDocAndEditFile(t *testing.T) {
 		return tx.CreateFile(spkg("shapes"), "extra_doc.go", "Extra holds throwaway fixtures for this test.")
 	})
 	e.Read(context.Background(), func(v *View) error {
-		pkg, _ := v.Package(spkg("shapes"))
-		for _, f := range pkg.Files {
-			if f.Path.Base() == "extra_doc.go" && f.Doc != "Extra holds throwaway fixtures for this test." {
-				t.Errorf("new file's doc = %q", f.Doc)
+		files, _ := v.PackageFiles(spkg("shapes"))
+		for _, f := range files {
+			if f.Base() == "extra_doc.go" {
+				if doc, _ := v.FileDoc(f); doc != "Extra holds throwaway fixtures for this test." {
+					t.Errorf("new file's doc = %q", doc)
+				}
 			}
 		}
 		return nil
@@ -503,10 +505,12 @@ func TestCreateFileWithDocAndEditFile(t *testing.T) {
 		return tx.EditFile(spkg("shapes"), "extra_doc.go", "Replaced doc.")
 	})
 	e.Read(context.Background(), func(v *View) error {
-		pkg, _ := v.Package(spkg("shapes"))
-		for _, f := range pkg.Files {
-			if f.Path.Base() == "extra_doc.go" && f.Doc != "Replaced doc." {
-				t.Errorf("edited file's doc = %q, want %q", f.Doc, "Replaced doc.")
+		files, _ := v.PackageFiles(spkg("shapes"))
+		for _, f := range files {
+			if f.Base() == "extra_doc.go" {
+				if doc, _ := v.FileDoc(f); doc != "Replaced doc." {
+					t.Errorf("edited file's doc = %q, want %q", doc, "Replaced doc.")
+				}
 			}
 		}
 		return nil
@@ -517,10 +521,12 @@ func TestCreateFileWithDocAndEditFile(t *testing.T) {
 		return tx.EditFile(spkg("shapes"), "extra_doc.go", "")
 	})
 	e.Read(context.Background(), func(v *View) error {
-		pkg, _ := v.Package(spkg("shapes"))
-		for _, f := range pkg.Files {
-			if f.Path.Base() == "extra_doc.go" && f.Doc != "" {
-				t.Errorf("cleared file still has doc: %q", f.Doc)
+		files, _ := v.PackageFiles(spkg("shapes"))
+		for _, f := range files {
+			if f.Base() == "extra_doc.go" {
+				if doc, _ := v.FileDoc(f); doc != "" {
+					t.Errorf("cleared file still has doc: %q", doc)
+				}
 			}
 		}
 		return nil
@@ -534,10 +540,12 @@ func TestCreateFileWithDocAndEditFile(t *testing.T) {
 		if src, _ := v.DeclSource(spkg("shapes"), "Shape"); !strings.Contains(src, "Shape is anything with an area") {
 			t.Errorf("EditFile disturbed an unrelated declaration:\n%s", src)
 		}
-		pkg, _ := v.Package(spkg("shapes"))
-		for _, f := range pkg.Files {
-			if f.Path.Base() == "shapes.go" && f.Doc != "New shapes doc." {
-				t.Errorf("shapes.go doc = %q, want %q", f.Doc, "New shapes doc.")
+		files, _ := v.PackageFiles(spkg("shapes"))
+		for _, f := range files {
+			if f.Base() == "shapes.go" {
+				if doc, _ := v.FileDoc(f); doc != "New shapes doc." {
+					t.Errorf("shapes.go doc = %q, want %q", doc, "New shapes doc.")
+				}
 			}
 		}
 		return nil

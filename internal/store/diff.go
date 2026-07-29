@@ -1,16 +1,12 @@
 package store
 
-import (
-	"github.com/pedropaccola/gomcp/internal/dto"
-)
-
 // diffDiagnostics compares a workspace's diagnostics inventory across a
 // transaction: delta is what's newly present, resolved is what's newly
 // absent, and unrelated counts diagnostics unchanged by either edge — the
 // pre-existing breakage a transaction's echo deliberately stays silent
 // about, visible only through the uncapped diagnostics tool.
-func diffDiagnostics(before, after []dto.Diagnostic) (delta, resolved []dto.Diagnostic, unrelated int) {
-	beforeSet := make(map[string]dto.Diagnostic, len(before))
+func diffDiagnostics(before, after []Diagnostic) (delta, resolved []Diagnostic, unrelated int) {
+	beforeSet := make(map[string]Diagnostic, len(before))
 	for _, diag := range before {
 		beforeSet[diag.String()] = diag
 	}

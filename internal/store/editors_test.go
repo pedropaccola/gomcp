@@ -11,12 +11,12 @@ func TestTxEditFile(t *testing.T) {
 	if err := tx.EditFile("test.mod/pkg", "pkg.go", "Package pkg does things."); err != nil {
 		t.Fatalf("EditFile: %v", err)
 	}
-	pkg, ok := v.Package("test.mod/pkg")
+	doc, ok := v.PackageDoc("test.mod/pkg")
 	if !ok {
 		t.Fatal("test.mod/pkg not found")
 	}
-	if !strings.Contains(pkg.Doc, "does things") {
-		t.Errorf("Package.Doc = %q, want the new file doc", pkg.Doc)
+	if !strings.Contains(doc, "does things") {
+		t.Errorf("PackageDoc = %q, want the new file doc", doc)
 	}
 }
 

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/pedropaccola/gomcp/internal/address"
-	"github.com/pedropaccola/gomcp/internal/dto"
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
@@ -72,10 +71,10 @@ func copySandbox(tb testing.TB) string {
 	return dst
 }
 
-func matchKeys(matches []dto.Match) []string {
+func matchKeys(matches []Match) []string {
 	out := make([]string, 0, len(matches))
 	for _, m := range matches {
-		out = append(out, m.Package.Path.String()+":"+m.Symbol.Key)
+		out = append(out, m.Pkg.String()+":"+m.Key)
 	}
 	return out
 }
@@ -224,9 +223,9 @@ func resolveXTest(e *Store, pkg address.PkgPath) (*workspace.Package, bool) {
 // resolveSymbol looks up pkg's key through View's own public Symbol
 // method — the same read path production code uses, not a private
 // reimplementation of that resolution order kept in sync by hand.
-func resolveSymbol(e *Store, pkg address.PkgPath, key string) (dto.Symbol, dto.Package, bool) {
-	var sym dto.Symbol
-	var owner dto.Package
+func resolveSymbol(e *Store, pkg address.PkgPath, key string) (Symbol, address.PkgPath, bool) {
+	var sym Symbol
+	var owner address.PkgPath
 	var found bool
 	_ = e.Read(context.Background(), func(v *View) error {
 		sym, owner, found = v.Symbol(pkg, key)
@@ -235,7 +234,7 @@ func resolveSymbol(e *Store, pkg address.PkgPath, key string) (dto.Symbol, dto.P
 	return sym, owner, found
 }
 
-func deltaStrings(report *dto.EditReport) []string {
+func deltaStrings(report *EditReport) []string {
 	out := make([]string, 0, len(report.Delta))
 	for _, d := range report.Delta {
 		out = append(out, d.String())
@@ -243,7 +242,7 @@ func deltaStrings(report *dto.EditReport) []string {
 	return out
 }
 
-func mustEdit(t *testing.T, e *Store, fn func(*Tx) error) *dto.EditReport {
+func mustEdit(t *testing.T, e *Store, fn func(*Tx) error) *EditReport {
 	t.Helper()
 	report, err := e.Edit(context.Background(), fn)
 	if err != nil {
