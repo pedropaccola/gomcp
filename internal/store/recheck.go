@@ -82,21 +82,17 @@ func (e *Store) recheckScopedLocked(ctx context.Context, ws *workspace.Workspace
 	for _, addr := range ws.UnitKeys() {
 		unit, _ := ws.Unit(addr)
 		if scope[addr] {
-			for _, pkg := range unit.Members() {
-				for _, file := range pkg.Files() {
-					if tf := oldFset.File(file.Ast().Pos()); tf != nil {
-						oldFset.RemoveFile(tf)
-					}
+			for _, file := range unit.Files() {
+				if tf := oldFset.File(file.Ast().Pos()); tf != nil {
+					oldFset.RemoveFile(tf)
 				}
 			}
 			continue
 		}
 		kept[addr] = unit
-		for _, pkg := range unit.Members() {
-			for _, file := range pkg.Files() {
-				if tf := oldFset.File(file.Ast().Pos()); tf != nil {
-					newFset.AddExistingFiles(tf)
-				}
+		for _, file := range unit.Files() {
+			if tf := oldFset.File(file.Ast().Pos()); tf != nil {
+				newFset.AddExistingFiles(tf)
 			}
 		}
 	}
@@ -139,14 +135,9 @@ func (e *Store) recheckScopedLocked(ctx context.Context, ws *workspace.Workspace
 // path.
 func changedSet(ws *workspace.Workspace) map[address.FilePath]address.PkgPath {
 	out := make(map[address.FilePath]address.PkgPath)
-	for _, addr := range ws.UnitKeys() {
-		unit, _ := ws.Unit(addr)
-		for _, pkg := range unit.Members() {
-			for _, file := range pkg.Files() {
-				if file.IsDirty() {
-					out[file.Path] = addr
-				}
-			}
+	for ref, file := range ws.Files() {
+		if file.IsDirty() {
+			out[file.Path] = ref.Pkg
 		}
 	}
 	for _, path := range ws.Tombstones() {

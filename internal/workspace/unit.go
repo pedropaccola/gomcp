@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"iter"
 	"strings"
 
 	"github.com/pedropaccola/gomcp/internal/address"
@@ -65,6 +66,21 @@ func (u *Unit) Members() []*Package {
 		out = append(out, u.xtest)
 	}
 	return out
+}
+
+// Files yields every file across the unit's member packages, paired with
+// whether it belongs to the XTest half — the walk otherwise hand-rolled
+// over Members()/Package.Files() at every caller that needs it.
+func (u *Unit) Files() iter.Seq2[bool, *File] {
+	return func(yield func(bool, *File) bool) {
+		for _, pkg := range u.Members() {
+			for _, file := range pkg.Files() {
+				if !yield(pkg.IsXTest, file) {
+					return
+				}
+			}
+		}
+	}
 }
 
 // NewUnit assembles a Unit from its two halves atomically — the only

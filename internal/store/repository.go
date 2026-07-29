@@ -22,22 +22,16 @@ func (e *Store) Flush() (written, removed []address.FilePath, err error) {
 
 	candidate := e.ws.Clone()
 	module := candidate.Module()
-	for _, addr := range candidate.UnitKeys() {
-		unit, _ := candidate.Unit(addr)
-		for _, pkg := range unit.Members() {
-			isXTest := pkg.IsXTest
-			for _, file := range pkg.Files() {
-				if !file.IsDirty() {
-					continue
-				}
-				abs := e.AbsPath(module, file.Path)
-				if err := e.WriteFile(abs, file.Src()); err != nil {
-					return written, removed, err
-				}
-				candidate.MarkFlushed(addr, isXTest, file.Path)
-				written = append(written, file.Path)
-			}
+	for ref, file := range candidate.Files() {
+		if !file.IsDirty() {
+			continue
 		}
+		abs := e.AbsPath(module, file.Path)
+		if err := e.WriteFile(abs, file.Src()); err != nil {
+			return written, removed, err
+		}
+		candidate.MarkFlushed(ref.Pkg, ref.IsXTest, file.Path)
+		written = append(written, file.Path)
 	}
 	for _, path := range candidate.Tombstones() {
 		abs := e.AbsPath(module, path)
@@ -66,14 +60,9 @@ func (e *Store) Reload(ctx context.Context) ([]address.FilePath, error) {
 
 	orig := e.ws
 	var discarded []address.FilePath
-	for _, addr := range orig.UnitKeys() {
-		unit, _ := orig.Unit(addr)
-		for _, pkg := range unit.Members() {
-			for _, file := range pkg.Files() {
-				if file.IsDirty() {
-					discarded = append(discarded, file.Path)
-				}
-			}
+	for _, file := range orig.Files() {
+		if file.IsDirty() {
+			discarded = append(discarded, file.Path)
 		}
 	}
 	discarded = append(discarded, orig.Tombstones()...)

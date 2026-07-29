@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"go/token"
+	"iter"
 	"maps"
 	"slices"
 
@@ -150,4 +151,28 @@ func (w *Workspace) InstallUnit(pkg address.PkgPath, unit *Unit) {
 func (w *Workspace) RemoveUnit(pkg address.PkgPath) {
 	w.ensureUnitsForked()
 	delete(w.units, pkg)
+}
+
+// Files yields every file in the workspace, paired with the unit address
+// and XTest half that owns it — the one primitive under every caller that
+// otherwise hand-walks UnitKeys/Unit/Members/Files itself.
+func (w *Workspace) Files() iter.Seq2[FileRef, *File] {
+	return func(yield func(FileRef, *File) bool) {
+		for _, addr := range w.UnitKeys() {
+			unit, _ := w.Unit(addr)
+			for isXTest, file := range unit.Files() {
+				if !yield(FileRef{Pkg: addr, IsXTest: isXTest}, file) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// FileRef pairs a file with the address and half of the package that owns
+// it — the identity Workspace.Files' callers need alongside the file
+// itself, since *File carries neither.
+type FileRef struct {
+	Pkg     address.PkgPath
+	IsXTest bool
 }
