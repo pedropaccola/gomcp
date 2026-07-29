@@ -121,12 +121,12 @@ func (l *Loader) LoadInto(ctx context.Context, fset *token.FileSet, overlay map[
 		var prod, xtest *workspace.Package
 		var err error
 		if cand.prod != nil {
-			if prod, err = l.buildPackage(cand.prod, canonicalPkg, workspace.KindProd, fset, overlay); err != nil {
+			if prod, err = l.buildPackage(cand.prod, canonicalPkg, fset, overlay); err != nil {
 				return nil, "", nil, err
 			}
 		}
 		if cand.xtest != nil {
-			if xtest, err = l.buildPackage(cand.xtest, canonicalPkg, workspace.KindXTest, fset, overlay); err != nil {
+			if xtest, err = l.buildPackage(cand.xtest, canonicalPkg, fset, overlay); err != nil {
 				return nil, "", nil, err
 			}
 		}
@@ -145,7 +145,14 @@ func (l *Loader) LoadInto(ctx context.Context, fset *token.FileSet, overlay map[
 // untouchable paths. canonicalPkg addresses every file this builds —
 // srcPkg.PkgPath itself only for Package.PkgPath, since the XTest
 // variant's own PkgPath differs from the shared unit key (see LoadInto).
-func (l *Loader) buildPackage(srcPkg *packages.Package, canonicalPkg address.PkgPath, kind workspace.PackageKind, fset *token.FileSet, overlay map[string][]byte) (*workspace.Package, error) {
+// Prod vs XTest is derived from srcPkg.Name here, the same rule
+// LoadInto's own Pass 1 already classified by — nothing for the caller
+// to separately track and pass in sync.
+func (l *Loader) buildPackage(srcPkg *packages.Package, canonicalPkg address.PkgPath, fset *token.FileSet, overlay map[string][]byte) (*workspace.Package, error) {
+	kind := workspace.KindProd
+	if strings.HasSuffix(srcPkg.Name, "_test") {
+		kind = workspace.KindXTest
+	}
 	pkg := workspace.NewPackage(srcPkg.Name, address.PkgPath(srcPkg.PkgPath), srcPkg.Types, srcPkg.TypesInfo, kind)
 
 	for _, astFile := range srcPkg.Syntax {
