@@ -608,7 +608,7 @@ func (w *Workspace) ApplyFileSplices(splices []Splice) ([]address.FilePath, erro
 		batch := byPath[path]
 		slices.SortFunc(batch, func(a, b Splice) int { return cmp.Compare(a.Start, b.Start) })
 		batch = slices.CompactFunc(batch, func(a, b Splice) bool { return a.Start == b.Start && a.End == b.End })
-		addr := path.Dir()
+		addr := path.PkgPath()
 		if err := w.SwapFile(addr, owner.IsXTest, path, ApplySplices(file.Src(), batch)); err != nil {
 			return nil, err
 		}

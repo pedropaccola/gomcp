@@ -74,7 +74,7 @@ func filesByPackage(paths []address.FilePath) map[string][]string {
 	}
 	out := make(map[string][]string)
 	for _, p := range paths {
-		key := p.Dir().String()
+		key := p.PkgPath().String()
 		out[key] = append(out[key], p.Base())
 	}
 	return out

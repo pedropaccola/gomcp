@@ -40,11 +40,12 @@ func (f FilePath) Base() string {
 	return path.Base(string(f))
 }
 
-// Dir is the canonical PkgPath of the package f belongs to — valid
-// because every FilePath is constructed as pkg+"/"+basename (see
-// PkgPath.File). path.Dir, not filepath.Dir: an address's separator is
-// always "/", regardless of the host OS.
-func (f FilePath) Dir() PkgPath {
+// PkgPath is the package f belongs to. Always already the exact address
+// that built f (every FilePath is constructed as pkg+"/"+basename — see
+// PkgPath.File), never independently derived or canonicalized — there is
+// no XTest-suffixed shape for this to strip. path.Dir, not filepath.Dir:
+// an address's separator is always "/", regardless of the host OS.
+func (f FilePath) PkgPath() PkgPath {
 	return PkgPath(path.Dir(string(f)))
 }
 

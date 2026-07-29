@@ -112,7 +112,7 @@ func (tx *Tx) RepairMissingImports() bool {
 			continue
 		}
 		candidate := workspace.ApplySplices(file.Src(), []workspace.Splice{sp})
-		addr := filePath.Dir()
+		addr := filePath.PkgPath()
 		if err := tx.installFile(addr, owner.IsXTest, filePath, candidate); err != nil {
 			continue // repair is best-effort; the diagnostic stays visible
 		}

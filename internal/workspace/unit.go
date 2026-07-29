@@ -40,11 +40,10 @@ func (u *Unit) XTest() *Package {
 	return u.xtest
 }
 
-// Dir is the canonical PkgPath of the directory this unit's packages
-// physically occupy — always the production-shaped address, even when
-// only the XTest half exists (its own PkgPath carries a "_test" suffix
-// the directory itself does not).
-func (u *Unit) Dir() address.PkgPath {
+// PkgPath is the address this unit is installed under — always the
+// production-shaped one, even when only the XTest half exists (its own
+// PkgPath carries a "_test" suffix this strips via address.PkgPath.Canon).
+func (u *Unit) PkgPath() address.PkgPath {
 	if u.prod != nil {
 		return u.prod.PkgPath
 	}

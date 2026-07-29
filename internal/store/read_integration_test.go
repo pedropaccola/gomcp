@@ -21,7 +21,7 @@ func TestLookupNavigation(t *testing.T) {
 	var paths []address.PkgPath
 	for _, addr := range ws.UnitKeys() {
 		unit, _ := ws.Unit(addr)
-		paths = append(paths, unit.Dir())
+		paths = append(paths, unit.PkgPath())
 	}
 	if !slices.IsSorted(paths) {
 		t.Error("Packages not in path order")

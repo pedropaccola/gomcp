@@ -206,7 +206,7 @@ func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg address.PkgPath,
 // (every FilePath is built as pkg+"/"+basename — see address.PkgPath.File)
 // — no scan over every package needed.
 func (w *Workspace) ResolveFileByPath(path address.FilePath) (*File, *Package, bool) {
-	pkgPath := path.Dir()
+	pkgPath := path.PkgPath()
 	if unit, ok := w.Unit(pkgPath); ok {
 		for _, pkg := range unit.Members() {
 			if file, ok := pkg.File(path); ok {
