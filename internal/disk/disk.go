@@ -121,12 +121,12 @@ func (l *Loader) LoadInto(ctx context.Context, fset *token.FileSet, overlay map[
 		var prod, xtest *workspace.Package
 		var err error
 		if cand.prod != nil {
-			if prod, err = l.buildPackage(cand.prod, canonicalPkg, false, fset, overlay); err != nil {
+			if prod, err = l.buildPackage(cand.prod, canonicalPkg, workspace.KindProd, fset, overlay); err != nil {
 				return nil, "", nil, err
 			}
 		}
 		if cand.xtest != nil {
-			if xtest, err = l.buildPackage(cand.xtest, canonicalPkg, true, fset, overlay); err != nil {
+			if xtest, err = l.buildPackage(cand.xtest, canonicalPkg, workspace.KindXTest, fset, overlay); err != nil {
 				return nil, "", nil, err
 			}
 		}
@@ -145,8 +145,8 @@ func (l *Loader) LoadInto(ctx context.Context, fset *token.FileSet, overlay map[
 // untouchable paths. canonicalPkg addresses every file this builds —
 // srcPkg.PkgPath itself only for Package.PkgPath, since the XTest
 // variant's own PkgPath differs from the shared unit key (see LoadInto).
-func (l *Loader) buildPackage(srcPkg *packages.Package, canonicalPkg address.PkgPath, isXTest bool, fset *token.FileSet, overlay map[string][]byte) (*workspace.Package, error) {
-	pkg := workspace.NewPackage(srcPkg.Name, address.PkgPath(srcPkg.PkgPath), srcPkg.Types, srcPkg.TypesInfo, isXTest, false)
+func (l *Loader) buildPackage(srcPkg *packages.Package, canonicalPkg address.PkgPath, kind workspace.PackageKind, fset *token.FileSet, overlay map[string][]byte) (*workspace.Package, error) {
+	pkg := workspace.NewPackage(srcPkg.Name, address.PkgPath(srcPkg.PkgPath), srcPkg.Types, srcPkg.TypesInfo, kind)
 
 	for _, astFile := range srcPkg.Syntax {
 		absFilePath := fset.File(astFile.FileStart).Name()
@@ -244,7 +244,7 @@ func (l *Loader) FetchExternal(ctx context.Context, pkg address.PkgPath, fset *t
 // beneath it.
 func (l *Loader) buildExternal(srcPkg *packages.Package, fset *token.FileSet) (*workspace.Package, error) {
 	pkgPath := address.PkgPath(srcPkg.PkgPath)
-	pkg := workspace.NewPackage(srcPkg.Name, pkgPath, srcPkg.Types, nil, false, true)
+	pkg := workspace.NewPackage(srcPkg.Name, pkgPath, srcPkg.Types, nil, workspace.KindExternal)
 	for _, astFile := range srcPkg.Syntax {
 		abs := fset.File(astFile.FileStart).Name()
 		src, err := os.ReadFile(abs)

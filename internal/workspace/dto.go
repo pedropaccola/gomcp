@@ -31,7 +31,7 @@ func newDTOPackage(p *Package) dto.Package {
 	for i, s := range ws {
 		symbols[i] = newDTOSymbol(s)
 	}
-	return dto.Package{Path: p.PkgPath, Doc: p.Doc(), Files: files, Symbols: symbols}
+	return dto.Package{Path: p.PkgPath, Kind: dto.PackageKind(p.Kind), Doc: p.Doc(), Files: files, Symbols: symbols}
 }
 
 // Package resolves a package address (canonical, or a unit's XTest half
@@ -106,9 +106,9 @@ func (w *Workspace) ResolvePackage(addr address.PkgPath) (canon address.PkgPath,
 // a unit's XTest half that doesn't exist yet (its Prod sibling must
 // already), it installs a fresh XTest package instead of failing — name
 // and address following the same convention go/packages itself gives
-// that half. The one door a create verb has to originate a package that
-// isn't there, mirroring CreatePackage's own shell construction for a
-// brand new unit.
+// that half. The one door a create verb is allowed to originate a
+// package that isn't there yet, mirroring CreatePackage's own shell
+// construction for a brand new unit.
 func (w *Workspace) EnsurePackage(addr address.PkgPath) (canon address.PkgPath, pkg *Package, isXTest bool, err error) {
 	if canon, pkg, isXTest, ok := w.ResolvePackage(addr); ok {
 		return canon, pkg, isXTest, nil
@@ -121,7 +121,7 @@ func (w *Workspace) EnsurePackage(addr address.PkgPath) (canon address.PkgPath, 
 	if !ok || unit.Prod() == nil {
 		return "", nil, false, fmt.Errorf("no package at %q: create_package first", canon)
 	}
-	fresh := NewPackage(unit.Prod().Name+"_test", addr, nil, nil, true, false)
+	fresh := NewPackage(unit.Prod().Name+"_test", addr, nil, nil, KindXTest)
 	w.InstallUnit(canon, NewUnit(unit.Prod(), fresh))
 	return canon, fresh, true, nil
 }

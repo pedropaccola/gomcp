@@ -120,7 +120,7 @@ func (w *Workspace) FileSet() *token.FileSet {
 // FsetOf is the FileSet a package's positions live in: the external
 // cache's for dependencies, the workspace FileSet otherwise.
 func (w *Workspace) FsetOf(pkg *Package) *token.FileSet {
-	if pkg != nil && pkg.External {
+	if pkg != nil && pkg.Kind == KindExternal {
 		return w.externalFset
 	}
 	return w.fset

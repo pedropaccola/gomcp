@@ -20,12 +20,9 @@ type Package struct {
 	Name    string
 	PkgPath address.PkgPath // import path: the canonical address
 
-	// IsXTest reports whether this is a unit's external _test package
-	// rather than its production one. Decided once, when go/packages
-	// classifies the loaded variant (disk.Loader.LoadInto), and carried on
-	// the package itself rather than re-derived by comparing identity
-	// against its owning Unit's XTest() slot.
-	IsXTest bool
+	// Kind classifies this package as production, external-test, or an
+	// external dependency — see PackageKind.
+	Kind PackageKind
 
 	files   map[address.FilePath]*File
 	symbols map[string]*Symbol // derived index; see RebuildIndex
@@ -37,26 +34,19 @@ type Package struct {
 	// package only through Types()/TypesInfo().
 	typesPkg  *types.Package
 	typesInfo *types.Info
-
-	// External marks a read-only dependency from the module cache: its
-	// positions live in a dedicated FileSet, its files are addressed by
-	// import-path-qualified pseudo-paths, and it is never mutated or
-	// flushed.
-	External bool
 }
 
 // NewPackage constructs a package with its type-checker output, the load
 // path's other door for the fields NewPackage/LoadFile own — direct
 // struct literals from outside this package can no longer set typesPkg/
 // typesInfo now that they're sealed.
-func NewPackage(name string, pkgPath address.PkgPath, typesPkg *types.Package, typesInfo *types.Info, isXTest, external bool) *Package {
+func NewPackage(name string, pkgPath address.PkgPath, typesPkg *types.Package, typesInfo *types.Info, kind PackageKind) *Package {
 	return &Package{
 		Name:      name,
 		PkgPath:   pkgPath,
-		IsXTest:   isXTest,
+		Kind:      kind,
 		typesPkg:  typesPkg,
 		typesInfo: typesInfo,
-		External:  external,
 	}
 }
 
@@ -119,7 +109,7 @@ func (p *Package) RebuildIndex() {
 	for _, file := range p.files {
 		file.Inits = IndexAST(file.Path, file.ast, p.symbols)
 	}
-	if !p.External {
+	if p.Kind != KindExternal {
 		return
 	}
 	for key, sym := range p.symbols {
@@ -190,4 +180,24 @@ func (p *Package) Relocated(oldPkg, newPkg address.PkgPath, renameName bool) *Pa
 		moved.Name = newPkg.Base() + strings.TrimPrefix(p.Name, oldPkg.Base())
 	}
 	return moved
+}
+
+// PackageKind classifies what a package is relative to the workspace:
+// its own production or external-test half, or a read-only dependency
+// from the module cache. Mutually exclusive by construction — closes the
+// illegal state IsXTest and External as two independent bools allowed
+// (both true simultaneously), even though no code path ever produced it.
+type PackageKind int
+
+const (
+	KindProd PackageKind = iota
+	KindXTest
+	KindExternal
+)
+
+var packageKindNames = [...]string{"prod", "xtest", "external"}
+
+// String returns k's lowercase name.
+func (k PackageKind) String() string {
+	return packageKindNames[k]
 }

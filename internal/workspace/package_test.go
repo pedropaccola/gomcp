@@ -39,7 +39,7 @@ func TestLoadPathAndExternalIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &Package{Name: "dep", PkgPath: "example.com/dep", External: true}
+	p := &Package{Name: "dep", PkgPath: "example.com/dep", Kind: KindExternal}
 	p.LoadFile("example.com/dep/dep.go", src, astFile)
 	file, ok := p.File("example.com/dep/dep.go")
 	if !ok || file.IsDirty() {

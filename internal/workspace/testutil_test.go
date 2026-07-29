@@ -88,7 +88,7 @@ func typesFixture(tb testing.TB, srcs map[string]string) *Workspace {
 	}
 	for path, src := range srcs {
 		name := files[path].Name.Name
-		wp := NewPackage(name, address.PkgPath(path), checked[path], infos[path], false, false)
+		wp := NewPackage(name, address.PkgPath(path), checked[path], infos[path], KindProd)
 		wp.LoadFile(address.FilePath(path+"/file.go"), []byte(src), files[path])
 		wp.RebuildIndex()
 		w.InstallUnit(address.PkgPath(path), NewUnit(wp, nil))

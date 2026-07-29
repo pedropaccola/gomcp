@@ -73,7 +73,7 @@ func (u *Unit) Files() iter.Seq2[bool, *File] {
 	return func(yield func(bool, *File) bool) {
 		for _, pkg := range u.Members() {
 			for _, file := range pkg.Files() {
-				if !yield(pkg.IsXTest, file) {
+				if !yield(pkg.Kind == KindXTest, file) {
 					return
 				}
 			}

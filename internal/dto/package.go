@@ -10,6 +10,7 @@ import (
 // output).
 type Package struct {
 	Path    address.PkgPath
+	Kind    PackageKind
 	Doc     string
 	Files   []File
 	Symbols []Symbol

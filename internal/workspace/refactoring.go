@@ -609,7 +609,7 @@ func (w *Workspace) ApplyFileSplices(splices []Splice) ([]address.FilePath, erro
 		slices.SortFunc(batch, func(a, b Splice) int { return cmp.Compare(a.Start, b.Start) })
 		batch = slices.CompactFunc(batch, func(a, b Splice) bool { return a.Start == b.Start && a.End == b.End })
 		addr := path.PkgPath()
-		if err := w.SwapFile(addr, owner.IsXTest, path, ApplySplices(file.Src(), batch)); err != nil {
+		if err := w.SwapFile(addr, owner.Kind == KindXTest, path, ApplySplices(file.Src(), batch)); err != nil {
 			return nil, err
 		}
 		touched = append(touched, path)
@@ -646,7 +646,7 @@ func (w *Workspace) RelocateDeclaration(srcPkg, destPkg address.PkgPath, key str
 	if strings.HasSuffix(destPath.String(), "_test.go") != strings.HasSuffix(sym.File.String(), "_test.go") {
 		return nil, fmt.Errorf("moving %q from %q to %q would cross the test build boundary", key, sym.File, destPath)
 	}
-	srcIsXTest := owner.IsXTest
+	srcIsXTest := owner.Kind == KindXTest
 	kind, recv := sym.Kind, sym.Recv
 	src, extractSplice, err := w.ExtractDeclaration(srcPkg, key)
 	if err != nil {
@@ -802,7 +802,7 @@ func (w *Workspace) MovePackage(oldPkg, newPkg address.PkgPath, renameName bool,
 	var prodMoved, xtestMoved *Package
 	for _, orig := range unit.Members() {
 		moved := orig.Relocated(oldPkg, newPkg, renameName)
-		isXTest := orig.IsXTest
+		isXTest := orig.Kind == KindXTest
 		halves = append(halves, half{orig: orig, moved: moved, isXTest: isXTest})
 		if isXTest {
 			xtestMoved = moved
