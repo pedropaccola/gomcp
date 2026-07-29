@@ -262,13 +262,3 @@ func (w *Workspace) AddressAtLine(path address.FilePath, line int) (pkg address.
 	}
 	return "", "", false
 }
-
-// IsXTestOwner reports whether owner is pkg's external test package
-// rather than its production one — the Prod/XTest selector every
-// address-based primitive needs alongside an address, for callers that
-// resolved owner through a path that doesn't already know which half
-// matched.
-func (w *Workspace) IsXTestOwner(pkg address.PkgPath, owner *Package) bool {
-	unit, ok := w.Unit(pkg)
-	return ok && owner == unit.XTest()
-}

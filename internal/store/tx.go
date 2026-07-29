@@ -44,7 +44,7 @@ func (tx *Tx) CreatePackage(pkg address.PkgPath, name string) error {
 	if !token.IsIdentifier(name) {
 		return fmt.Errorf("%q is not a valid package name", name)
 	}
-	tx.ws.InstallUnit(pkg, workspace.NewUnit(workspace.NewPackage(name, pkg, nil, nil, false), nil))
+	tx.ws.InstallUnit(pkg, workspace.NewUnit(workspace.NewPackage(name, pkg, nil, nil, false, false), nil))
 	return tx.installFile(pkg, false, pkg.File(name+".go"), []byte("package "+name+"\n"))
 }
 
@@ -142,7 +142,7 @@ func (tx *Tx) DeleteFile(pkg address.PkgPath, name string) error {
 		if _, ok := owner.File(path); !ok {
 			continue
 		}
-		tx.ws.DropFile(pkg, owner == unit.XTest(), path)
+		tx.ws.DropFile(pkg, owner.IsXTest, path)
 		tx.markChanged(path)
 		return nil
 	}
@@ -195,7 +195,7 @@ func (tx *Tx) DeleteSymbol(pkg address.PkgPath, key string) error {
 	if !ok {
 		return fmt.Errorf("internal error: %q vanished while deleting %q", path, key)
 	}
-	return tx.installFile(pkg, tx.ws.IsXTestOwner(pkg, owner), path, workspace.ApplySplices(file.Src(), splices))
+	return tx.installFile(pkg, owner.IsXTest, path, workspace.ApplySplices(file.Src(), splices))
 }
 
 // EditFile replaces or clears a file's package doc comment — the comment
@@ -275,7 +275,7 @@ func (tx *Tx) EditSymbol(pkg address.PkgPath, key, src string) error {
 		return fmt.Errorf("internal error: %q vanished while editing %q", target.Path, key)
 	}
 	target.Repl = []byte(replacement)
-	return tx.installFile(pkg, tx.ws.IsXTestOwner(pkg, owner), target.Path, workspace.ApplySplices(file.Src(), []workspace.Splice{target}))
+	return tx.installFile(pkg, owner.IsXTest, target.Path, workspace.ApplySplices(file.Src(), []workspace.Splice{target}))
 }
 
 // MoveFile relocates a file to another package (newPkgPath) and/or gives
@@ -298,7 +298,7 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 		return fmt.Errorf("no package at %q", pkg)
 	}
 	for _, owner := range unit.Members() {
-		isXTest := owner == unit.XTest()
+		isXTest := owner.IsXTest
 		path, err := address.NewFilePath(tx.ws.Module(), owner.PkgPath, fileName)
 		if err != nil {
 			return err

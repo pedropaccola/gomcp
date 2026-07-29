@@ -25,7 +25,7 @@ func (e *Store) Flush() (written, removed []address.FilePath, err error) {
 	for _, addr := range candidate.UnitKeys() {
 		unit, _ := candidate.Unit(addr)
 		for _, pkg := range unit.Members() {
-			isXTest := pkg == unit.XTest()
+			isXTest := pkg.IsXTest
 			for _, file := range pkg.Files() {
 				if !file.IsDirty() {
 					continue
