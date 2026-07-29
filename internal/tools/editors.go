@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/store"
 )
 
@@ -46,19 +45,11 @@ func editFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[EditFileInpu
 		}
 		n := len(in.Edits)
 		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
-			pkgs := make([]address.PkgPath, n)
-			seen := make(map[string]bool, n)
-			for i, entry := range in.Edits {
-				pkg, err := writeWorkspacePkg(tx.View, entry.PkgPath)
-				if err != nil {
-					return batchErr("edits", i, n, err)
-				}
-				pkgs[i] = pkg
-				addr := string(pkg) + "\x00" + entry.FileName
-				if seen[addr] {
-					return fmt.Errorf("edits[%d]: duplicate target %q in %q — a batch must address each file once", i, entry.FileName, pkg)
-				}
-				seen[addr] = true
+			pkgs, err := resolveBatchTargets(tx.View, n, "edits", "file", func(i int) (string, string) {
+				return in.Edits[i].PkgPath, in.Edits[i].FileName
+			})
+			if err != nil {
+				return err
 			}
 			for i, entry := range in.Edits {
 				if err := tx.EditFile(pkgs[i], entry.FileName, optStr(entry.Doc)); err != nil {
@@ -77,19 +68,11 @@ func editSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[EditSymbol
 		}
 		n := len(in.Edits)
 		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
-			pkgs := make([]address.PkgPath, n)
-			seen := make(map[string]bool, n)
-			for i, entry := range in.Edits {
-				pkg, err := writeWorkspacePkg(tx.View, entry.PkgPath)
-				if err != nil {
-					return batchErr("edits", i, n, err)
-				}
-				pkgs[i] = pkg
-				addr := string(pkg) + "\x00" + entry.SymbolKey
-				if seen[addr] {
-					return fmt.Errorf("edits[%d]: duplicate target %q in %q — a batch must address each symbol once", i, entry.SymbolKey, pkg)
-				}
-				seen[addr] = true
+			pkgs, err := resolveBatchTargets(tx.View, n, "edits", "symbol", func(i int) (string, string) {
+				return in.Edits[i].PkgPath, in.Edits[i].SymbolKey
+			})
+			if err != nil {
+				return err
 			}
 			for i, entry := range in.Edits {
 				if err := tx.EditSymbol(pkgs[i], entry.SymbolKey, entry.Source); err != nil {

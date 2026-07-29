@@ -90,3 +90,26 @@ func batchErr(field string, i, n int, err error) error {
 	}
 	return fmt.Errorf("%s[%d]: %w", field, i, err)
 }
+
+// resolveBatchTargets resolves each batch entry's package address and
+// rejects a batch that addresses the same (package, key) pair twice — the
+// invariant editFile and editSymbol both need, each keyed by a different
+// notion of "key" (a file name, a symbol key).
+func resolveBatchTargets(v *store.View, n int, field, noun string, target func(i int) (pkgPath, key string)) ([]address.PkgPath, error) {
+	pkgs := make([]address.PkgPath, n)
+	seen := make(map[string]bool, n)
+	for i := 0; i < n; i++ {
+		pkgPath, key := target(i)
+		pkg, err := writeWorkspacePkg(v, pkgPath)
+		if err != nil {
+			return nil, batchErr(field, i, n, err)
+		}
+		pkgs[i] = pkg
+		addr := string(pkg) + "\x00" + key
+		if seen[addr] {
+			return nil, fmt.Errorf("%s[%d]: duplicate target %q in %q — a batch must address each %s once", field, i, key, pkg, noun)
+		}
+		seen[addr] = true
+	}
+	return pkgs, nil
+}
