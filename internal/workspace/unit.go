@@ -2,7 +2,6 @@ package workspace
 
 import (
 	"iter"
-	"strings"
 
 	"github.com/pedropaccola/gomcp/internal/address"
 )
@@ -49,7 +48,7 @@ func (u *Unit) Dir() address.PkgPath {
 	if u.prod != nil {
 		return u.prod.PkgPath
 	}
-	return address.PkgPath(strings.TrimSuffix(string(u.xtest.PkgPath), "_test"))
+	return u.xtest.PkgPath.Canon()
 }
 
 // Members returns the unit's non-nil packages, Prod before XTest — 1 or 2

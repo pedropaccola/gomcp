@@ -116,7 +116,7 @@ func (l *Loader) LoadInto(ctx context.Context, fset *token.FileSet, overlay map[
 		case cand.prod != nil:
 			canonicalPkg = address.PkgPath(cand.prod.PkgPath)
 		case cand.xtest != nil:
-			canonicalPkg = address.PkgPath(strings.TrimSuffix(cand.xtest.PkgPath, "_test"))
+			canonicalPkg = address.PkgPath(cand.xtest.PkgPath).Canon()
 		}
 		var prod, xtest *workspace.Package
 		var err error

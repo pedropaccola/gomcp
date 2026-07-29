@@ -70,3 +70,40 @@ func TestTxCreateSymbolTouchesFile(t *testing.T) {
 		t.Errorf("ChangedKeys() = %v, want [test.mod/pkg/pkg.go]", changed)
 	}
 }
+
+func TestTxCreateFileXTest(t *testing.T) {
+	v := viewFixture(t, "package pkg\n\nfunc Foo() {}\n")
+	tx := NewTx(v)
+	if err := tx.CreateFile("test.mod/pkg_test", "extra_test.go", ""); err != nil {
+		t.Fatalf("CreateFile: %v", err)
+	}
+	pkg, ok := v.Package("test.mod/pkg")
+	if !ok {
+		t.Fatal("test.mod/pkg not found")
+	}
+	if len(pkg.Files) != 1 {
+		t.Errorf("Prod pkg.Files = %+v, want the original file alone", pkg.Files)
+	}
+	unit, ok := v.ws.Unit("test.mod/pkg")
+	if !ok {
+		t.Fatal("test.mod/pkg unit not found")
+	}
+	xtest := unit.XTest()
+	if xtest == nil {
+		t.Fatal("XTest half not installed")
+	}
+	if xtest.Name != "pkg_test" || xtest.PkgPath != "test.mod/pkg_test" {
+		t.Errorf("XTest = %+v, want Name pkg_test and PkgPath test.mod/pkg_test", xtest)
+	}
+	if _, ok := xtest.File("test.mod/pkg/extra_test.go"); !ok {
+		t.Error("extra_test.go not installed in the new XTest package")
+	}
+}
+
+func TestTxCreateFileXTestRefusesWithoutProd(t *testing.T) {
+	v := viewFixture(t, "package pkg\n")
+	tx := NewTx(v)
+	if err := tx.CreateFile("test.mod/missing_test", "extra_test.go", ""); err == nil {
+		t.Error("CreateFile on a nonexistent package's XTest half should fail")
+	}
+}

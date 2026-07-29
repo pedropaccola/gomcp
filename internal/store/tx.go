@@ -11,13 +11,15 @@ import (
 )
 
 // CreateFile adds an empty file to an existing package, optionally seeded
-// with a package doc comment.
+// with a package doc comment. pkg may name a unit's XTest half via its
+// own "_test"-suffixed address (workspace.Workspace.EnsurePackage),
+// installing that half the first time something targets it.
 func (tx *Tx) CreateFile(pkg address.PkgPath, name, doc string) error {
-	p, ok := tx.ws.ProdPackage(pkg)
-	if !ok {
-		return fmt.Errorf("no package at %q: create_package first", pkg)
+	canon, p, isXTest, err := tx.ws.EnsurePackage(pkg)
+	if err != nil {
+		return err
 	}
-	path, err := address.NewFilePath(tx.ws.Module(), p.PkgPath, name)
+	path, err := address.NewFilePath(tx.ws.Module(), canon, name)
 	if err != nil {
 		return err
 	}
@@ -25,7 +27,7 @@ func (tx *Tx) CreateFile(pkg address.PkgPath, name, doc string) error {
 		return fmt.Errorf("file %q already exists", path)
 	}
 	content := string(renderDocComment(doc)) + "package " + p.Name + "\n"
-	return tx.installFile(pkg, false, path, []byte(content))
+	return tx.installFile(canon, isXTest, path, []byte(content))
 }
 
 // CreatePackage creates a new package at a module-prefixed address with one
@@ -49,23 +51,26 @@ func (tx *Tx) CreatePackage(pkg address.PkgPath, name string) error {
 }
 
 // CreateSymbol adds one new top-level declaration to a file of an existing
-// package, at its canonical position. The file is required, never inferred —
-// but a missing file inside the package is created implicitly, since
-// creation cannot destroy. A new plain (non-position-dependent) const or
-// var merges into the file's existing grouped block of the same kind, if
-// one already exists — keeping placement decisions meaningful instead of
-// proliferating interchangeable, unaddressable group shells; a new group
-// is only created when none exists yet, and a standalone declaration is
-// never retroactively converted into one. A new iota (position-dependent)
-// group never merges — it always starts its own — and is placed next to
-// its shared type's own declaration when typed and that type is in this
-// file, the same clustering declPrecedes already gives methods with their
-// receiver; otherwise it falls to the standard const/var region, same as
-// an untyped iota group always does.
+// package, at its canonical position. pkg may name a unit's XTest half
+// via its own "_test"-suffixed address (workspace.Workspace.EnsurePackage),
+// installing that half the first time something targets it. The file is
+// required, never inferred — but a missing file inside the package is
+// created implicitly, since creation cannot destroy. A new plain
+// (non-position-dependent) const or var merges into the file's existing
+// grouped block of the same kind, if one already exists — keeping
+// placement decisions meaningful instead of proliferating interchangeable,
+// unaddressable group shells; a new group is only created when none
+// exists yet, and a standalone declaration is never retroactively
+// converted into one. A new iota (position-dependent) group never merges
+// — it always starts its own — and is placed next to its shared type's
+// own declaration when typed and that type is in this file, the same
+// clustering declPrecedes already gives methods with their receiver;
+// otherwise it falls to the standard const/var region, same as an
+// untyped iota group always does.
 func (tx *Tx) CreateSymbol(pkg address.PkgPath, fileName, src string) error {
-	p, ok := tx.ws.ProdPackage(pkg)
-	if !ok {
-		return fmt.Errorf("no package at %q: create_package first", pkg)
+	canon, p, isXTest, err := tx.ws.EnsurePackage(pkg)
+	if err != nil {
+		return err
 	}
 	frag, err := parseDeclFragment(src)
 	if err != nil {
@@ -79,14 +84,14 @@ func (tx *Tx) CreateSymbol(pkg address.PkgPath, fileName, src string) error {
 			return fmt.Errorf("symbol %q already exists in %q: use EditSymbol", key, pkg)
 		}
 	}
-	path, err := address.NewFilePath(tx.ws.Module(), p.PkgPath, fileName)
+	path, err := address.NewFilePath(tx.ws.Module(), canon, fileName)
 	if err != nil {
 		return err
 	}
 	file, ok := p.File(path)
 	if !ok {
 		candidate := []byte("package " + p.Name + "\n\n" + src + "\n")
-		return tx.installFile(pkg, false, path, candidate)
+		return tx.installFile(canon, isXTest, path, candidate)
 	}
 
 	if (frag.kind == dto.KindConst || frag.kind == dto.KindVar) && !frag.usesIota {
@@ -94,7 +99,7 @@ func (tx *Tx) CreateSymbol(pkg address.PkgPath, fileName, src string) error {
 		if frag.kind == dto.KindVar {
 			tok = token.VAR
 		}
-		if at, ok := tx.ws.MergeableGroupInsertOffset(pkg, path, tok); ok {
+		if at, ok := tx.ws.MergeableGroupInsertOffset(canon, path, tok); ok {
 			specs, _, err := constVarEntries(src)
 			if err != nil {
 				return err
@@ -103,17 +108,17 @@ func (tx *Tx) CreateSymbol(pkg address.PkgPath, fileName, src string) error {
 			if !ok {
 				return fmt.Errorf("cannot locate insertion point in %q", path)
 			}
-			return tx.installFile(pkg, false, path, workspace.ApplySplices(file.Src(), []workspace.Splice{sp}))
+			return tx.installFile(canon, isXTest, path, workspace.ApplySplices(file.Src(), []workspace.Splice{sp}))
 		}
 	}
 
-	at, ok := tx.ws.InsertOffset(pkg, path, workspace.SymbolKind(frag.kind), frag.recv)
+	at, ok := tx.ws.InsertOffset(canon, path, workspace.SymbolKind(frag.kind), frag.recv)
 	if !ok {
 		return fmt.Errorf("cannot locate insertion point in %q", path)
 	}
 	if frag.kind == dto.KindConst && frag.usesIota {
 		if _, typeName, terr := constVarEntries(src); terr == nil && typeName != "" {
-			if anchor, ok := tx.ws.TypeDeclOffset(pkg, path, typeName); ok {
+			if anchor, ok := tx.ws.TypeDeclOffset(canon, path, typeName); ok {
 				at = anchor
 			}
 		}
@@ -122,7 +127,7 @@ func (tx *Tx) CreateSymbol(pkg address.PkgPath, fileName, src string) error {
 	if !ok {
 		return fmt.Errorf("cannot locate insertion point in %q", path)
 	}
-	return tx.installFile(pkg, false, path, workspace.ApplySplices(file.Src(), []workspace.Splice{sp}))
+	return tx.installFile(canon, isXTest, path, workspace.ApplySplices(file.Src(), []workspace.Splice{sp}))
 }
 
 // DeleteFile removes one file and every declaration in it, tombstoning the

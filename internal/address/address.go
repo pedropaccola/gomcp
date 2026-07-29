@@ -82,6 +82,22 @@ func (p PkgPath) Base() string {
 	return path.Base(string(p))
 }
 
+// Canon strips the XTest suffix convention (a no-op when absent), giving
+// the directory-shaped address every Unit is keyed by — what anything not
+// specifically choosing one half of a Unit over the other wants.
+func (p PkgPath) Canon() PkgPath {
+	if trimmed, ok := strings.CutSuffix(string(p), "_test"); ok {
+		return PkgPath(trimmed)
+	}
+	return p
+}
+
+// IsXTest reports whether p carries the XTest suffix convention go/packages
+// gives an external test package's own address.
+func (p PkgPath) IsXTest() bool {
+	return p != p.Canon()
+}
+
 // cleanRelative narrows s, an untrusted string, against module: absolute
 // paths and paths escaping the workspace root are refused; a spelling
 // already prefixed by module resolves to its workspace-relative
