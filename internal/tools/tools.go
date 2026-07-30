@@ -61,7 +61,7 @@ func mutates(title string, destructive bool) *mcp.ToolAnnotations {
 // Register wires every tool into the server. diagLimit caps the
 // diagnostics rendered in every scoped DiagBlock (list_*/describe_*
 // output, mutation echoes); negative values fall back to the default
-// (20). The diagnostics tool itself is never capped.
+// (20). The diagnostics_workspace tool itself is never capped.
 func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 	cfg := newToolConfig(diagLimit)
 
@@ -98,8 +98,8 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 
 	// Describers
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "describe_package",
-		Annotations: reads("Describe Package"),
+		Name:        "describe_packages",
+		Annotations: reads("Describe Packages"),
 		Description: "Show one or more packages' godoc — every file's doc comment (the " +
 			"comment block directly above \"package X\"), concatenated in file order — plus " +
 			"its file list, in one round trip, resolved in order. If any entry fails, the " +
@@ -109,8 +109,8 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 	}, describePackage(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "describe_file",
-		Annotations: reads("Describe File"),
+		Name:        "describe_files",
+		Annotations: reads("Describe Files"),
 		Description: "Show one or more files' own doc comment alone — the narrower read " +
 			"when only a file's contribution to its package doc is needed, in one round trip, " +
 			"resolved in order. If any entry fails, the whole call fails and the error names " +
@@ -119,8 +119,8 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 	}, describeFile(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "describe_symbol",
-		Annotations: reads("Describe Symbol"),
+		Name:        "describe_symbols",
+		Annotations: reads("Describe Symbols"),
 		Description: "Show one or more symbols' full declaration source (doc comment " +
 			"included) and kind, whatever each is — func, method, type, var, or const, in one " +
 			"round trip, resolved in order. A type's method signatures are included too. If " +
@@ -166,7 +166,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 
 	// Diagnostics
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "diagnostics",
+		Name:        "diagnostics_workspace",
 		Annotations: reads("Workspace Diagnostics"),
 		Description: "Report every compiler and loader problem in the workspace: parse, load, " +
 			"and type errors, each positioned as file:line:col.",
@@ -174,8 +174,8 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 
 	// Creators
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "create_package",
-		Annotations: mutates("Create Package", false),
+		Name:        "create_packages",
+		Annotations: mutates("Create Packages", false),
 		Description: "Create one or more new package directories, each with one starter " +
 			"file, in one transaction, one recheck, one echo — resolved in order. The package " +
 			"name defaults to the directory base. If any entry fails (including one entry " +
@@ -186,8 +186,8 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 	}, createPackage(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "create_file",
-		Annotations: mutates("Create File", false),
+		Name:        "create_files",
+		Annotations: mutates("Create Files", false),
 		Description: "Add one or more empty files to existing packages, each optionally " +
 			"seeded with a package doc comment, in one transaction, one recheck, one echo — " +
 			"resolved in order. Fails if a file already exists. If any entry fails, the whole " +
@@ -197,8 +197,8 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 	}, createFile(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "create_symbol",
-		Annotations: mutates("Create Symbol", false),
+		Name:        "create_symbols",
+		Annotations: mutates("Create Symbols", false),
 		Description: "Add one or more new top-level symbols (func, method, type, var, or " +
 			"const), each to a file of an existing package, in one transaction, one recheck, " +
 			"one echo — resolved in order. A file is created if missing; a symbol's name must " +
@@ -216,8 +216,8 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 
 	// Editors
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "edit_symbol",
-		Annotations: mutates("Edit Symbol", true),
+		Name:        "edit_symbols",
+		Annotations: mutates("Edit Symbols", true),
 		Description: "Replace one or more symbols' entire declarations (doc comment " +
 			"included), in one transaction, one recheck, one echo — resolved in order. Every " +
 			"entry must address a different symbol — two entries targeting the same one, " +
@@ -237,8 +237,8 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 	}, editSymbol(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "edit_file",
-		Annotations: mutates("Edit File", true),
+		Name:        "edit_files",
+		Annotations: mutates("Edit Files", true),
 		Description: "Replace or clear one or more files' package doc comments — the " +
 			"comment block directly above \"package X\" — leaving the rest of each file " +
 			"untouched, in one transaction, one recheck, one echo — resolved in order. Empty " +
@@ -251,14 +251,14 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 
 	// Deleters
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "delete_symbol",
-		Annotations: mutates("Delete Symbol", true),
+		Name:        "delete_symbols",
+		Annotations: mutates("Delete Symbols", true),
 		Description: "Delete one or more symbols in one transaction, one recheck, one echo — " +
 			"resolved in order. A symbol's spec is deleted alone when it lives in a grouped " +
 			"block with siblings, unless its value is derived from its position in the group " +
 			"(iota, or inheriting the previous spec's expression), in which case the whole " +
 			"group is deleted together, since deleting one such member and keeping the rest " +
-			"has no single correct resolution (use edit_symbol with the group's whole " +
+			"has no single correct resolution (use edit_symbols with the group's whole " +
 			"intended state instead). A name sharing a spec with others (`var a, b int`) is " +
 			"trimmed from it instead of taking the others down with it; names sharing one " +
 			"multi-valued expression (`var a, b = f()`) blank the targeted one to `_` instead, " +
@@ -272,8 +272,8 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 	}, deleteSymbol(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "delete_file",
-		Annotations: mutates("Delete File", true),
+		Name:        "delete_files",
+		Annotations: mutates("Delete Files", true),
 		Description: "Delete one or more files, each with every declaration in it, in one " +
 			"transaction, one recheck, one echo — resolved in order. Idempotent: a file " +
 			"that's already gone is a noop, not an error, so a duplicate target across " +
@@ -282,8 +282,8 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 	}, deleteFile(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "delete_package",
-		Annotations: mutates("Delete Package", true),
+		Name:        "delete_packages",
+		Annotations: mutates("Delete Packages", true),
 		Description: "Delete one or more whole package directories in one transaction, one " +
 			"recheck, one echo — resolved in order. Idempotent: a package that's already gone " +
 			"is a noop, not an error, so a duplicate target across entries is harmless. If any " +

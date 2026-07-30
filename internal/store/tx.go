@@ -191,9 +191,8 @@ func (tx *Tx) DeletePackage(pkg workspace.PackagePath) error {
 // which case the whole group is removed together. Deleting one member of
 // a position-dependent group and leaving the rest as-is has no single
 // correct resolution (keep everyone else's original values? renumber
-// them?) — that's edit_symbol's job, via a whole-group replacement that
-// states explicitly what the agent wants, not a guess this verb would
-// have to make.
+// them?) — a whole-group replacement states explicitly what the agent
+// wants, not a guess this verb would have to make.
 //
 // A name sharing a *ast.ValueSpec with others (`var a, b int`, `var a, b
 // = f()`) is trimmed from the spec instead of taking the others down with
@@ -275,7 +274,7 @@ func (tx *Tx) EditSymbol(pkg workspace.PackagePath, key, src string) error {
 	case groupTok != token.ILLEGAL:
 		frag, err = parseSpecFragment(groupTok, src)
 		if err == nil && frag.usesIota {
-			err = fmt.Errorf("%q would introduce iota into a group that doesn't use it: converting a plain group into a position-dependent one isn't supported through edit_symbol", key)
+			err = fmt.Errorf("%q would introduce iota into a group that doesn't use it: converting a plain group into a position-dependent one isn't supported through a single member's replacement", key)
 		}
 	default:
 		frag, err = parseDeclFragment(src)
@@ -284,7 +283,7 @@ func (tx *Tx) EditSymbol(pkg workspace.PackagePath, key, src string) error {
 		return err
 	}
 	if wasPositionDependent && !slices.Contains(frag.keys, key) {
-		return fmt.Errorf("%q is missing from the replacement: a position-dependent group member can't be renamed through edit_symbol, use refactor_move_symbol instead", key)
+		return fmt.Errorf("%q is missing from the replacement: a position-dependent group member can't be renamed through a single member's replacement", key)
 	}
 	if collisions := tx.ws.DetectEditCollisions(pkg, key, frag.keys); len(collisions) > 0 {
 		return fmt.Errorf("replacement declares %q, which already exists in %q", collisions[0], pkg)
@@ -329,7 +328,7 @@ func (tx *Tx) MoveFile(pkg workspace.PackagePath, fileName string, newPkgPath wo
 		if newPkgPath != "" {
 			destOwner, ok = tx.ws.ProdPackage(newPkgPath)
 			if !ok {
-				return fmt.Errorf("no package at %q: create_package first", newPkgPath)
+				return fmt.Errorf("no package at %q", newPkgPath)
 			}
 		}
 		baseName := fileName
@@ -464,7 +463,7 @@ func (tx *Tx) MoveSymbol(pkg workspace.PackagePath, key string, newPkgPath works
 // on Workspace.RelocateSymbols for the actual mechanics.
 func (tx *Tx) MoveSymbolGroup(pkg workspace.PackagePath, keys []string, newPkgPath workspace.PackagePath, newFileName string) error {
 	if len(keys) < 2 {
-		return fmt.Errorf("MoveSymbolGroup needs at least two symbol_keys; refactor_move_symbol's single-key path already covers one")
+		return fmt.Errorf("MoveSymbolGroup needs at least two keys: moving exactly one symbol already has its own single-key path")
 	}
 	destPkg := pkg
 	if newPkgPath != "" {
@@ -472,7 +471,7 @@ func (tx *Tx) MoveSymbolGroup(pkg workspace.PackagePath, keys []string, newPkgPa
 	}
 	destOwner, ok := tx.ws.ProdPackage(destPkg)
 	if !ok {
-		return fmt.Errorf("no package at %q: create_package first", destPkg)
+		return fmt.Errorf("no package at %q", destPkg)
 	}
 	destPath, err := workspace.NewFilePath(tx.ws.Module(), destOwner.ID.Base(), newFileName)
 	if err != nil {
@@ -495,7 +494,7 @@ func (tx *Tx) MoveSymbolGroup(pkg workspace.PackagePath, keys []string, newPkgPa
 func (tx *Tx) relocateSymbol(srcPkg, destPkg workspace.PackagePath, key, fileName string) error {
 	destOwner, ok := tx.ws.ProdPackage(destPkg)
 	if !ok {
-		return fmt.Errorf("no package at %q: create_package first", destPkg)
+		return fmt.Errorf("no package at %q", destPkg)
 	}
 	destPath, err := workspace.NewFilePath(tx.ws.Module(), destOwner.ID.Base(), fileName)
 	if err != nil {

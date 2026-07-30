@@ -101,10 +101,10 @@ func TestTxCreateFileXTest(t *testing.T) {
 }
 
 // TestTxCreateFileXTestOriginatesProd targets a brand-new package's
-// XTest half directly, with no create_package call first: EnsurePackage
+// XTest half directly, with no create_packages call first: EnsurePackage
 // must originate a Prod shell (one seeded file, same as CreatePackage's
 // own construction) alongside the requested XTest file, in one
-// transaction — no separate create_package round trip needed.
+// transaction — no separate create_packages round trip needed.
 func TestTxCreateFileXTestOriginatesProd(t *testing.T) {
 	v := viewFixture(t, "package pkg\n")
 	tx := NewTx(v)

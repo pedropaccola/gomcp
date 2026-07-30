@@ -60,14 +60,14 @@ Small set of 25 tools:
 
 ### Read
 * Enumerators (consistent sorted output): `list_packages`, `list_files`, `list_methods`, `list_symbols`
-* Describers (symbol source, any kind — func, method, type, var, or const): `describe_package`, `describe_file`, `describe_symbol`
+* Describers (symbol source, any kind — func, method, type, var, or const): `describe_packages`, `describe_files`, `describe_symbols`
 * Finders (grep-like): `search_declarations_like`, `search_source`, `search_implementors`, `search_references`
-* Diagnostics (full workspace diagnostics): `diagnostics`
+* Diagnostics (full workspace diagnostics): `diagnostics_workspace`
 
 ### Write
-* Creators (fail if the address already exists; cannot destroy code): `create_package`, `create_file`, `create_symbol`
-* Editors (fail if the address doesn't exist): `edit_symbol`, `edit_file`
-* Deleters (noop if the address doesn't exist — deletion is idempotent, so a duplicate target across entries is harmless): `delete_symbol`, `delete_file`, `delete_package`
+* Creators (fail if the address already exists; cannot destroy code): `create_packages`, `create_files`, `create_symbols`
+* Editors (fail if the address doesn't exist): `edit_symbols`, `edit_files`
+* Deleters (noop if the address doesn't exist — deletion is idempotent, so a duplicate target across entries is harmless): `delete_symbols`, `delete_files`, `delete_packages`
 * Refactorings (structure-preserving transformations; safe by construction — refuse rather than risk breaking the workspace): `refactor_move_symbol`, `refactor_move_file`, `refactor_move_package`
 * Disk (syncs the in-memory state with disk): `disk_flush`, `disk_reload`
 
@@ -101,5 +101,5 @@ Point your MCP client at the built binary (or at `go run ./cmd/gomcp` directly) 
   working directory, if unset.
 * `-verbose` — log `go/packages` loader output to stderr.
 * `-diagnostics-limit <n>` — cap the diagnostics rendered per read/write
-  tool call (default 20). The `diagnostics` tool itself always reports
-  the full, uncapped inventory.
+  tool call (default 20). The `diagnostics_workspace` tool itself always
+  reports the full, uncapped inventory.

@@ -787,8 +787,8 @@ func TestEditIotaGroupRefusesRenamingTargetedKey(t *testing.T) {
 		return tx.EditSymbol(spkg("shapes"), "KindCircle",
 			"// KindRound is the round one.\nKindRound Kind = iota\nKindSquare")
 	})
-	if err == nil || !strings.Contains(err.Error(), "refactor_move_symbol") {
-		t.Errorf("renaming the targeted key via edit_symbol must be refused with a refactor_move_symbol pointer, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "can't be renamed") {
+		t.Errorf("renaming the targeted key via edit_symbol must be refused, got %v", err)
 	}
 }
 

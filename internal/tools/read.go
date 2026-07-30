@@ -67,7 +67,7 @@ func readSymbol(ctx context.Context, eng *store.Store, addr, key string, fn func
 }
 
 // methodSignatures renders a type's method list the way list_methods and
-// describe_symbol present it: one signature line each.
+// describe_symbols present it: one signature line each.
 func methodSignatures(v *store.View, pkg workspace.PackageID, typeName string) []string {
 	var out []string
 	for _, m := range v.Methods(pkg, typeName) {

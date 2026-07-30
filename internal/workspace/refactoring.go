@@ -528,7 +528,7 @@ func (w *Workspace) ValidateNewName(pkg PackagePath, key, newKey string) (newNam
 			return "", fmt.Errorf("%q is a method: newSymbolKey must be %q (its receiver cannot change)", sym.Key(), sym.Recv+".<new name>")
 		}
 		if recv != sym.Recv {
-			return "", fmt.Errorf("cannot change %q's receiver via refactor_move_symbol: got %q, want %q", sym.Key(), recv, sym.Recv)
+			return "", fmt.Errorf("cannot change %q's receiver: got %q, want %q", sym.Key(), recv, sym.Recv)
 		}
 		name = methodName
 	}
@@ -643,7 +643,7 @@ func (w *Workspace) RelocateDeclaration(srcPkg, destPkg PackagePath, key string,
 	}
 	destOwner, ok := w.ProdPackage(destPkg)
 	if !ok {
-		return nil, fmt.Errorf("no package at %q: create_package first", destPkg)
+		return nil, fmt.Errorf("no package at %q", destPkg)
 	}
 	if destOwner == owner && destPath == sym.File {
 		return nil, fmt.Errorf("%q already lives in %q", key, destPath)
@@ -711,7 +711,7 @@ func (w *Workspace) RelocateFile(pkg PackagePath, path FilePath, isXTest bool, n
 	}
 	destOwner, ok := w.ProdPackage(newPkgPath)
 	if !ok {
-		return nil, fmt.Errorf("no package at %q: create_package first", newPkgPath)
+		return nil, fmt.Errorf("no package at %q", newPkgPath)
 	}
 
 	var movingKeys []string

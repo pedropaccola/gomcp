@@ -60,7 +60,7 @@ func createPackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[CreateP
 					return batchErr("creates", i, n, err)
 				}
 				if pkg.Kind() != workspace.KindProd {
-					return batchErr("creates", i, n, fmt.Errorf("%q names an XTest half: create_package always creates the Prod half — call create_file or create_symbol with this address instead, it creates the Prod package too if the whole package is new", entry.PkgPath))
+					return batchErr("creates", i, n, fmt.Errorf("%q names an XTest half: create_packages always creates the Prod half — call create_files or create_symbols with this address instead, it creates the Prod package too if the whole package is new", entry.PkgPath))
 				}
 				if err := tx.CreatePackage(pkg.Base(), optStr(entry.Name)); err != nil {
 					return batchErr("creates", i, n, err)

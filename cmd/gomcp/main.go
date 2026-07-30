@@ -22,14 +22,14 @@ const (
 		"writes must flow through these tools, so every change is AST-validated and answered " +
 		"with compiler diagnostics. Diagnostics on read/write tools are scoped to what was " +
 		"read or changed — an empty field means nothing wrong there, not that the whole " +
-		"workspace is healthy; call diagnostics for the full inventory. Comments must attach " +
+		"workspace is healthy; call diagnostics_workspace for the full inventory. Comments must attach " +
 		"to a declaration or sit directly above a package clause: one floating between " +
 		"declarations is not part of the tracked syntax tree and can silently vanish under a " +
 		"later edit. disk_reload discards every unflushed edit — call disk_flush first if you want to " +
-		"keep them. Prefer refactor_move_symbol over edit_symbol when renaming: refactor_move_symbol propagates " +
+		"keep them. Prefer refactor_move_symbol over edit_symbols when renaming: refactor_move_symbol propagates " +
 		"the rename to every resolved reference across the workspace automatically; " +
-		"edit_symbol's replacement only changes the declaration itself, leaving every other " +
-		"reference to the old name broken until a diagnostics call happens to catch it."
+		"edit_symbols' replacement only changes the declaration itself, leaving every other " +
+		"reference to the old name broken until a diagnostics_workspace call happens to catch it."
 )
 
 func main() {
@@ -41,7 +41,7 @@ func main() {
 
 	flagCwd := flag.String("cwd", "", "Workspace root directory")
 	flagVerbose := flag.Bool("verbose", false, "Log go/packages loader output to stderr")
-	flagDiagLimit := flag.Int("diagnostics-limit", 20, "Limit diagnostics rendered per read/write tool; the diagnostics tool always reports the full inventory.")
+	flagDiagLimit := flag.Int("diagnostics-limit", 20, "Limit diagnostics rendered per read/write tool; the diagnostics_workspace tool always reports the full inventory.")
 	flag.Parse()
 
 	var cwd string

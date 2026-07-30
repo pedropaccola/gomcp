@@ -50,7 +50,7 @@ type DiagnosticsTruncated struct {
 
 // DiagnosticEntry is one problem report, addressed the same way every other
 // tool addresses a symbol: PkgPath/SymbolKey are directly usable as-is with
-// describe_symbol/edit_symbol. FileName is the coarser fallback when a
+// describe_symbols/edit_symbols. FileName is the coarser fallback when a
 // diagnostic is attributable to a file but no single declaration; all three
 // are nil for module/driver-level problems.
 type DiagnosticEntry struct {

@@ -208,17 +208,17 @@ func (v *View) PackageSymbols(pkg workspace.PackageID) ([]Symbol, bool) {
 
 // ResolveType resolves pkg+key the same way Symbol does, refusing (with
 // a ready-to-use error) unless the result is a type — the one gate-check
-// search_implementors needs before SymbolsImplementing.
+// the implementor-search flow needs before SymbolsImplementing.
 func (v *View) ResolveType(pkg workspace.PackagePath, key string) (workspace.PackageID, error) {
 	sym, owner, ok := v.ws.ResolveSymbol(pkg, key)
 	if !ok {
 		if _, ok := v.ws.LookupExternal(pkg); ok {
-			return workspace.PackageID{}, fmt.Errorf("%q is a dependency: its API is served read-only by list_* and describe_*; semantic search stays in the workspace", pkg)
+			return workspace.PackageID{}, fmt.Errorf("%q is a dependency: read-only, semantic search stays scoped to the workspace", pkg)
 		}
-		return workspace.PackageID{}, fmt.Errorf("no symbol %q in package %q: call list_symbols for valid keys", key, pkg)
+		return workspace.PackageID{}, fmt.Errorf("no symbol %q in package %q", key, pkg)
 	}
 	if sym.Kind != workspace.KindType {
-		return workspace.PackageID{}, fmt.Errorf("%q is a %s, not a %s: use the matching describe_* tool", key, sym.Kind, workspace.KindType)
+		return workspace.PackageID{}, fmt.Errorf("%q is a %s, not a %s", key, sym.Kind, workspace.KindType)
 	}
 	return owner.ID, nil
 }
@@ -227,14 +227,14 @@ func (v *View) ResolveType(pkg workspace.PackagePath, key string) (workspace.Pac
 func (v *View) ResolveFile(pkg workspace.PackageID, fileName string) (workspace.FilePath, error) {
 	p, ok := v.resolvePkg(pkg)
 	if !ok {
-		return "", fmt.Errorf("no package at %q: call list_packages for valid addresses", pkg)
+		return "", fmt.Errorf("no package at %q", pkg)
 	}
 	fp, err := workspace.NewFilePath(v.ws.Module(), p.ID.Base(), fileName)
 	if err != nil {
 		return "", err
 	}
 	if _, ok := p.File(fp); !ok {
-		return "", fmt.Errorf("no file %q in package %q: call list_files for valid names", fp.Base(), pkg)
+		return "", fmt.Errorf("no file %q in package %q", fp.Base(), pkg)
 	}
 	return fp, nil
 }

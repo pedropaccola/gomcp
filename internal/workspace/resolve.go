@@ -27,20 +27,21 @@ func (w *Workspace) ResolvePackage(id PackageID) (*Package, bool) {
 // EnsurePackage is ResolvePackage's create-side sibling: when id names
 // a unit's XTest half that doesn't exist yet, it installs a fresh XTest
 // package — and, if the unit doesn't exist at all yet, a fresh Prod
-// sibling too, so a create verb never needs create_package to have run
-// first just to target a brand-new package's XTest half. freshProd is
-// non-nil exactly when a Prod shell had to be originated here: the
-// caller (which alone can install real file content) must give it a
-// stub file within the same transaction, the same way CreatePackage
-// always pairs a fresh shell with a real file. The one door a create
-// verb is allowed to originate a package that isn't there yet, mirroring
-// CreatePackage's own shell construction for a brand new unit.
+// sibling too, so a create verb never needs the destination package to
+// already exist first just to target a brand-new package's XTest half.
+// freshProd is non-nil exactly when a Prod shell had to be originated
+// here: the caller (which alone can install real file content) must
+// give it a stub file within the same transaction, the same way
+// CreatePackage always pairs a fresh shell with a real file. The one
+// door a create verb is allowed to originate a package that isn't there
+// yet, mirroring CreatePackage's own shell construction for a brand new
+// unit.
 func (w *Workspace) EnsurePackage(id PackageID) (pkg, freshProd *Package, err error) {
 	if p, ok := w.ResolvePackage(id); ok {
 		return p, nil, nil
 	}
 	if id.Kind() != KindXTest {
-		return nil, nil, fmt.Errorf("no package at %q: create_package first", id)
+		return nil, nil, fmt.Errorf("no package at %q", id)
 	}
 	base := id.Base()
 	if base == w.module {

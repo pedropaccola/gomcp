@@ -185,9 +185,9 @@ func (e *Store) Edit(ctx context.Context, fn func(*Tx) error) (*EditReport, erro
 
 // EnsureFullyChecked forces a full-module recheck and publishes it, but
 // only if the current generation was narrowly checked (Recheck v2) —
-// otherwise a no-op. The one caller that needs this today is
-// search_implementors, ahead of Workspace.SymbolsImplementing: that's the
-// one analysis that can't trust a generation mixing packages from two
+// otherwise a no-op. The one caller that needs this today is the
+// implementor-search flow, ahead of Workspace.SymbolsImplementing: that's
+// the one analysis that can't trust a generation mixing packages from two
 // different type-checking sessions (see workspace.ErrNarrowlyChecked).
 func (e *Store) EnsureFullyChecked(ctx context.Context) error {
 	e.mu.Lock()
