@@ -855,9 +855,9 @@ func (w *Workspace) MovePackage(oldPkg, newPkg PackagePath, renameName bool, old
 // an already-relocated key no longer resolves from srcPkg, and a
 // conflict check repeated mid-batch would incorrectly see a sibling
 // still waiting its turn as left behind. Types are placed before their
-// own methods regardless of input order, so InsertOffset's "attach to
-// your receiver" placement resolves correctly for a method landing
-// right after the type it just moved in with. Returns every path
+// own methods regardless of input order, so a method's receiver type
+// already exists by the time InsertOffset places it (see InsertOffset's
+// own doc comment for its placement policy). Returns every path
 // written.
 func (w *Workspace) RelocateSymbols(srcPkg, destPkg PackagePath, keys []string, destPath FilePath) ([]FilePath, error) {
 	seen := make(map[string]bool, len(keys))

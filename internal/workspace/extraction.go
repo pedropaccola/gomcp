@@ -133,9 +133,9 @@ func (w *Workspace) ExtractDeclaration(pkg PackagePath, key string) (string, Spl
 // extract together with key: itself alone, unless key is a member of a
 // grouped const declaration whose meaning is position-dependent (iota,
 // or inheriting the previous spec's expression) — in which case every
-// member of that group is included, since ExtractDeclaration already
-// promotes such an extraction to the whole group and any safety check
-// must see the same set ExtractDeclaration is about to act on.
+// member of that group is included, the same set ExtractDeclaration
+// itself acts on for such a member (see its own doc comment), so a
+// safety check never disagrees with what extraction actually does.
 // Deliberately narrow: var and type groups, and non-position-dependent
 // const groups, are grouped in source for readability only — nothing
 // about them requires moving together, so they are never expanded here.
