@@ -67,6 +67,17 @@ already carry that; a doc comment that accumulates a running history
 rots the moment the history stops being current, and stops answering the
 one question it exists to answer.
 
+A doc comment also stays inside its own declaration's scope: what it
+does, and how it performs its own transformation — never how a value it
+merely consumes was derived somewhere else in the call chain, even when
+that origin is real and traceable. Citing another function two packages
+downstream to justify a field's own behavior is a staleness risk the
+moment that upstream mechanism changes, and it's not useful to a reading
+agent either — one working through this codebase via these same tools
+can already walk the real chain (`search_references`, `describe_symbols`)
+the moment it actually needs to; a doc comment that narrates that chain
+secondhand only adds a second, driftable copy of it.
+
 Naming and consistency discipline — the same word for the same concept
 everywhere, argument order matching across functions that share
 parameters, no abstraction introduced without a second real

@@ -17,23 +17,17 @@ type toolConfig struct {
 
 // newDiagnosticEntry renders one diagnostic into its wire-facing shape.
 func newDiagnosticEntry(d store.Diagnostic) DiagnosticEntry {
-	e := DiagnosticEntry{
-		Kind:    d.Kind.String(),
-		Message: d.Msg,
-	}
-	if d.Package != "" {
-		e.PkgPath = new(string)
-		*e.PkgPath = string(d.Package)
-	}
+	fileName := ""
 	if d.File != "" {
-		e.FileName = new(string)
-		*e.FileName = d.File.Base()
+		fileName = d.File.Base()
 	}
-	if d.Key != "" {
-		e.SymbolKey = new(string)
-		*e.SymbolKey = d.Key
+	return DiagnosticEntry{
+		PkgPath:   string(d.Package),
+		FileName:  fileName,
+		SymbolKey: d.Key,
+		Kind:      d.Kind.String(),
+		Message:   d.Msg,
 	}
-	return e
 }
 
 // DiagnosticsTruncated is the shared optional diagnostics view, scoped to whatever the
@@ -48,16 +42,17 @@ type DiagnosticsTruncated struct {
 }
 
 // DiagnosticEntry is one problem report, addressed the same way every other
-// tool addresses a symbol: PkgPath/SymbolKey are directly usable as-is with
-// describe_symbols/edit_symbols. FileName is the coarser fallback when a
-// diagnostic is attributable to a file but no single declaration; all three
-// are nil for module/driver-level problems.
+// tool addresses a symbol: PkgPath is always present. SymbolKey and
+// FileName are the two ways attribution gets coarser, each omitted when a
+// diagnostic can't be pinned that precisely — SymbolKey to no single
+// declaration (the common case), FileName (rarer) to no workspace file at
+// all.
 type DiagnosticEntry struct {
-	PkgPath   *string `json:"pkg_path,omitempty"`
-	FileName  *string `json:"file_name,omitempty"`
-	SymbolKey *string `json:"symbol_key,omitempty"`
-	Kind      string  `json:"kind"`
-	Message   string  `json:"message"`
+	PkgPath   string `json:"pkg_path"`
+	FileName  string `json:"file_name,omitempty"`
+	SymbolKey string `json:"symbol_key,omitempty"`
+	Kind      string `json:"kind"`
+	Message   string `json:"message"`
 }
 
 // optStr collapses an optional input pointer to its plain value — nil (the

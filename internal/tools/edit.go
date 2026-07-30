@@ -13,13 +13,14 @@ import (
 // refactorings alike): the files changed grouped by package, the
 // diagnostics this edit introduced and resolved (each nil when there's
 // nothing to report, not an empty block), how many pre-existing
-// diagnostics it left untouched, and whether those two diagnostics blocks
-// can be trusted at all.
+// diagnostics it left untouched — always present, since zero is itself
+// meaningful and must stay distinguishable from "not computed" — and
+// whether those two diagnostics blocks can be trusted at all.
 type WriteOutput struct {
 	Files                     map[string][]string   `json:"files"`
 	IntroducedDiagnostics     *DiagnosticsTruncated `json:"introduced_diagnostics,omitempty"`
 	ResolvedDiagnostics       *DiagnosticsTruncated `json:"resolved_diagnostics,omitempty"`
-	UnrelatedDiagnosticsCount *int                  `json:"unrelated_diagnostics_count,omitempty"`
+	UnrelatedDiagnosticsCount int                   `json:"unrelated_diagnostics_count"`
 	DiagnosticsUnavailable    *bool                 `json:"diagnostics_unavailable,omitempty"`
 }
 
@@ -38,7 +39,7 @@ func runEdit(ctx context.Context, eng *store.Store, cfg *toolConfig, fn func(*st
 	if resolved := newDiagnosticsTruncated(report.Resolved, cfg.diagLimit); len(resolved.Diagnostics) > 0 || resolved.Truncated != nil {
 		out.ResolvedDiagnostics = &resolved
 	}
-	out.UnrelatedDiagnosticsCount = new(report.Unrelated)
+	out.UnrelatedDiagnosticsCount = report.Unrelated
 	if report.Stale {
 		out.DiagnosticsUnavailable = new(report.Stale)
 		out.IntroducedDiagnostics = &DiagnosticsTruncated{Diagnostics: []DiagnosticEntry{{Message: "diagnostics unavailable: " + report.Note}}}

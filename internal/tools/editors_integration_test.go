@@ -136,7 +136,7 @@ func TestMutationTools(t *testing.T) {
 		t.Fatalf("edit_symbol: %v", err)
 	}
 	if edited.IntroducedDiagnostics == nil || !slices.ContainsFunc(edited.IntroducedDiagnostics.Diagnostics, func(d DiagnosticEntry) bool {
-		return d.FileName != nil && *d.FileName == "use.go"
+		return d.FileName == "use.go"
 	}) {
 		t.Errorf("edit echo missing the blast radius in use/use.go: %+v", edited)
 	}

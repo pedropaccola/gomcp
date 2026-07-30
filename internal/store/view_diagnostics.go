@@ -79,13 +79,13 @@ func (v *View) FileDiagnostics(pkg workspace.PackagePath, path workspace.FilePat
 
 // Diagnostic is a source-agnostic problem report: store's own copy,
 // safe to hold past the Read/Edit closure that produced it. Attribution
-// is by declaration, not position: Package/Key name the enclosing
-// declaration when one resolves, File is the coarser fallback for a
-// diagnostic attributable to a file but no single declaration (import
-// blocks, unparsed syntax), and both are empty for module/driver-level
-// problems. Kind stays workspace.DiagKind directly — unlike SymbolKind,
-// nothing in internal/tools ever spells this type by name, so there's
-// nothing to dissolve or duplicate.
+// is by declaration, not position: Package is always populated. Key
+// names the enclosing declaration when one resolves, empty otherwise.
+// File is the coarser fallback for a diagnostic attributable to a file
+// but no single declaration, empty only when it can't be pinned to any
+// workspace file at all. Kind stays workspace.DiagKind directly — unlike
+// SymbolKind, nothing in internal/tools ever spells this type by name,
+// so there's nothing to dissolve or duplicate.
 type Diagnostic struct {
 	File    workspace.FilePath
 	Package workspace.PackagePath
