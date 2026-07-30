@@ -118,11 +118,11 @@ func (tx *Tx) CreateSymbol(pkg workspace.PackageID, fileName, src string) error 
 			if err != nil {
 				return err
 			}
-			sp, ok := tx.ws.NewSpliceAtOffset(p, path, at, at, []byte("\n"+specs+"\n"))
+			sp, ok := tx.ws.NewSpliceAtOffset(p, path, at.ToByteRange(), []byte("\n"+specs+"\n"))
 			if !ok {
 				return workspace.NoInsertionPointError(path)
 			}
-			return tx.installFile(canon, isXTest, path, workspace.ApplySplices(file.Src(), []workspace.Splice{sp}))
+			return tx.installFile(canon, isXTest, path, workspace.ByteSplices{sp}.Apply(file.Src()))
 		}
 	}
 
@@ -137,11 +137,11 @@ func (tx *Tx) CreateSymbol(pkg workspace.PackageID, fileName, src string) error 
 			}
 		}
 	}
-	sp, ok := tx.ws.NewSpliceAtOffset(p, path, at, at, []byte("\n\n"+src+"\n"))
+	sp, ok := tx.ws.NewSpliceAtOffset(p, path, at.ToByteRange(), []byte("\n\n"+src+"\n"))
 	if !ok {
 		return workspace.NoInsertionPointError(path)
 	}
-	return tx.installFile(canon, isXTest, path, workspace.ApplySplices(file.Src(), []workspace.Splice{sp}))
+	return tx.installFile(canon, isXTest, path, workspace.ByteSplices{sp}.Apply(file.Src()))
 }
 
 // DeleteFile removes one file and every declaration in it, tombstoning the
@@ -213,7 +213,7 @@ func (tx *Tx) DeleteSymbol(pkg workspace.PackagePath, key string) error {
 	if !ok {
 		return workspace.VanishedError(path, fmt.Sprintf("while deleting %q", key))
 	}
-	return tx.installFile(pkg, owner.ID.Kind() == workspace.KindXTest, path, workspace.ApplySplices(file.Src(), splices))
+	return tx.installFile(pkg, owner.ID.Kind() == workspace.KindXTest, path, splices.Apply(file.Src()))
 }
 
 // EditFile replaces or clears a file's package doc comment — the comment
@@ -242,7 +242,7 @@ func (tx *Tx) EditFile(pkg workspace.PackagePath, name, doc string) error {
 	if !ok {
 		return fmt.Errorf("cannot locate doc comment span in %q", path)
 	}
-	candidate := workspace.ApplySplices(file.Src(), []workspace.Splice{sp})
+	candidate := workspace.ByteSplices{sp}.Apply(file.Src())
 	return tx.installFile(pkg, false, path, candidate)
 }
 
@@ -293,7 +293,7 @@ func (tx *Tx) EditSymbol(pkg workspace.PackagePath, key, src string) error {
 		return workspace.VanishedError(target.Path, fmt.Sprintf("while editing %q", key))
 	}
 	target.Repl = []byte(replacement)
-	return tx.installFile(pkg, owner.ID.Kind() == workspace.KindXTest, target.Path, workspace.ApplySplices(file.Src(), []workspace.Splice{target}))
+	return tx.installFile(pkg, owner.ID.Kind() == workspace.KindXTest, target.Path, workspace.ByteSplices{target}.Apply(file.Src()))
 }
 
 // MoveFile relocates a file to another package (newPkgPath) and/or gives
@@ -531,7 +531,7 @@ func (tx *Tx) renameSymbol(pkg workspace.PackagePath, key, newName string) error
 		return errSymbolExists(newKey, pkg)
 	}
 
-	var edits []workspace.Splice
+	var edits workspace.ByteSplices
 	def := sym.DefiningIdent()
 	if sp, ok := tx.ws.NewSpliceAtPos(owner, sym.File, def.Pos(), def.End(), []byte(newName)); ok {
 		edits = append(edits, sp)

@@ -18,7 +18,7 @@ func (w *Workspace) DeclSource(pkg PackagePath, key string) (string, bool) {
 		return "", false
 	}
 	file, _ := owner.File(sym.File)
-	return string(file.Src()[sp.start:sp.end]), true
+	return string(sp.Slice(file.Src())), true
 }
 
 // SpecSource extracts the exact source of key's own spec, doc comment
@@ -35,7 +35,7 @@ func (w *Workspace) SpecSource(pkg PackagePath, key string) (string, bool) {
 		return "", false
 	}
 	file, _ := owner.File(sym.File)
-	return string(file.Src()[sp.start:sp.end]), true
+	return string(sp.Slice(file.Src())), true
 }
 
 // Signature extracts key's func or method header without doc comment or
@@ -62,5 +62,5 @@ func (w *Workspace) Signature(pkg PackagePath, key string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return strings.TrimRight(string(file.Src()[sp.start:sp.end]), " \t\n"), true
+	return strings.TrimRight(string(sp.Slice(file.Src())), " \t\n"), true
 }

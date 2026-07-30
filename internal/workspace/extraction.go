@@ -47,12 +47,12 @@ func constPositionDependent(gen *ast.GenDecl, grouped bool, sym *Symbol) bool {
 	return ok && (len(spec.Values) == 0 || GroupUsesIota(gen))
 }
 
-// declSpan is the byte span of sym's whole declaration, doc comment
+// declSpan is the byte range of sym's whole declaration, doc comment
 // included.
-func (w *Workspace) declSpan(pkg *Package, sym *Symbol) (span, bool) {
+func (w *Workspace) declSpan(pkg *Package, sym *Symbol) (ByteRange, bool) {
 	file, ok := pkg.File(sym.File)
 	if !ok {
-		return span{}, false
+		return ByteRange{}, false
 	}
 	start := sym.Decl().Pos()
 	if doc := DocOf(sym.Decl()); doc != nil {
@@ -61,14 +61,14 @@ func (w *Workspace) declSpan(pkg *Package, sym *Symbol) (span, bool) {
 	return w.offsetSpan(pkg, file, start, sym.Decl().End())
 }
 
-// specSpan is the byte span of sym's own spec, doc included.
-func (w *Workspace) specSpan(pkg *Package, sym *Symbol) (span, bool) {
+// specSpan is the byte range of sym's own spec, doc included.
+func (w *Workspace) specSpan(pkg *Package, sym *Symbol) (ByteRange, bool) {
 	if sym.Spec() == nil {
 		return w.declSpan(pkg, sym)
 	}
 	file, ok := pkg.File(sym.File)
 	if !ok {
-		return span{}, false
+		return ByteRange{}, false
 	}
 	start := sym.Spec().Pos()
 	if doc := DocOf(sym.Spec()); doc != nil {
@@ -78,7 +78,7 @@ func (w *Workspace) specSpan(pkg *Package, sym *Symbol) (span, bool) {
 }
 
 // ExtractDeclaration returns key's declaration as standalone source together
-// with the Splice its removal applies, doc comment included in both. A
+// with the ByteSplice its removal applies, doc comment included in both. A
 // member of a grouped declaration with siblings is rebuilt ungrouped —
 // doc first, then the group's keyword before the spec. Extraction refuses
 // names sharing a spec (X, Y = 1, 2 — no way to split them). A
@@ -89,44 +89,44 @@ func (w *Workspace) specSpan(pkg *Package, sym *Symbol) (span, bool) {
 // the rest. Aggregate-owned analysis, same rationale as
 // DetectMoveConflicts: key is resolved fresh here, not accepted as a
 // pointer a caller might already be holding.
-func (w *Workspace) ExtractDeclaration(pkg PackagePath, key string) (string, Splice, error) {
+func (w *Workspace) ExtractDeclaration(pkg PackagePath, key string) (string, ByteSplice, error) {
 	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
-		return "", Splice{}, NoSymbolError(key, pkg)
+		return "", ByteSplice{}, NoSymbolError(key, pkg)
 	}
 	if spec, ok := sym.Spec().(*ast.ValueSpec); ok && len(spec.Names) > 1 {
-		return "", Splice{}, fmt.Errorf("%q is declared together with other names: replace the spec instead", sym.Key())
+		return "", ByteSplice{}, fmt.Errorf("%q is declared together with other names: replace the spec instead", sym.Key())
 	}
 	file, ok := owner.File(sym.File)
 	if !ok {
-		return "", Splice{}, errNotInSource(key)
+		return "", ByteSplice{}, errNotInSource(key)
 	}
 	gen, grouped := sym.GroupOf()
 	if isSoloGroup(gen, grouped) || constPositionDependent(gen, grouped, sym) {
 		sp, ok := w.declSpan(owner, sym)
 		if !ok {
-			return "", Splice{}, errNotInSource(key)
+			return "", ByteSplice{}, errNotInSource(key)
 		}
-		splice, ok := w.NewSpliceAtOffset(owner, sym.File, sp.start, sp.end, nil)
+		splice, ok := w.NewSpliceAtOffset(owner, sym.File, sp, nil)
 		if !ok {
-			return "", Splice{}, errNotInSource(key)
+			return "", ByteSplice{}, errNotInSource(key)
 		}
-		return string(file.Src()[sp.start:sp.end]), splice, nil
+		return string(sp.Slice(file.Src())), splice, nil
 	}
 	sp, ok := w.specSpan(owner, sym)
 	if !ok {
-		return "", Splice{}, errNotInSource(key)
+		return "", ByteSplice{}, errNotInSource(key)
 	}
 	body, ok := w.offsetSpan(owner, file, sym.Spec().Pos(), sym.Spec().End())
 	if !ok {
-		return "", Splice{}, errNotInSource(key)
+		return "", ByteSplice{}, errNotInSource(key)
 	}
-	doc := string(file.Src()[sp.start:body.start])
-	splice, ok := w.NewSpliceAtOffset(owner, sym.File, sp.start, sp.end, nil)
+	doc := string(file.Src()[sp.Start:body.Start])
+	splice, ok := w.NewSpliceAtOffset(owner, sym.File, sp, nil)
 	if !ok {
-		return "", Splice{}, errNotInSource(key)
+		return "", ByteSplice{}, errNotInSource(key)
 	}
-	return doc + gen.Tok.String() + " " + string(file.Src()[body.start:body.end]), splice, nil
+	return doc + gen.Tok.String() + " " + string(body.Slice(file.Src())), splice, nil
 }
 
 // PositionDependentGroupMembers returns every key that must move or

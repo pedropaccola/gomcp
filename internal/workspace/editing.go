@@ -7,17 +7,17 @@ import (
 // ComputeEditPlan reports the facts EditSymbol needs about key's current
 // declaration: whether it's part of a position-dependent group (in which
 // case a replacement must resubmit the whole group), the group's token
-// kind when grouped (token.ILLEGAL otherwise), and the Splice the
+// kind when grouped (token.ILLEGAL otherwise), and the ByteSplice the
 // replacement itself lands in. Aggregate-owned analysis, same rationale
 // as DetectMoveConflicts: key is resolved fresh here.
-func (w *Workspace) ComputeEditPlan(pkg PackagePath, key string) (wasPositionDependent bool, groupTok token.Token, target Splice, err error) {
+func (w *Workspace) ComputeEditPlan(pkg PackagePath, key string) (wasPositionDependent bool, groupTok token.Token, target ByteSplice, err error) {
 	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
-		return false, token.ILLEGAL, Splice{}, NoSymbolError(key, pkg)
+		return false, token.ILLEGAL, ByteSplice{}, NoSymbolError(key, pkg)
 	}
 	gen, grouped := sym.GroupOf()
 	wasPositionDependent = constPositionDependent(gen, grouped, sym)
-	var sp span
+	var sp ByteRange
 	var spanOK bool
 	switch {
 	case wasPositionDependent:
@@ -28,15 +28,15 @@ func (w *Workspace) ComputeEditPlan(pkg PackagePath, key string) (wasPositionDep
 		sp, spanOK = w.declSpan(owner, sym)
 	}
 	if !spanOK {
-		return wasPositionDependent, token.ILLEGAL, Splice{}, errNotInSource(key)
+		return wasPositionDependent, token.ILLEGAL, ByteSplice{}, errNotInSource(key)
 	}
 	tok := token.ILLEGAL
 	if grouped {
 		tok = gen.Tok
 	}
-	target, ok = w.NewSpliceAtOffset(owner, sym.File, sp.start, sp.end, nil)
+	target, ok = w.NewSpliceAtOffset(owner, sym.File, sp, nil)
 	if !ok {
-		return wasPositionDependent, token.ILLEGAL, Splice{}, errNotInSource(key)
+		return wasPositionDependent, token.ILLEGAL, ByteSplice{}, errNotInSource(key)
 	}
 	return wasPositionDependent, tok, target, nil
 }

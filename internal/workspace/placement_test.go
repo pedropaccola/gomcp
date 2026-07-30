@@ -15,7 +15,7 @@ func TestInsertOffsetAppendsFuncAtEnd(t *testing.T) {
 	file, _, _ := w.resolveFile("test.mod/pkg", "test.mod/pkg/pkg.go")
 	src := string(file.Src())
 	fooEnd := strings.Index(src, "func Foo() {}") + len("func Foo() {}")
-	if at != fooEnd {
+	if at != ByteOffset(fooEnd) {
 		t.Errorf("InsertOffset = %d, want right after Foo's decl (%d):\n%s", at, fooEnd, src)
 	}
 }
@@ -30,7 +30,7 @@ func TestInsertOffsetMethodNearReceiver(t *testing.T) {
 	src := string(file.Src())
 	mEnd := strings.Index(src, "func (b Box) M() {}") + len("func (b Box) M() {}")
 	otherStart := strings.Index(src, "func Other")
-	if at < mEnd || at > otherStart {
+	if at < ByteOffset(mEnd) || at > ByteOffset(otherStart) {
 		t.Errorf("InsertOffset(Box method) = %d, want between M's end (%d) and Other (%d):\n%s", at, mEnd, otherStart, src)
 	}
 }
@@ -45,7 +45,7 @@ func TestTypeDeclOffset(t *testing.T) {
 	src := string(file.Src())
 	typeEnd := strings.Index(src, "type Status int") + len("type Status int")
 	fooStart := strings.Index(src, "func Foo")
-	if at < typeEnd || at > fooStart {
+	if at < ByteOffset(typeEnd) || at > ByteOffset(fooStart) {
 		t.Errorf("TypeDeclOffset(Status) = %d, want between Status's end (%d) and Foo (%d):\n%s", at, typeEnd, fooStart, src)
 	}
 }
@@ -60,7 +60,7 @@ func TestMergeableGroupInsertOffset(t *testing.T) {
 	src := string(file.Src())
 	bEnd := strings.Index(src, "B = 2") + len("B = 2")
 	closeParen := strings.LastIndex(src, ")")
-	if at < bEnd || at > closeParen {
+	if at < ByteOffset(bEnd) || at > ByteOffset(closeParen) {
 		t.Errorf("MergeableGroupInsertOffset = %d, want inside the group after B (%d..%d):\n%s", at, bEnd, closeParen, src)
 	}
 }
@@ -86,7 +86,7 @@ func TestInsertOffsetMethodAfterTypeWithNoExistingMethods(t *testing.T) {
 	file, _, _ := w.resolveFile("test.mod/pkg", "test.mod/pkg/pkg.go")
 	src := string(file.Src())
 	boxEnd := strings.Index(src, "type Box struct{}") + len("type Box struct{}")
-	if at != boxEnd {
+	if at != ByteOffset(boxEnd) {
 		t.Errorf("InsertOffset(Box method, no existing methods) = %d, want right after Box's type decl (%d):\n%s", at, boxEnd, src)
 	}
 }

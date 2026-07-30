@@ -11,7 +11,7 @@ import (
 // applyFileSplices applies splices across however many files they touch
 // and records every one as changed — the one door Tx's mutation verbs
 // use to turn a splice plan into installed content.
-func (tx *Tx) applyFileSplices(splices []workspace.Splice) error {
+func (tx *Tx) applyFileSplices(splices workspace.ByteSplices) error {
 	touched, err := tx.ws.ApplyFileSplices(splices)
 	if err != nil {
 		return err
@@ -109,7 +109,7 @@ func (tx *Tx) RepairMissingImports() bool {
 		if !ok {
 			continue
 		}
-		candidate := workspace.ApplySplices(file.Src(), []workspace.Splice{sp})
+		candidate := workspace.ByteSplices{sp}.Apply(file.Src())
 		addr := filePath.PackagePath()
 		if err := tx.installFile(addr, owner.ID.Kind() == workspace.KindXTest, filePath, candidate); err != nil {
 			continue // repair is best-effort; the diagnostic stays visible

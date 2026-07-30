@@ -84,6 +84,19 @@ parameters, no abstraction introduced without a second real
 implementation to justify it — is covered in ARCHITECTURE.md's Pillars.
 Apply it when writing code; read that file for the reasoning behind it.
 
+Method and function naming follows the verb telling you what you get
+back: a predicate (returns bool) is prefixed `Is` (`IsValid`, not
+`Valid`); a conversion into another type of the same receiver (returns
+a different type, no other required input) is prefixed `To`
+(`ToByteRange`, not `Range`); a constructor (builds and returns a new
+value of the type it's named after) is prefixed `New` (`NewFilePath`,
+`NewSpliceAtOffset`) — the name alone should say which without needing
+the doc comment or the return type. This doesn't extend to every method
+that happens to transform something: an operation that needs real
+external input to do its work (`ByteRange.Slice(src)`,
+`ByteSplices.Apply(src)`) reads as an action on that input, not a bare
+self-conversion, and keeps its verb name as-is.
+
 Formatting itself is never a judgment call: `make tidy` (gofmt + `go mod
 tidy`) is authoritative.
 

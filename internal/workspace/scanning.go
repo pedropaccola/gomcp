@@ -61,7 +61,7 @@ func (w *Workspace) SymbolsLike(ctx context.Context, substr string) []SymbolMatc
 // the whole group), and the full declaration — keyword and doc included
 // — everywhere else.
 func (w *Workspace) scanSource(pkg *Package, sym *Symbol) ([]byte, bool) {
-	var sp span
+	var sp ByteRange
 	var ok bool
 	if _, grouped := sym.GroupOf(); grouped {
 		sp, ok = w.specSpan(pkg, sym)
@@ -72,7 +72,7 @@ func (w *Workspace) scanSource(pkg *Package, sym *Symbol) ([]byte, bool) {
 		return nil, false
 	}
 	file, _ := pkg.File(sym.File)
-	return file.Src()[sp.start:sp.end], true
+	return sp.Slice(file.Src()), true
 }
 
 // SymbolsRegexp scans each symbol's own source and collects the symbols

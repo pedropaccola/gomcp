@@ -150,7 +150,7 @@ func (w *Workspace) resolveFile(pkg PackagePath, path FilePath) (*File, *Package
 // receiver group isn't in this file falls to the bottom. Aggregate-owned
 // placement analysis, resolved fresh from pkg/fileName here rather than
 // accepted as a *File pointer a caller might already be holding.
-func (w *Workspace) InsertOffset(pkg PackagePath, fileName FilePath, kind SymbolKind, recv string) (int, bool) {
+func (w *Workspace) InsertOffset(pkg PackagePath, fileName FilePath, kind SymbolKind, recv string) (ByteOffset, bool) {
 	file, owner, ok := w.resolveFile(pkg, fileName)
 	if !ok {
 		return 0, false
@@ -167,14 +167,14 @@ func (w *Workspace) InsertOffset(pkg PackagePath, fileName FilePath, kind Symbol
 	}
 	if anchor == nil {
 		if sp, ok := w.offsetSpan(owner, file, file.Ast().Name.Pos(), file.Ast().Name.End()); ok {
-			return sp.end, true
+			return sp.End, true
 		}
-		return len(file.Src()), true
+		return ByteOffset(len(file.Src())), true
 	}
 	if sp, ok := w.offsetSpan(owner, file, anchor.Pos(), anchor.End()); ok {
-		return sp.end, true
+		return sp.End, true
 	}
-	return len(file.Src()), true
+	return ByteOffset(len(file.Src())), true
 }
 
 // TypeDeclOffset returns the insertion offset right after typeName's own
@@ -182,7 +182,7 @@ func (w *Workspace) InsertOffset(pkg PackagePath, fileName FilePath, kind Symbol
 // declared there — the same "cluster with your type" placement
 // declPrecedes already gives methods, extended to a typed iota group
 // anchored to that type instead of a receiver.
-func (w *Workspace) TypeDeclOffset(pkg PackagePath, fileName FilePath, typeName string) (int, bool) {
+func (w *Workspace) TypeDeclOffset(pkg PackagePath, fileName FilePath, typeName string) (ByteOffset, bool) {
 	file, owner, ok := w.resolveFile(pkg, fileName)
 	if !ok {
 		return 0, false
@@ -193,7 +193,7 @@ func (w *Workspace) TypeDeclOffset(pkg PackagePath, fileName FilePath, typeName 
 			continue
 		}
 		if sp, ok := w.offsetSpan(owner, file, decl.Pos(), decl.End()); ok {
-			return sp.end, true
+			return sp.End, true
 		}
 	}
 	return 0, false
@@ -205,7 +205,7 @@ func (w *Workspace) TypeDeclOffset(pkg PackagePath, fileName FilePath, typeName 
 // ok=false when there is no such group to merge a new plain const/var
 // into — keeping at most one such group per file rather than growing a
 // new one each time.
-func (w *Workspace) MergeableGroupInsertOffset(pkg PackagePath, fileName FilePath, tok token.Token) (int, bool) {
+func (w *Workspace) MergeableGroupInsertOffset(pkg PackagePath, fileName FilePath, tok token.Token) (ByteOffset, bool) {
 	file, owner, ok := w.resolveFile(pkg, fileName)
 	if !ok {
 		return 0, false
@@ -218,5 +218,5 @@ func (w *Workspace) MergeableGroupInsertOffset(pkg PackagePath, fileName FilePat
 	if !ok {
 		return 0, false
 	}
-	return sp.start, true
+	return sp.Start, true
 }

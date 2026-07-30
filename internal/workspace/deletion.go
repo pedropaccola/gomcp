@@ -24,7 +24,7 @@ func trimRange[T ast.Node](elems []T, idx int) (token.Pos, token.Pos) {
 // multi-valued expression can't shrink the call's arity, so the targeted
 // name blanks to `_` instead — the only transform leaving every other
 // name's behavior unaffected.
-func (w *Workspace) trimSpecName(owner *Package, sym *Symbol, spec *ast.ValueSpec, key string) ([]Splice, bool) {
+func (w *Workspace) trimSpecName(owner *Package, sym *Symbol, spec *ast.ValueSpec, key string) (ByteSplices, bool) {
 	idx := -1
 	for i, n := range spec.Names {
 		if n.Name == key {
@@ -47,14 +47,14 @@ func (w *Workspace) trimSpecName(owner *Package, sym *Symbol, spec *ast.ValueSpe
 		if !ok {
 			return nil, false
 		}
-		return []Splice{splice}, true
+		return ByteSplices{splice}, true
 	}
 	nameStart, nameEnd := trimRange(spec.Names, idx)
 	nameSplice, ok := w.NewSpliceAtPos(owner, sym.File, nameStart, nameEnd, nil)
 	if !ok {
 		return nil, false
 	}
-	splices := []Splice{nameSplice}
+	splices := ByteSplices{nameSplice}
 	if len(spec.Values) == len(spec.Names) {
 		valStart, valEnd := trimRange(spec.Values, idx)
 		valSplice, ok := w.NewSpliceAtPos(owner, sym.File, valStart, valEnd, nil)
@@ -75,7 +75,7 @@ func (w *Workspace) trimSpecName(owner *Package, sym *Symbol, spec *ast.ValueSpe
 // false means key doesn't exist — deletion is idempotent, a caller should
 // treat that as success, not an error. Aggregate-owned analysis, same
 // rationale as DetectMoveConflicts: key is resolved fresh here.
-func (w *Workspace) ComputeDeletionSplices(pkg PackagePath, key string) (splices []Splice, found bool, err error) {
+func (w *Workspace) ComputeDeletionSplices(pkg PackagePath, key string) (splices ByteSplices, found bool, err error) {
 	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return nil, false, nil
@@ -95,9 +95,9 @@ func (w *Workspace) ComputeDeletionSplices(pkg PackagePath, key string) (splices
 	if !ok {
 		return nil, true, errNotInSource(key)
 	}
-	splice, ok := w.NewSpliceAtOffset(owner, sym.File, sp.start, sp.end, nil)
+	splice, ok := w.NewSpliceAtOffset(owner, sym.File, sp, nil)
 	if !ok {
 		return nil, true, errNotInSource(key)
 	}
-	return []Splice{splice}, true, nil
+	return ByteSplices{splice}, true, nil
 }
