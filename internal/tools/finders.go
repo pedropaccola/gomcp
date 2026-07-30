@@ -133,7 +133,7 @@ func resolveAnySymbol(v *store.View, addr, key string) (store.Symbol, error) {
 	if v.HasExternalPackage(workspace.PackagePath(addr)) {
 		return store.Symbol{}, fmt.Errorf("%q is a dependency: its API is served read-only by list_* and describe_*; semantic search stays in the workspace", addr)
 	}
-	return store.Symbol{}, fmt.Errorf("no symbol %q in package %q: call list_symbols for valid keys", key, addr)
+	return store.Symbol{}, fmt.Errorf("%s: call list_symbols for valid keys", workspace.NoSymbolError(key, addr))
 }
 
 // newMatchEntries renders scan hits for the search_* outputs: canonical

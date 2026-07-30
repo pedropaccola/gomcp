@@ -92,39 +92,39 @@ func (w *Workspace) specSpan(pkg *Package, sym *Symbol) (span, bool) {
 func (w *Workspace) ExtractDeclaration(pkg PackagePath, key string) (string, Splice, error) {
 	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
-		return "", Splice{}, fmt.Errorf("no symbol %q in %q", key, pkg)
+		return "", Splice{}, NoSymbolError(key, pkg)
 	}
 	if spec, ok := sym.Spec().(*ast.ValueSpec); ok && len(spec.Names) > 1 {
 		return "", Splice{}, fmt.Errorf("%q is declared together with other names: replace the spec instead", sym.Key())
 	}
 	file, ok := owner.File(sym.File)
 	if !ok {
-		return "", Splice{}, fmt.Errorf("cannot locate %q in source", key)
+		return "", Splice{}, errNotInSource(key)
 	}
 	gen, grouped := sym.GroupOf()
 	if isSoloGroup(gen, grouped) || constPositionDependent(gen, grouped, sym) {
 		sp, ok := w.declSpan(owner, sym)
 		if !ok {
-			return "", Splice{}, fmt.Errorf("cannot locate %q in source", key)
+			return "", Splice{}, errNotInSource(key)
 		}
 		splice, ok := w.NewSpliceAtOffset(owner, sym.File, sp.start, sp.end, nil)
 		if !ok {
-			return "", Splice{}, fmt.Errorf("cannot locate %q in source", key)
+			return "", Splice{}, errNotInSource(key)
 		}
 		return string(file.Src()[sp.start:sp.end]), splice, nil
 	}
 	sp, ok := w.specSpan(owner, sym)
 	if !ok {
-		return "", Splice{}, fmt.Errorf("cannot locate %q in source", key)
+		return "", Splice{}, errNotInSource(key)
 	}
 	body, ok := w.offsetSpan(owner, file, sym.Spec().Pos(), sym.Spec().End())
 	if !ok {
-		return "", Splice{}, fmt.Errorf("cannot locate %q in source", key)
+		return "", Splice{}, errNotInSource(key)
 	}
 	doc := string(file.Src()[sp.start:body.start])
 	splice, ok := w.NewSpliceAtOffset(owner, sym.File, sp.start, sp.end, nil)
 	if !ok {
-		return "", Splice{}, fmt.Errorf("cannot locate %q in source", key)
+		return "", Splice{}, errNotInSource(key)
 	}
 	return doc + gen.Tok.String() + " " + string(file.Src()[body.start:body.end]), splice, nil
 }
@@ -142,7 +142,7 @@ func (w *Workspace) ExtractDeclaration(pkg PackagePath, key string) (string, Spl
 func (w *Workspace) PositionDependentGroupMembers(pkg PackagePath, key string) ([]string, error) {
 	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
-		return nil, fmt.Errorf("no symbol %q in %q", key, pkg)
+		return nil, NoSymbolError(key, pkg)
 	}
 	gen, grouped := sym.GroupOf()
 	if !grouped || (!isSoloGroup(gen, grouped) && !constPositionDependent(gen, grouped, sym)) {

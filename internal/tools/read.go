@@ -51,7 +51,7 @@ func readPackage(ctx context.Context, eng *store.Store, addr string, fn func(*st
 	if found, err := attempt(); err != nil || found {
 		return err
 	}
-	return fmt.Errorf("no package at %q", addr)
+	return workspace.NoPackageError(addr)
 }
 
 // readSymbol is readPackage plus symbol resolution: View.Symbol already
@@ -60,7 +60,7 @@ func readSymbol(ctx context.Context, eng *store.Store, addr, key string, fn func
 	return readPackage(ctx, eng, addr, func(v *store.View, pkg workspace.PackageID) error {
 		sym, ok := v.Symbol(pkg.Base(), key)
 		if !ok {
-			return fmt.Errorf("no symbol %q in package %q: call list_symbols for valid keys", key, addr)
+			return fmt.Errorf("%s: call list_symbols for valid keys", workspace.NoSymbolError(key, addr))
 		}
 		return fn(v, sym, sym.Owner)
 	})

@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"fmt"
 	"go/token"
 )
 
@@ -41,11 +40,11 @@ func (w *Workspace) EnsurePackage(id PackageID) (pkg, freshProd *Package, err er
 		return p, nil, nil
 	}
 	if id.Kind() != KindXTest {
-		return nil, nil, fmt.Errorf("no package at %q", id)
+		return nil, nil, NoPackageError(id)
 	}
 	base := id.Base()
 	if base == w.module {
-		return nil, nil, fmt.Errorf("cannot create a package at %q: workspace packages live under module %q", base, w.module)
+		return nil, nil, OutsideModuleCreateError(base, w.module)
 	}
 	unit, ok := w.Unit(base)
 	var prod *Package
@@ -55,7 +54,7 @@ func (w *Workspace) EnsurePackage(id PackageID) (pkg, freshProd *Package, err er
 	if prod == nil {
 		name := base.Base()
 		if !token.IsIdentifier(name) {
-			return nil, nil, fmt.Errorf("%q is not a valid package name", name)
+			return nil, nil, InvalidPackageNameError(name)
 		}
 		prod = NewPackage(name, base, KindProd, nil, nil)
 		freshProd = prod

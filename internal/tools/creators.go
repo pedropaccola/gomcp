@@ -50,7 +50,7 @@ type CreateSymbolInput struct {
 func createPackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[CreatePackageInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreatePackageInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Creates) == 0 {
-			return nil, WriteOutput{}, fmt.Errorf("creates must not be empty")
+			return nil, WriteOutput{}, errEmptyBatch("creates")
 		}
 		n := len(in.Creates)
 		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
@@ -74,7 +74,7 @@ func createPackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[CreateP
 func createFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[CreateFileInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateFileInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Creates) == 0 {
-			return nil, WriteOutput{}, fmt.Errorf("creates must not be empty")
+			return nil, WriteOutput{}, errEmptyBatch("creates")
 		}
 		n := len(in.Creates)
 		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
@@ -95,7 +95,7 @@ func createFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[CreateFile
 func createSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[CreateSymbolInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateSymbolInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Creates) == 0 {
-			return nil, WriteOutput{}, fmt.Errorf("creates must not be empty")
+			return nil, WriteOutput{}, errEmptyBatch("creates")
 		}
 		n := len(in.Creates)
 		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {

@@ -101,11 +101,11 @@ func (w *Workspace) SymbolsImplementing(ctx context.Context, pkg PackagePath, ke
 	}
 	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
-		return nil, fmt.Errorf("no symbol %q in %q", key, pkg)
+		return nil, NoSymbolError(key, pkg)
 	}
 	obj := owner.objectOf(sym)
 	if obj == nil {
-		return nil, fmt.Errorf("type information unavailable for %q", sym.Key())
+		return nil, errNoTypeInfo(sym.Key())
 	}
 	iface, ok := obj.Type().Underlying().(*types.Interface)
 	if !ok {
@@ -144,11 +144,11 @@ func (w *Workspace) SymbolsImplementing(ctx context.Context, pkg PackagePath, ke
 func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg PackagePath, key string) ([]SymbolMatch, error) {
 	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
-		return nil, fmt.Errorf("no symbol %q in %q", key, pkg)
+		return nil, NoSymbolError(key, pkg)
 	}
 	target, ok := keyOf(owner.objectOf(sym))
 	if !ok {
-		return nil, fmt.Errorf("type information unavailable for %q", sym.Key())
+		return nil, errNoTypeInfo(sym.Key())
 	}
 	type pkgRef struct {
 		Pkg *Package

@@ -215,7 +215,7 @@ func (v *View) ResolveType(pkg workspace.PackagePath, key string) (workspace.Pac
 		if _, ok := v.ws.LookupExternal(pkg); ok {
 			return workspace.PackageID{}, fmt.Errorf("%q is a dependency: read-only, semantic search stays scoped to the workspace", pkg)
 		}
-		return workspace.PackageID{}, fmt.Errorf("no symbol %q in package %q", key, pkg)
+		return workspace.PackageID{}, workspace.NoSymbolError(key, pkg)
 	}
 	if sym.Kind != workspace.KindType {
 		return workspace.PackageID{}, fmt.Errorf("%q is a %s, not a %s", key, sym.Kind, workspace.KindType)
@@ -227,14 +227,14 @@ func (v *View) ResolveType(pkg workspace.PackagePath, key string) (workspace.Pac
 func (v *View) ResolveFile(pkg workspace.PackageID, fileName string) (workspace.FilePath, error) {
 	p, ok := v.resolvePkg(pkg)
 	if !ok {
-		return "", fmt.Errorf("no package at %q", pkg)
+		return "", workspace.NoPackageError(pkg)
 	}
 	fp, err := workspace.NewFilePath(v.ws.Module(), p.ID.Base(), fileName)
 	if err != nil {
 		return "", err
 	}
 	if _, ok := p.File(fp); !ok {
-		return "", fmt.Errorf("no file %q in package %q", fp.Base(), pkg)
+		return "", errNoFile(fp.Base(), pkg)
 	}
 	return fp, nil
 }

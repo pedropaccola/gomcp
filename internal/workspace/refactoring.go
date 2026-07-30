@@ -313,11 +313,11 @@ func (w *Workspace) DetectMoveConflicts(srcPkg, destPkg PackagePath, movingKeys 
 func (w *Workspace) ComputeQualifierFixups(srcPkg, destPkg PackagePath, movingKeys []string) ([]Splice, error) {
 	destOwner, ok := w.ProdPackage(destPkg)
 	if !ok {
-		return nil, fmt.Errorf("no package at %q", destPkg)
+		return nil, NoPackageError(destPkg)
 	}
 	srcOwner, ok := w.ProdPackage(srcPkg)
 	if !ok {
-		return nil, fmt.Errorf("no package at %q", srcPkg)
+		return nil, NoPackageError(srcPkg)
 	}
 	type resolved struct {
 		sym   *Symbol
@@ -339,11 +339,11 @@ func (w *Workspace) ComputeQualifierFixups(srcPkg, destPkg PackagePath, movingKe
 		movingSpans[sym.File] = append(movingSpans[sym.File], declSpan{sym.Decl().Pos(), sym.Decl().End()})
 		obj := owner.objectOf(sym)
 		if obj == nil {
-			return nil, fmt.Errorf("type information unavailable for %q", sym.Key())
+			return nil, errNoTypeInfo(sym.Key())
 		}
 		k, ok := keyOf(obj)
 		if !ok {
-			return nil, fmt.Errorf("type information unavailable for %q", sym.Key())
+			return nil, errNoTypeInfo(sym.Key())
 		}
 		movingObjKeys[k] = true
 		if obj.Exported() {
@@ -425,11 +425,11 @@ func (w *Workspace) ComputeQualifierFixups(srcPkg, destPkg PackagePath, movingKe
 func (w *Workspace) ComputeRenameSplices(pkg PackagePath, key, newName string) ([]Splice, error) {
 	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
-		return nil, fmt.Errorf("no symbol %q in %q", key, pkg)
+		return nil, NoSymbolError(key, pkg)
 	}
 	target, ok := keyOf(owner.objectOf(sym))
 	if !ok {
-		return nil, fmt.Errorf("type information unavailable for %q", key)
+		return nil, errNoTypeInfo(key)
 	}
 	var edits []Splice
 	for _, p := range w.allPackages() {
@@ -515,7 +515,7 @@ func (w *Workspace) ComputePackageMoveSplices(oldPkg, newPkg PackagePath, rename
 func (w *Workspace) ValidateNewName(pkg PackagePath, key, newKey string) (newName string, err error) {
 	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
-		return "", fmt.Errorf("no symbol %q in %q", key, pkg)
+		return "", NoSymbolError(key, pkg)
 	}
 	name := newKey
 	if sym.Kind != KindMethod {
@@ -639,11 +639,11 @@ func (w *Workspace) ApplyFileSplices(splices []Splice) ([]FilePath, error) {
 func (w *Workspace) RelocateDeclaration(srcPkg, destPkg PackagePath, key string, destPath FilePath) ([]FilePath, error) {
 	sym, owner, ok := w.ResolveSymbol(srcPkg, key)
 	if !ok {
-		return nil, fmt.Errorf("no symbol %q in %q", key, srcPkg)
+		return nil, NoSymbolError(key, srcPkg)
 	}
 	destOwner, ok := w.ProdPackage(destPkg)
 	if !ok {
-		return nil, fmt.Errorf("no package at %q", destPkg)
+		return nil, NoPackageError(destPkg)
 	}
 	if destOwner == owner && destPath == sym.File {
 		return nil, fmt.Errorf("%q already lives in %q", key, destPath)
@@ -673,15 +673,15 @@ func (w *Workspace) RelocateDeclaration(srcPkg, destPkg PackagePath, key string,
 	}
 	dest, destOwner, ok = w.ResolveFileByPath(destPath)
 	if !ok {
-		return nil, fmt.Errorf("internal error: %q vanished after relocation", destPath)
+		return nil, VanishedError(destPath, "after relocation")
 	}
 	at, ok := w.InsertOffset(destPkg, destPath, kind, recv)
 	if !ok {
-		return nil, fmt.Errorf("cannot locate insertion point in %q", destPath)
+		return nil, NoInsertionPointError(destPath)
 	}
 	sp, ok := w.NewSpliceAtOffset(destOwner, destPath, at, at, []byte("\n\n"+src+"\n"))
 	if !ok {
-		return nil, fmt.Errorf("cannot locate insertion point in %q", destPath)
+		return nil, NoInsertionPointError(destPath)
 	}
 	if err := w.SwapFile(destPkg, false, destPath, ApplySplices(dest.Src(), []Splice{sp})); err != nil {
 		return nil, err
@@ -703,7 +703,7 @@ func (w *Workspace) RelocateDeclaration(srcPkg, destPkg PackagePath, key string,
 func (w *Workspace) RelocateFile(pkg PackagePath, path FilePath, isXTest bool, newPkgPath PackagePath, newPath FilePath) ([]FilePath, error) {
 	unit, ok := w.Unit(pkg)
 	if !ok {
-		return nil, fmt.Errorf("no package at %q", pkg)
+		return nil, NoPackageError(pkg)
 	}
 	owner := unit.Prod()
 	if isXTest {
@@ -711,7 +711,7 @@ func (w *Workspace) RelocateFile(pkg PackagePath, path FilePath, isXTest bool, n
 	}
 	destOwner, ok := w.ProdPackage(newPkgPath)
 	if !ok {
-		return nil, fmt.Errorf("no package at %q", newPkgPath)
+		return nil, NoPackageError(newPkgPath)
 	}
 
 	var movingKeys []string
@@ -739,18 +739,18 @@ func (w *Workspace) RelocateFile(pkg PackagePath, path FilePath, isXTest bool, n
 		// stable addresses rather than trust the pointers captured above.
 		unit, ok = w.Unit(pkg)
 		if !ok {
-			return nil, fmt.Errorf("internal error: %q vanished after qualifier fixups", pkg)
+			return nil, VanishedError(pkg, "after qualifier fixups")
 		}
 		owner = unit.Prod()
 		if isXTest {
 			owner = unit.XTest()
 		}
 		if owner == nil {
-			return nil, fmt.Errorf("internal error: %q vanished after qualifier fixups", pkg)
+			return nil, VanishedError(pkg, "after qualifier fixups")
 		}
 		destOwner, ok = w.ProdPackage(newPkgPath)
 		if !ok {
-			return nil, fmt.Errorf("internal error: %q vanished after qualifier fixups", newPkgPath)
+			return nil, VanishedError(newPkgPath, "after qualifier fixups")
 		}
 	}
 	file, _ := owner.File(path)
@@ -780,10 +780,10 @@ func (w *Workspace) RelocateFile(pkg PackagePath, path FilePath, isXTest bool, n
 func (w *Workspace) MovePackage(oldPkg, newPkg PackagePath, renameName bool, oldBase, newBase string) ([]FilePath, error) {
 	unit, ok := w.Unit(oldPkg)
 	if !ok {
-		return nil, fmt.Errorf("no package at %q", oldPkg)
+		return nil, NoPackageError(oldPkg)
 	}
 	if _, exists := w.Unit(newPkg); exists {
-		return nil, fmt.Errorf("a package already exists at %q", newPkg)
+		return nil, PackageExistsError(newPkg)
 	}
 
 	edits := w.ComputePackageMoveSplices(oldPkg, newPkg, renameName, oldBase, newBase)
@@ -796,7 +796,7 @@ func (w *Workspace) MovePackage(oldPkg, newPkg PackagePath, renameName bool, old
 	// unit fresh rather than trust the pointer captured before the splice.
 	unit, ok = w.Unit(oldPkg)
 	if !ok {
-		return nil, fmt.Errorf("internal error: %q vanished after import rewrites", oldPkg)
+		return nil, VanishedError(oldPkg, "after import rewrites")
 	}
 
 	type half struct {

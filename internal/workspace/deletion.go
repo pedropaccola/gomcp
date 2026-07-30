@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"fmt"
 	"go/ast"
 	"go/token"
 )
@@ -94,11 +93,11 @@ func (w *Workspace) ComputeDeletionSplices(pkg PackagePath, key string) (splices
 		sp, ok = w.specSpan(owner, sym)
 	}
 	if !ok {
-		return nil, true, fmt.Errorf("cannot locate %q in source", key)
+		return nil, true, errNotInSource(key)
 	}
 	splice, ok := w.NewSpliceAtOffset(owner, sym.File, sp.start, sp.end, nil)
 	if !ok {
-		return nil, true, fmt.Errorf("cannot locate %q in source", key)
+		return nil, true, errNotInSource(key)
 	}
 	return []Splice{splice}, true, nil
 }

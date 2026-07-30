@@ -40,7 +40,7 @@ func TestExternalReadToolsAndRefusals(t *testing.T) {
 	// The workspace is the only mutable world.
 	if _, _, err := createSymbol(eng, testCfg())(context.Background(), nil, CreateSymbolInput{
 		Creates: []CreateSymbolEntry{{PkgPath: "io", FileName: "extra.go", Source: "func Nope() {}"}},
-	}); err == nil || !strings.Contains(err.Error(), "read-only") {
+	}); err == nil || !strings.Contains(err.Error(), "is a dependency") {
 		t.Errorf("mutating a dependency must refuse, got %v", err)
 	}
 

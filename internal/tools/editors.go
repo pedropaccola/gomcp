@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pedropaccola/gomcp/internal/store"
@@ -41,7 +40,7 @@ type EditSymbolInput struct {
 func editFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[EditFileInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in EditFileInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Edits) == 0 {
-			return nil, WriteOutput{}, fmt.Errorf("edits must not be empty")
+			return nil, WriteOutput{}, errEmptyBatch("edits")
 		}
 		n := len(in.Edits)
 		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
@@ -64,7 +63,7 @@ func editFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[EditFileInpu
 func editSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[EditSymbolInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in EditSymbolInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Edits) == 0 {
-			return nil, WriteOutput{}, fmt.Errorf("edits must not be empty")
+			return nil, WriteOutput{}, errEmptyBatch("edits")
 		}
 		n := len(in.Edits)
 		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {

@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pedropaccola/gomcp/internal/store"
@@ -49,7 +48,7 @@ type DeleteSymbolInput struct {
 func deleteSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeleteSymbolInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteSymbolInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Deletes) == 0 {
-			return nil, WriteOutput{}, fmt.Errorf("deletes must not be empty")
+			return nil, WriteOutput{}, errEmptyBatch("deletes")
 		}
 		n := len(in.Deletes)
 		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
@@ -70,7 +69,7 @@ func deleteSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeleteSy
 func deleteFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeleteFileInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteFileInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Deletes) == 0 {
-			return nil, WriteOutput{}, fmt.Errorf("deletes must not be empty")
+			return nil, WriteOutput{}, errEmptyBatch("deletes")
 		}
 		n := len(in.Deletes)
 		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
@@ -91,7 +90,7 @@ func deleteFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeleteFile
 func deletePackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeletePackageInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeletePackageInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Deletes) == 0 {
-			return nil, WriteOutput{}, fmt.Errorf("deletes must not be empty")
+			return nil, WriteOutput{}, errEmptyBatch("deletes")
 		}
 		n := len(in.Deletes)
 		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {

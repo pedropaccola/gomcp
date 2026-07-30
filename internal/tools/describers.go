@@ -88,7 +88,7 @@ type DescribePackageResult struct {
 func describePackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DescribePackageInput, DescribePackageOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DescribePackageInput) (*mcp.CallToolResult, DescribePackageOutput, error) {
 		if len(in.Describes) == 0 {
-			return nil, DescribePackageOutput{}, fmt.Errorf("describes must not be empty")
+			return nil, DescribePackageOutput{}, errEmptyBatch("describes")
 		}
 		n := len(in.Describes)
 		out := DescribePackageOutput{Results: make([]DescribePackageResult, n)}
@@ -118,7 +118,7 @@ func describePackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[Descr
 func describeFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DescribeFileInput, DescribeFileOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DescribeFileInput) (*mcp.CallToolResult, DescribeFileOutput, error) {
 		if len(in.Describes) == 0 {
-			return nil, DescribeFileOutput{}, fmt.Errorf("describes must not be empty")
+			return nil, DescribeFileOutput{}, errEmptyBatch("describes")
 		}
 		n := len(in.Describes)
 		out := DescribeFileOutput{Results: make([]DescribeFileResult, n)}
@@ -143,7 +143,7 @@ func describeFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[Describe
 func describeSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DescribeSymbolInput, DescribeSymbolOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DescribeSymbolInput) (*mcp.CallToolResult, DescribeSymbolOutput, error) {
 		if len(in.Describes) == 0 {
-			return nil, DescribeSymbolOutput{}, fmt.Errorf("describes must not be empty")
+			return nil, DescribeSymbolOutput{}, errEmptyBatch("describes")
 		}
 		n := len(in.Describes)
 		out := DescribeSymbolOutput{Results: make([]DescribeSymbolResult, n)}

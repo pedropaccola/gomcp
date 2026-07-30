@@ -40,16 +40,16 @@ func (tx *Tx) CreateFile(pkg workspace.PackageID, name, doc string) error {
 // the address already holds a package; the directory is created at Flush.
 func (tx *Tx) CreatePackage(pkg workspace.PackagePath, name string) error {
 	if pkg == tx.ws.Module() {
-		return fmt.Errorf("cannot create a package at %q: workspace packages live under module %q", pkg, tx.ws.Module())
+		return workspace.OutsideModuleCreateError(pkg, tx.ws.Module())
 	}
 	if _, exists := tx.ws.Unit(pkg); exists {
-		return fmt.Errorf("a package already exists at %q", pkg)
+		return workspace.PackageExistsError(pkg)
 	}
 	if name == "" {
 		name = pkg.Base()
 	}
 	if !token.IsIdentifier(name) {
-		return fmt.Errorf("%q is not a valid package name", name)
+		return workspace.InvalidPackageNameError(name)
 	}
 	tx.ws.InstallUnit(pkg, workspace.NewUnit(workspace.NewPackage(name, pkg, workspace.KindProd, nil, nil), nil))
 	return tx.installFile(pkg, false, pkg.File(name+".go"), []byte("package "+name+"\n"))
@@ -95,7 +95,7 @@ func (tx *Tx) CreateSymbol(pkg workspace.PackageID, fileName, src string) error 
 			continue // any number of init functions is legal
 		}
 		if _, exists := p.Symbol(key); exists {
-			return fmt.Errorf("symbol %q already exists in %q: use EditSymbol", key, pkg)
+			return errSymbolExists(key, pkg)
 		}
 	}
 	path, err := workspace.NewFilePath(tx.ws.Module(), canon, fileName)
@@ -120,7 +120,7 @@ func (tx *Tx) CreateSymbol(pkg workspace.PackageID, fileName, src string) error 
 			}
 			sp, ok := tx.ws.NewSpliceAtOffset(p, path, at, at, []byte("\n"+specs+"\n"))
 			if !ok {
-				return fmt.Errorf("cannot locate insertion point in %q", path)
+				return workspace.NoInsertionPointError(path)
 			}
 			return tx.installFile(canon, isXTest, path, workspace.ApplySplices(file.Src(), []workspace.Splice{sp}))
 		}
@@ -128,7 +128,7 @@ func (tx *Tx) CreateSymbol(pkg workspace.PackageID, fileName, src string) error 
 
 	at, ok := tx.ws.InsertOffset(canon, path, frag.kind, frag.recv)
 	if !ok {
-		return fmt.Errorf("cannot locate insertion point in %q", path)
+		return workspace.NoInsertionPointError(path)
 	}
 	if frag.kind == workspace.KindConst && frag.usesIota {
 		if _, typeName, terr := constVarEntries(src); terr == nil && typeName != "" {
@@ -139,7 +139,7 @@ func (tx *Tx) CreateSymbol(pkg workspace.PackageID, fileName, src string) error 
 	}
 	sp, ok := tx.ws.NewSpliceAtOffset(p, path, at, at, []byte("\n\n"+src+"\n"))
 	if !ok {
-		return fmt.Errorf("cannot locate insertion point in %q", path)
+		return workspace.NoInsertionPointError(path)
 	}
 	return tx.installFile(canon, isXTest, path, workspace.ApplySplices(file.Src(), []workspace.Splice{sp}))
 }
@@ -211,7 +211,7 @@ func (tx *Tx) DeleteSymbol(pkg workspace.PackagePath, key string) error {
 	path := splices[0].Path
 	file, owner, ok := tx.ws.ResolveFileByPath(path)
 	if !ok {
-		return fmt.Errorf("internal error: %q vanished while deleting %q", path, key)
+		return workspace.VanishedError(path, fmt.Sprintf("while deleting %q", key))
 	}
 	return tx.installFile(pkg, owner.ID.Kind() == workspace.KindXTest, path, workspace.ApplySplices(file.Src(), splices))
 }
@@ -223,7 +223,7 @@ func (tx *Tx) DeleteSymbol(pkg workspace.PackagePath, key string) error {
 func (tx *Tx) EditFile(pkg workspace.PackagePath, name, doc string) error {
 	p, ok := tx.ws.ProdPackage(pkg)
 	if !ok {
-		return fmt.Errorf("no package at %q", pkg)
+		return workspace.NoPackageError(pkg)
 	}
 	path, err := workspace.NewFilePath(tx.ws.Module(), p.ID.Base(), name)
 	if err != nil {
@@ -231,7 +231,7 @@ func (tx *Tx) EditFile(pkg workspace.PackagePath, name, doc string) error {
 	}
 	file, _, ok := tx.ws.ResolveFileByPath(path)
 	if !ok {
-		return fmt.Errorf("no file %q in %q", name, pkg)
+		return errNoFile(name, pkg)
 	}
 	astFile := file.Ast()
 	docPos, docEnd := astFile.Package, astFile.Package
@@ -290,7 +290,7 @@ func (tx *Tx) EditSymbol(pkg workspace.PackagePath, key, src string) error {
 	}
 	file, owner, ok := tx.ws.ResolveFileByPath(target.Path)
 	if !ok {
-		return fmt.Errorf("internal error: %q vanished while editing %q", target.Path, key)
+		return workspace.VanishedError(target.Path, fmt.Sprintf("while editing %q", key))
 	}
 	target.Repl = []byte(replacement)
 	return tx.installFile(pkg, owner.ID.Kind() == workspace.KindXTest, target.Path, workspace.ApplySplices(file.Src(), []workspace.Splice{target}))
@@ -313,7 +313,7 @@ func (tx *Tx) MoveFile(pkg workspace.PackagePath, fileName string, newPkgPath wo
 	}
 	unit, ok := tx.ws.Unit(pkg)
 	if !ok {
-		return fmt.Errorf("no package at %q", pkg)
+		return workspace.NoPackageError(pkg)
 	}
 	for _, owner := range unit.Members() {
 		isXTest := owner.ID.Kind() == workspace.KindXTest
@@ -328,7 +328,7 @@ func (tx *Tx) MoveFile(pkg workspace.PackagePath, fileName string, newPkgPath wo
 		if newPkgPath != "" {
 			destOwner, ok = tx.ws.ProdPackage(newPkgPath)
 			if !ok {
-				return fmt.Errorf("no package at %q", newPkgPath)
+				return workspace.NoPackageError(newPkgPath)
 			}
 		}
 		baseName := fileName
@@ -340,7 +340,7 @@ func (tx *Tx) MoveFile(pkg workspace.PackagePath, fileName string, newPkgPath wo
 			return err
 		}
 		if _, _, exists := tx.ws.ResolveFileByPath(newPath); exists {
-			return fmt.Errorf("file %q already exists", newPath)
+			return errFileExists(newPath)
 		}
 		if destOwner == owner {
 			tx.ws.MoveFile(pkg, isXTest, path, newPath)
@@ -354,7 +354,7 @@ func (tx *Tx) MoveFile(pkg workspace.PackagePath, fileName string, newPkgPath wo
 		tx.markChanged(touched...)
 		return nil
 	}
-	return fmt.Errorf("no file %q in %q", fileName, pkg)
+	return errNoFile(fileName, pkg)
 }
 
 // MovePackage moves a package to a new address, rewriting the import
@@ -367,19 +367,19 @@ func (tx *Tx) MovePackage(oldPkg, newPkg workspace.PackagePath) error {
 		return fmt.Errorf("no workspace package at %q", oldPkg)
 	}
 	if newPkg == tx.ws.Module() {
-		return fmt.Errorf("cannot move %q to %q: workspace packages live under module %q", oldPkg, newPkg, tx.ws.Module())
+		return workspace.OutsideModuleCreateError(newPkg, tx.ws.Module())
 	}
 	unit, ok := tx.ws.Unit(oldPkg)
 	if !ok {
-		return fmt.Errorf("no package at %q", oldPkg)
+		return workspace.NoPackageError(oldPkg)
 	}
 	if _, exists := tx.ws.Unit(newPkg); exists {
-		return fmt.Errorf("a package already exists at %q", newPkg)
+		return workspace.PackageExistsError(newPkg)
 	}
 	oldBase, newBase := oldPkg.Base(), newPkg.Base()
 	renameName := unit.Prod() != nil && unit.Prod().Name == oldBase && oldBase != newBase
 	if renameName && !token.IsIdentifier(newBase) {
-		return fmt.Errorf("%q is not a valid package name", newBase)
+		return workspace.InvalidPackageNameError(newBase)
 	}
 	touched, err := tx.ws.MovePackage(oldPkg, newPkg, renameName, oldBase, newBase)
 	if err != nil {
@@ -427,7 +427,7 @@ func (tx *Tx) MoveSymbol(pkg workspace.PackagePath, key string, newPkgPath works
 		}
 		sym, _, ok := tx.ws.ResolveSymbol(pkg, key)
 		if !ok {
-			return fmt.Errorf("no symbol %q in %q", key, pkg)
+			return workspace.NoSymbolError(key, pkg)
 		}
 		// Captured as plain values, not read off sym again after the
 		// rename: renameSymbol calls applyFileSplices, which can fork the
@@ -471,7 +471,7 @@ func (tx *Tx) MoveSymbolGroup(pkg workspace.PackagePath, keys []string, newPkgPa
 	}
 	destOwner, ok := tx.ws.ProdPackage(destPkg)
 	if !ok {
-		return fmt.Errorf("no package at %q", destPkg)
+		return workspace.NoPackageError(destPkg)
 	}
 	destPath, err := workspace.NewFilePath(tx.ws.Module(), destOwner.ID.Base(), newFileName)
 	if err != nil {
@@ -494,7 +494,7 @@ func (tx *Tx) MoveSymbolGroup(pkg workspace.PackagePath, keys []string, newPkgPa
 func (tx *Tx) relocateSymbol(srcPkg, destPkg workspace.PackagePath, key, fileName string) error {
 	destOwner, ok := tx.ws.ProdPackage(destPkg)
 	if !ok {
-		return fmt.Errorf("no package at %q", destPkg)
+		return workspace.NoPackageError(destPkg)
 	}
 	destPath, err := workspace.NewFilePath(tx.ws.Module(), destOwner.ID.Base(), fileName)
 	if err != nil {
@@ -521,14 +521,14 @@ func (tx *Tx) renameSymbol(pkg workspace.PackagePath, key, newName string) error
 	}
 	sym, owner, ok := tx.ws.ResolveSymbol(pkg, key)
 	if !ok {
-		return fmt.Errorf("no symbol %q in %q", key, pkg)
+		return workspace.NoSymbolError(key, pkg)
 	}
 	newKey := newName
 	if sym.Kind == workspace.KindMethod {
 		newKey = sym.Recv + "." + newName
 	}
 	if _, exists := owner.Symbol(newKey); exists {
-		return fmt.Errorf("symbol %q already exists in %q", newKey, pkg)
+		return errSymbolExists(newKey, pkg)
 	}
 
 	var edits []workspace.Splice

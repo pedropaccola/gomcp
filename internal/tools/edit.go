@@ -59,7 +59,7 @@ func writeWorkspacePkg(v *store.View, addr string) (workspace.PackageID, error) 
 		return workspace.PackageID{}, err
 	}
 	if v.HasExternalPackage(workspace.PackagePath(addr)) {
-		return workspace.PackageID{}, fmt.Errorf("dependency %q is read-only", addr)
+		return workspace.PackageID{}, fmt.Errorf("%q is a dependency: writes stay scoped to the workspace", addr)
 	}
 	return canon, nil
 }

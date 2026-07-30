@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"fmt"
 	"go/token"
 )
 
@@ -14,7 +13,7 @@ import (
 func (w *Workspace) ComputeEditPlan(pkg PackagePath, key string) (wasPositionDependent bool, groupTok token.Token, target Splice, err error) {
 	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
-		return false, token.ILLEGAL, Splice{}, fmt.Errorf("no symbol %q in %q", key, pkg)
+		return false, token.ILLEGAL, Splice{}, NoSymbolError(key, pkg)
 	}
 	gen, grouped := sym.GroupOf()
 	wasPositionDependent = constPositionDependent(gen, grouped, sym)
@@ -29,7 +28,7 @@ func (w *Workspace) ComputeEditPlan(pkg PackagePath, key string) (wasPositionDep
 		sp, spanOK = w.declSpan(owner, sym)
 	}
 	if !spanOK {
-		return wasPositionDependent, token.ILLEGAL, Splice{}, fmt.Errorf("cannot locate %q in source", key)
+		return wasPositionDependent, token.ILLEGAL, Splice{}, errNotInSource(key)
 	}
 	tok := token.ILLEGAL
 	if grouped {
@@ -37,7 +36,7 @@ func (w *Workspace) ComputeEditPlan(pkg PackagePath, key string) (wasPositionDep
 	}
 	target, ok = w.NewSpliceAtOffset(owner, sym.File, sp.start, sp.end, nil)
 	if !ok {
-		return wasPositionDependent, token.ILLEGAL, Splice{}, fmt.Errorf("cannot locate %q in source", key)
+		return wasPositionDependent, token.ILLEGAL, Splice{}, errNotInSource(key)
 	}
 	return wasPositionDependent, tok, target, nil
 }
