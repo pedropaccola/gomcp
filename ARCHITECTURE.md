@@ -86,11 +86,13 @@ them, not here — `workspace.File`, `Package.RebuildIndex`, `store.View`,
 `store.Tx`, `Store.Edit` are the ones worth reading first. Same for the
 per-layer naming grammars: `Tx`'s verb categories and `View`'s narrow
 identity-keyed accessors versus its whole-workspace scanners are on their
-own type docs; the identity vocabulary itself (`PackagePath`, the sealed
-`PackageID`, `FilePath`, and `NewPackageID`'s agent-facing `_test`-suffix
-parsing) is on `internal/workspace/identity.go`; the tools-layer
-resolution seam (`package` vs `file` arguments, import-path vs
-workspace-relative spelling, dependency addresses excluded from writes)
+own type docs; the identity vocabulary itself lives beside each type's
+own siblings rather than in a dedicated file — `PackagePath`/`PackageID`
+(and `NewPackageID`'s agent-facing `_test`-suffix parsing) on
+`internal/workspace/package.go`, `FilePath` on `internal/workspace/
+file.go`; the tools-layer resolution seam (`package` vs `file`
+arguments, import-path vs workspace-relative spelling, dependency
+addresses excluded from writes)
 is on `writeWorkspacePkg`/`readPackage` (`internal/tools/edit.go`,
 `internal/tools/read.go`). Read the relevant type's doc comment before
 extending it, rather than working from a second-hand summary that can go
