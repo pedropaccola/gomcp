@@ -306,27 +306,30 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"as symbol_key: a bare identifier for a non-method, \"Recv.Name\" for a method — " +
 			"and for a method it must be qualified, with Recv matching the symbol's actual " +
 			"receiver exactly, since a rename can never change what a method belongs to. A " +
-			"rename propagates to every resolved reference across the workspace first " +
-			"(renaming an interface method does not chase implementors — broken " +
-			"satisfactions appear in the returned diagnostics instead), then the — possibly " +
-			"renamed — declaration is relocated; the destination file is created when " +
-			"missing. Cross-package relocation is refused when it's provably unsafe: a method " +
-			"whose receiver type isn't moving with it, a type being moved while a method on it " +
-			"is left behind (either way, a method and its receiver type must share a package " +
-			"— illegal Go, not just risky), a name collision at the destination, the symbol " +
-			"depending on an unexported sibling left behind, or an unexported symbol being " +
-			"moved while code left behind still needs it. Otherwise every reference across the " +
-			"move is repointed automatically, both directions: a same-package caller gains the " +
-			"destination's qualifier, a caller already in the destination loses its qualifier, " +
-			"any other caller's qualifier is repointed to the new package, and the moved " +
-			"declaration's own references to exported siblings staying behind gain the " +
-			"original package's qualifier. A member of a grouped const/var/type block is " +
-			"extracted as a standalone declaration; a member whose value depends on its " +
-			"position in the group (iota, or inheriting the previous spec's expression) can be " +
-			"renamed freely — renaming never touches position — but relocating it relocates " +
-			"its *whole* group together, in order, even if only one member's key was given, " +
-			"since extracting just one member alone would break the positions of the rest. " +
-			"Never crosses the test build boundary." + keyNote + echoNote,
+			"rename to an unexported name is refused outright when any reference from a " +
+			"different package still stands — once unexported, that reference can never be " +
+			"found again to fix, even by a later revert back to exported, so the tool declines " +
+			"rather than leave it silently, permanently stale. A rename propagates to every " +
+			"resolved reference across the workspace first (renaming an interface method does " +
+			"not chase implementors — broken satisfactions appear in the returned diagnostics " +
+			"instead), then the — possibly renamed — declaration is relocated; the " +
+			"destination file is created when missing. Cross-package relocation is refused " +
+			"when it's provably unsafe: a method whose receiver type isn't moving with it, a " +
+			"type being moved while a method on it is left behind (either way, a method and " +
+			"its receiver type must share a package — illegal Go, not just risky), a name " +
+			"collision at the destination, the symbol depending on an unexported sibling left " +
+			"behind, or an unexported symbol being moved while code left behind still needs " +
+			"it. Otherwise every reference across the move is repointed automatically, both " +
+			"directions: a same-package caller gains the destination's qualifier, a caller " +
+			"already in the destination loses its qualifier, any other caller's qualifier is " +
+			"repointed to the new package, and the moved declaration's own references to " +
+			"exported siblings staying behind gain the original package's qualifier. A member " +
+			"of a grouped const/var/type block is extracted as a standalone declaration; a " +
+			"member whose value depends on its position in the group (iota, or inheriting the " +
+			"previous spec's expression) can be renamed freely — renaming never touches " +
+			"position — but relocating it relocates its *whole* group together, in order, " +
+			"even if only one member's key was given, since extracting just one member alone " +
+			"would break the positions of the rest. Never crosses the test build boundary." + keyNote + echoNote,
 	}, moveSymbol(eng, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{

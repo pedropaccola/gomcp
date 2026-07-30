@@ -223,3 +223,41 @@ func TestDetectMoveConflictsCatchesGroupSiblingCollision(t *testing.T) {
 		t.Errorf("DetectMoveConflicts(%v) = %v, want a collision on Sibling", movingKeys, got)
 	}
 }
+
+// TestValidateNewNameRefusesUnsafeUnexport reproduces a real bug found
+// against this project's own history (ROADMAP task "Investigate
+// refactor_move_symbol unexport→export round-trip bug"): unexporting a
+// symbol with external references breaks them, then a later revert can
+// never find them again to fix them, since an unresolvable selector
+// never appears in go/types' Uses map — and when the broken reference
+// was a file's only reason to import the package, goimports silently
+// drops the import too, compounding the damage. The fix refuses the
+// unexport outright rather than let it happen.
+func TestValidateNewNameRefusesUnsafeUnexport(t *testing.T) {
+	w := typesFixture(t, map[string]string{
+		"src":   "package src\n\ntype Box struct{}\n",
+		"usera": "package usera\n\nimport \"src\"\n\nvar V = src.Box{}\n",
+		"userb": "package userb\n\nimport \"src\"\n\nfunc F() src.Box { return src.Box{} }\n",
+	})
+	_, err := w.ValidateNewName("src", "Box", "box")
+	if err == nil {
+		t.Fatal("ValidateNewName(Box, box) should refuse: Box is referenced externally")
+	}
+	if !strings.Contains(err.Error(), "usera") || !strings.Contains(err.Error(), "userb") {
+		t.Errorf("error should name both external referrers, got: %v", err)
+	}
+}
+
+// TestValidateNewNameAllowsSafeUnexport confirms the refusal in
+// TestValidateNewNameRefusesUnsafeUnexport is scoped to genuinely
+// external references — a symbol used only within its own package
+// unexports normally.
+func TestValidateNewNameAllowsSafeUnexport(t *testing.T) {
+	w := typesFixture(t, map[string]string{
+		"src": "package src\n\ntype Box struct{}\n\nfunc use() Box { return Box{} }\n",
+	})
+	got, err := w.ValidateNewName("src", "Box", "box")
+	if err != nil || got != "box" {
+		t.Errorf("ValidateNewName(Box, box) = %q, %v, want box, nil (no external references)", got, err)
+	}
+}

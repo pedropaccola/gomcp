@@ -509,24 +509,31 @@ func (w *Workspace) ComputePackageMoveSplices(oldPkg, newPkg PackagePath, rename
 // symbol actually being renamed: a method's receiver can never change
 // through a rename, so newKey must name it explicitly ("Recv.Name") and
 // Recv must match; a non-method's newKey must be a bare identifier,
-// since there is no receiver to qualify it with.
+// since there is no receiver to qualify it with. Also refuses an
+// exported→unexported rename with external references still standing —
+// see refuseUnsafeUnexport.
 func (w *Workspace) ValidateNewName(pkg PackagePath, key, newKey string) (newName string, err error) {
-	sym, _, ok := w.ResolveSymbol(pkg, key)
+	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return "", fmt.Errorf("no symbol %q in %q", key, pkg)
 	}
+	name := newKey
 	if sym.Kind != KindMethod {
 		if strings.Contains(newKey, ".") {
 			return "", fmt.Errorf("%q is not a method: newSymbolKey must be a bare identifier", sym.Key())
 		}
-		return newKey, nil
+	} else {
+		recv, methodName, ok := strings.Cut(newKey, ".")
+		if !ok {
+			return "", fmt.Errorf("%q is a method: newSymbolKey must be %q (its receiver cannot change)", sym.Key(), sym.Recv+".<new name>")
+		}
+		if recv != sym.Recv {
+			return "", fmt.Errorf("cannot change %q's receiver via refactor_move_symbol: got %q, want %q", sym.Key(), recv, sym.Recv)
+		}
+		name = methodName
 	}
-	recv, name, ok := strings.Cut(newKey, ".")
-	if !ok {
-		return "", fmt.Errorf("%q is a method: newSymbolKey must be %q (its receiver cannot change)", sym.Key(), sym.Recv+".<new name>")
-	}
-	if recv != sym.Recv {
-		return "", fmt.Errorf("cannot change %q's receiver via refactor_move_symbol: got %q, want %q", sym.Key(), recv, sym.Recv)
+	if err := w.refuseUnsafeUnexport(owner, sym, name); err != nil {
+		return "", err
 	}
 	return name, nil
 }
@@ -920,6 +927,41 @@ func (w *Workspace) RelocateSymbols(srcPkg, destPkg PackagePath, keys []string, 
 		touched = append(touched, keyTouched...)
 	}
 	return touched, nil
+}
+
+// refuseUnsafeUnexport refuses a rename that would flip sym from exported
+// to unexported while a reference from a different package still stands
+// (Prod and XTest count as different packages here, same as everywhere
+// else in this file). Once unexported, an external reference becomes a
+// compile error go/types can never resolve again — not a recheck-scope
+// gap, a real Go visibility rule — so ComputeRenameSplices has nothing
+// left to find on a later revert: the reference (and, when it was the
+// file's only reason to import the package, the import itself, silently
+// dropped by goimports) is left permanently stale with no diagnostic
+// pointing back at it. Same-package references are unaffected by
+// exported-ness and stay safe.
+func (w *Workspace) refuseUnsafeUnexport(owner *Package, sym *Symbol, newName string) error {
+	if !token.IsExported(sym.Name) || token.IsExported(newName) {
+		return nil
+	}
+	target, ok := keyOf(owner.objectOf(sym))
+	if !ok {
+		return nil
+	}
+	seen := make(map[*Package]bool)
+	var pkgs []string
+	for _, ref := range w.referencesTo(target, sym) {
+		if ref.Pkg == owner || seen[ref.Pkg] {
+			continue
+		}
+		seen[ref.Pkg] = true
+		pkgs = append(pkgs, ref.Pkg.ID.String())
+	}
+	if len(pkgs) == 0 {
+		return nil
+	}
+	slices.Sort(pkgs)
+	return fmt.Errorf("%q is exported and referenced from %s: unexporting it would leave those references permanently unresolvable on any later revert — refusing the rename", sym.Key(), strings.Join(pkgs, ", "))
 }
 
 // symbolRef pairs a referencing symbol with its owning package — the
