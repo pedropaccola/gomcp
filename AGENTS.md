@@ -76,6 +76,25 @@ Apply it when writing code; read that file for the reasoning behind it.
 Formatting itself is never a judgment call: `make tidy` (gofmt + `go mod
 tidy`) is authoritative.
 
+Presentation-layer facts — MCP tool names, JSON field names — never
+belong in `internal/workspace` or `internal/store`'s own error messages
+and doc comments: both are afferent to `internal/tools` (`workspace` has
+zero internal imports; `store` imports only `workspace`/`disk`), so a
+hardcoded tool name there is a layering violation, and often factually
+imprecise besides, since several different tools can trigger the same
+underlying domain condition. Describe the domain condition only; a
+message that needs to name which tool triggered it belongs in
+`internal/tools`, the one layer that already imports the others and can
+safely reference them.
+
+An error string repeated near-verbatim at more than one call site (or
+one that's reused, not merely similar) becomes a named `var`/type
+declaration next to the type it belongs to, not a duplicated inline
+`fmt.Errorf(...)` — `workspace.ErrNarrowlyChecked`/`store.
+ErrNarrowlyChecked` is the existing pattern. Favor one consistent
+phrasing for the same kind of failure across packages over independently
+worded messages that say the same thing differently.
+
 ## Testing
 
 - A bare `_test.go` file is a real unit test: no `sandboxStore`, no
