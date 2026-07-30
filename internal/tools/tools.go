@@ -59,9 +59,10 @@ func mutates(title string, destructive bool) *mcp.ToolAnnotations {
 }
 
 // Register wires every tool into the server. diagLimit caps the
-// diagnostics rendered in every scoped DiagBlock (list_*/describe_*
-// output, mutation echoes); negative values fall back to the default
-// (20). The diagnostics_workspace tool itself is never capped.
+// diagnostics rendered by every scoped diagnostics_* tool (packages,
+// files, symbols) and every mutation echo; negative values fall back to
+// the default (20). diagnostics_workspace itself is never capped — it's
+// always the complete-inventory fallback.
 func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 	cfg := newToolConfig(diagLimit)
 
@@ -171,6 +172,37 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 		Description: "Report every compiler and loader problem in the workspace: parse, load, " +
 			"and type errors, each positioned as file:line:col.",
 	}, diagnostics(eng))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "diagnostics_packages",
+		Annotations: reads("Package Diagnostics"),
+		Description: "Report one or more packages' diagnostics, in one round trip, resolved " +
+			"in order. If any entry fails, the whole call fails and the error names which " +
+			"entry failed — batch entries that are independent and already known-good; call " +
+			"once per entry instead if you want feedback between steps." + depNote,
+	}, diagnosticsPackages(eng, cfg))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "diagnostics_files",
+		Annotations: reads("File Diagnostics"),
+		Description: "Report one or more files' diagnostics — narrower than " +
+			"diagnostics_packages, file- and declaration-scoped problems only — in one round " +
+			"trip, resolved in order. If any entry fails, the whole call fails and the error " +
+			"names which entry failed — batch entries that are independent and already " +
+			"known-good; call once per entry instead if you want feedback between steps." + depNote,
+	}, diagnosticsFiles(eng, cfg))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "diagnostics_symbols",
+		Annotations: reads("Symbol Diagnostics"),
+		Description: "Report one or more symbols' diagnostics — the tightest scope, one " +
+			"declaration's own span. Unlike diagnostics_packages/diagnostics_files, entries " +
+			"may span different packages, since each is already individually addressed, in " +
+			"one round trip, resolved in order. If any entry fails, the whole call fails and " +
+			"the error names which entry failed — batch entries that are independent and " +
+			"already known-good; call once per entry instead if you want feedback between " +
+			"steps." + keyNote,
+	}, diagnosticsSymbols(eng, cfg))
 
 	// Creators
 	mcp.AddTool(server, &mcp.Tool{

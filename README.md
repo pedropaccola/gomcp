@@ -56,13 +56,13 @@ The agent never specifies a line number or cursor position, only a declaration a
 ---
 
 ## Tools
-Small set of 25 tools:
+Small set of 28 tools:
 
 ### Read
-* Enumerators (consistent sorted output): `list_packages`, `list_files`, `list_methods`, `list_symbols`
-* Describers (symbol source, any kind — func, method, type, var, or const): `describe_packages`, `describe_files`, `describe_symbols`
-* Finders (grep-like): `search_declarations_like`, `search_source`, `search_implementors`, `search_references`
-* Diagnostics (full workspace diagnostics): `diagnostics_workspace`
+* Enumerators: `list_packages`, `list_files`, `list_methods`, `list_symbols`
+* Describers: `describe_packages`, `describe_files`, `describe_symbols`
+* Finders: `search_declarations_like`, `search_source`, `search_implementors`, `search_references`
+* Diagnostics: `diagnostics_workspace` (full inventory), `diagnostics_packages`, `diagnostics_files`, `diagnostics_symbols`
 
 ### Write
 * Creators (fail if the address already exists; cannot destroy code): `create_packages`, `create_files`, `create_symbols`

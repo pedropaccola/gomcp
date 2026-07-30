@@ -58,7 +58,6 @@ type DescribeSymbolResult struct {
 	Source  string   `json:"source"`
 	Kind    string   `json:"kind"`
 	Methods []string `json:"methods,omitempty"`
-	DiagnosticsTruncated
 }
 
 // DescribeFileEntry addresses one file to describe.
@@ -69,7 +68,6 @@ type DescribeFileEntry struct {
 
 type DescribeFileResult struct {
 	Doc *string `json:"doc,omitempty"`
-	DiagnosticsTruncated
 }
 
 // DescribePackageEntry addresses one package to describe.
@@ -82,7 +80,6 @@ type DescribePackageEntry struct {
 type DescribePackageResult struct {
 	Doc   *string  `json:"doc,omitempty"`
 	Files []string `json:"files,omitempty"`
-	DiagnosticsTruncated
 }
 
 func describePackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DescribePackageInput, DescribePackageOutput] {
@@ -104,7 +101,6 @@ func describePackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[Descr
 				for _, f := range files {
 					res.Files = append(res.Files, f.Base())
 				}
-				res.DiagnosticsTruncated = newDiagnosticsTruncated(v.Diagnostics(pkg.Base()), cfg.diagLimit)
 				return nil
 			})
 			if err != nil {
@@ -129,7 +125,6 @@ func describeFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[Describe
 					res.Doc = new(string)
 					*res.Doc = doc
 				}
-				res.DiagnosticsTruncated = newDiagnosticsTruncated(diagsForFile(v.Diagnostics(pkg.Base()), fp), cfg.diagLimit)
 				return nil
 			})
 			if err != nil {
@@ -157,14 +152,9 @@ func describeSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[Descri
 				res.File = sym.File.Base()
 				res.Source = src
 				res.Kind = sym.Kind
-				diags := v.SymbolDiagnostics(owner.Base(), sym.Key)
 				if sym.IsType() {
 					res.Methods = methodSignatures(v, owner, sym.Key)
-					for _, m := range v.Methods(owner, sym.Key) {
-						diags = append(diags, v.SymbolDiagnostics(owner.Base(), m.Key)...)
-					}
 				}
-				res.DiagnosticsTruncated = newDiagnosticsTruncated(diags, cfg.diagLimit)
 				return nil
 			})
 			if err != nil {

@@ -2,7 +2,6 @@ package tools
 
 import (
 	"github.com/pedropaccola/gomcp/internal/store"
-	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 // toolConfig holds process-wide tool configuration set once at Register
@@ -59,16 +58,6 @@ type DiagnosticEntry struct {
 	SymbolKey *string `json:"symbol_key,omitempty"`
 	Kind      string  `json:"kind"`
 	Message   string  `json:"message"`
-}
-
-func diagsForFile(diags []store.Diagnostic, path workspace.FilePath) []store.Diagnostic {
-	out := make([]store.Diagnostic, 0, len(diags))
-	for _, d := range diags {
-		if d.File == path {
-			out = append(out, d)
-		}
-	}
-	return out
 }
 
 // optStr collapses an optional input pointer to its plain value — nil (the

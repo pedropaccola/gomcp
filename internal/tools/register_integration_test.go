@@ -57,7 +57,7 @@ func TestToolAnnotations(t *testing.T) {
 			t.Errorf("%s: retries never double-apply; must be idempotent", tool.Name)
 		}
 		isRead := strings.HasPrefix(tool.Name, "list_") || strings.HasPrefix(tool.Name, "describe_") ||
-			strings.HasPrefix(tool.Name, "search_") || tool.Name == "diagnostics_workspace"
+			strings.HasPrefix(tool.Name, "search_") || strings.HasPrefix(tool.Name, "diagnostics_")
 		if ann.ReadOnlyHint != isRead {
 			t.Errorf("%s: ReadOnlyHint = %v", tool.Name, ann.ReadOnlyHint)
 		}

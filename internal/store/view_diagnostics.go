@@ -63,6 +63,20 @@ func (v *View) attributeDiagnostics(ds []workspace.Diagnostic, fallback workspac
 	return out
 }
 
+// FileDiagnostics narrows Diagnostics to path's own file- and
+// declaration-scoped problems — the file-granularity view between
+// Diagnostics (whole package) and SymbolDiagnostics (one declaration).
+func (v *View) FileDiagnostics(pkg workspace.PackagePath, path workspace.FilePath) []Diagnostic {
+	all := v.Diagnostics(pkg)
+	out := make([]Diagnostic, 0, len(all))
+	for _, d := range all {
+		if d.File == path {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
 // Diagnostic is a source-agnostic problem report: store's own copy,
 // safe to hold past the Read/Edit closure that produced it. Attribution
 // is by declaration, not position: Package/Key name the enclosing

@@ -20,9 +20,12 @@ const (
 		"Never read, navigate, or modify Go source files (.go) through raw file I/O or shell " +
 		"commands: the filesystem may be stale relative to this server's state. All reads and " +
 		"writes must flow through these tools, so every change is AST-validated and answered " +
-		"with compiler diagnostics. Diagnostics on read/write tools are scoped to what was " +
-		"read or changed — an empty field means nothing wrong there, not that the whole " +
-		"workspace is healthy; call diagnostics_workspace for the full inventory. Comments must attach " +
+		"with compiler diagnostics. Diagnostics on write tools are scoped to what changed — an " +
+		"empty field means nothing wrong there, not that the whole workspace is healthy. " +
+		"Enumerators, describers, and finders (list_*/describe_*/search_*) carry no " +
+		"diagnostics of their own — call diagnostics_workspace for the full inventory, or " +
+		"diagnostics_packages/diagnostics_files/diagnostics_symbols for a scoped one. " +
+		"Comments must attach " +
 		"to a declaration or sit directly above a package clause: one floating between " +
 		"declarations is not part of the tracked syntax tree and can silently vanish under a " +
 		"later edit. disk_reload discards every unflushed edit — call disk_flush first if you want to " +
@@ -41,7 +44,7 @@ func main() {
 
 	flagCwd := flag.String("cwd", "", "Workspace root directory")
 	flagVerbose := flag.Bool("verbose", false, "Log go/packages loader output to stderr")
-	flagDiagLimit := flag.Int("diagnostics-limit", 20, "Limit diagnostics rendered per read/write tool; the diagnostics_workspace tool always reports the full inventory.")
+	flagDiagLimit := flag.Int("diagnostics-limit", 20, "Limit diagnostics rendered per write tool and scoped diagnostics_* tool; diagnostics_workspace always reports the full inventory.")
 	flag.Parse()
 
 	var cwd string

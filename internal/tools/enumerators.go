@@ -15,7 +15,6 @@ type ListFilesInput struct {
 
 type ListFilesOutput struct {
 	Files []string `json:"files"`
-	DiagnosticsTruncated
 }
 
 type ListMethodsInput struct {
@@ -25,7 +24,6 @@ type ListMethodsInput struct {
 
 type ListMethodsOutput struct {
 	Methods []string `json:"methods"`
-	DiagnosticsTruncated
 }
 
 type ListPackagesInput struct{}
@@ -41,7 +39,6 @@ type ListSymbolsInput struct {
 
 type ListSymbolsOutput struct {
 	Symbols []SymbolEntry `json:"symbols"`
-	DiagnosticsTruncated
 }
 
 type SymbolEntry struct {
@@ -74,7 +71,6 @@ func listFiles(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListFilesIn
 			for _, f := range files {
 				out.Files = append(out.Files, f.Base())
 			}
-			out.DiagnosticsTruncated = newDiagnosticsTruncated(v.Diagnostics(pkg.Base()), cfg.diagLimit)
 			return nil
 		})
 		return nil, out, err
@@ -105,11 +101,6 @@ func listSymbols(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListSymbo
 					Summary:   summarize(v, pkg.Base(), sym),
 				})
 			}
-			diags := v.Diagnostics(pkg.Base())
-			if targetFile != "" {
-				diags = diagsForFile(diags, targetFile)
-			}
-			out.DiagnosticsTruncated = newDiagnosticsTruncated(diags, cfg.diagLimit)
 			return nil
 		})
 		return nil, out, err
@@ -121,11 +112,6 @@ func listMethods(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListMetho
 		var out ListMethodsOutput
 		err := readPackage(ctx, eng, in.PkgPath, func(v *store.View, pkg workspace.PackageID) error {
 			out.Methods = methodSignatures(v, pkg, in.SymbolKey)
-			var diags []store.Diagnostic
-			for _, m := range v.Methods(pkg, in.SymbolKey) {
-				diags = append(diags, v.SymbolDiagnostics(pkg.Base(), m.Key)...)
-			}
-			out.DiagnosticsTruncated = newDiagnosticsTruncated(diags, cfg.diagLimit)
 			return nil
 		})
 		return nil, out, err
