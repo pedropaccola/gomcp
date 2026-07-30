@@ -100,10 +100,33 @@ func TestTxCreateFileXTest(t *testing.T) {
 	}
 }
 
-func TestTxCreateFileXTestRefusesWithoutProd(t *testing.T) {
+// TestTxCreateFileXTestOriginatesProd targets a brand-new package's
+// XTest half directly, with no create_package call first: EnsurePackage
+// must originate a Prod shell (one seeded file, same as CreatePackage's
+// own construction) alongside the requested XTest file, in one
+// transaction — no separate create_package round trip needed.
+func TestTxCreateFileXTestOriginatesProd(t *testing.T) {
 	v := viewFixture(t, "package pkg\n")
 	tx := NewTx(v)
-	if err := tx.CreateFile(tpkgID("missing_test"), "extra_test.go", ""); err == nil {
-		t.Error("CreateFile on a nonexistent package's XTest half should fail")
+	if err := tx.CreateFile(tpkgID("missing_test"), "extra_test.go", ""); err != nil {
+		t.Fatalf("CreateFile: %v", err)
+	}
+	unit, ok := v.ws.Unit("test.mod/missing")
+	if !ok {
+		t.Fatal("test.mod/missing unit not found")
+	}
+	prod := unit.Prod()
+	if prod == nil || prod.Name != "missing" {
+		t.Fatalf("Prod half not originated: %+v", prod)
+	}
+	if _, ok := prod.File("test.mod/missing/missing.go"); !ok {
+		t.Error("Prod half missing its seeded stub file")
+	}
+	xtest := unit.XTest()
+	if xtest == nil || xtest.Name != "missing_test" {
+		t.Fatalf("XTest half not installed: %+v", xtest)
+	}
+	if _, ok := xtest.File("test.mod/missing/extra_test.go"); !ok {
+		t.Error("extra_test.go not installed in the new XTest package")
 	}
 }

@@ -97,3 +97,45 @@ func TestCreateSymbolMultiEntry(t *testing.T) {
 		t.Errorf("Bar missing after batch: %v", err)
 	}
 }
+
+// TestCreateFileOriginatesFreshXTestPackage targets a brand-new package's
+// XTest half directly, with no create_package call first: the Prod half
+// must come into being in the same call, seeded the same way
+// create_package seeds one, alongside the requested XTest file.
+func TestCreateFileOriginatesFreshXTestPackage(t *testing.T) {
+	eng := sandboxStore(t)
+	_, out, err := createFile(eng, testCfg())(context.Background(), nil, CreateFileInput{
+		Creates: []CreateFileEntry{
+			{PkgPath: "brandnew_test", FileName: "extra_test.go"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create_file: %v", err)
+	}
+	files := out.Files["example.com/sandbox/brandnew"]
+	if !slices.Contains(files, "brandnew.go") {
+		t.Errorf("Prod half not originated: %+v", out)
+	}
+	if !slices.Contains(files, "extra_test.go") {
+		t.Errorf("requested XTest file missing: %+v", out)
+	}
+	if _, _, err := describePackage(eng, testCfg())(context.Background(), nil, DescribePackageInput{
+		Describes: []DescribePackageEntry{{PkgPath: "brandnew"}},
+	}); err != nil {
+		t.Errorf("brandnew not resolvable after origination: %v", err)
+	}
+}
+
+// TestCreatePackageRefusesXTestAddress confirms create_package doesn't
+// silently strip a "_test" suffix down to its Prod half — create_package
+// always creates Prod, and an XTest address must be refused, not
+// reinterpreted.
+func TestCreatePackageRefusesXTestAddress(t *testing.T) {
+	eng := sandboxStore(t)
+	_, _, err := createPackage(eng, testCfg())(context.Background(), nil, CreatePackageInput{
+		Creates: []CreatePackageEntry{{PkgPath: "shapes_test"}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "XTest") {
+		t.Errorf("create_package on a _test address should refuse mentioning XTest, got %v", err)
+	}
+}

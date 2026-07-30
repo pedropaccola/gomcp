@@ -6,6 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pedropaccola/gomcp/internal/store"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 type CreateFileEntry struct {
@@ -57,6 +58,9 @@ func createPackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[CreateP
 				pkg, err := writeWorkspacePkg(tx.View, entry.PkgPath)
 				if err != nil {
 					return batchErr("creates", i, n, err)
+				}
+				if pkg.Kind() != workspace.KindProd {
+					return batchErr("creates", i, n, fmt.Errorf("%q names an XTest half: create_package always creates the Prod half — call create_file or create_symbol with this address instead, it creates the Prod package too if the whole package is new", entry.PkgPath))
 				}
 				if err := tx.CreatePackage(pkg.Base(), optStr(entry.Name)); err != nil {
 					return batchErr("creates", i, n, err)

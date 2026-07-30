@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"fmt"
+	"go/token"
 )
 
 // ResolvePackage resolves id to the specific package it names — Prod or
@@ -24,24 +25,41 @@ func (w *Workspace) ResolvePackage(id PackageID) (*Package, bool) {
 }
 
 // EnsurePackage is ResolvePackage's create-side sibling: when id names
-// a unit's XTest half that doesn't exist yet (its Prod sibling must
-// already), it installs a fresh XTest package instead of failing — name
-// and address following the same convention go/packages itself gives
-// that half. The one door a create verb is allowed to originate a
-// package that isn't there yet, mirroring CreatePackage's own shell
-// construction for a brand new unit.
-func (w *Workspace) EnsurePackage(id PackageID) (*Package, error) {
-	if pkg, ok := w.ResolvePackage(id); ok {
-		return pkg, nil
+// a unit's XTest half that doesn't exist yet, it installs a fresh XTest
+// package — and, if the unit doesn't exist at all yet, a fresh Prod
+// sibling too, so a create verb never needs create_package to have run
+// first just to target a brand-new package's XTest half. freshProd is
+// non-nil exactly when a Prod shell had to be originated here: the
+// caller (which alone can install real file content) must give it a
+// stub file within the same transaction, the same way CreatePackage
+// always pairs a fresh shell with a real file. The one door a create
+// verb is allowed to originate a package that isn't there yet, mirroring
+// CreatePackage's own shell construction for a brand new unit.
+func (w *Workspace) EnsurePackage(id PackageID) (pkg, freshProd *Package, err error) {
+	if p, ok := w.ResolvePackage(id); ok {
+		return p, nil, nil
 	}
 	if id.Kind() != KindXTest {
-		return nil, fmt.Errorf("no package at %q: create_package first", id)
+		return nil, nil, fmt.Errorf("no package at %q: create_package first", id)
 	}
-	unit, ok := w.Unit(id.Base())
-	if !ok || unit.Prod() == nil {
-		return nil, fmt.Errorf("no package at %q: create_package first", id.Base())
+	base := id.Base()
+	if base == w.module {
+		return nil, nil, fmt.Errorf("cannot create a package at %q: workspace packages live under module %q", base, w.module)
 	}
-	fresh := NewPackage(unit.Prod().Name+"_test", id.Base(), KindXTest, nil, nil)
-	w.InstallUnit(id.Base(), NewUnit(unit.Prod(), fresh))
-	return fresh, nil
+	unit, ok := w.Unit(base)
+	var prod *Package
+	if ok {
+		prod = unit.Prod()
+	}
+	if prod == nil {
+		name := base.Base()
+		if !token.IsIdentifier(name) {
+			return nil, nil, fmt.Errorf("%q is not a valid package name", name)
+		}
+		prod = NewPackage(name, base, KindProd, nil, nil)
+		freshProd = prod
+	}
+	fresh := NewPackage(prod.Name+"_test", base, KindXTest, nil, nil)
+	w.InstallUnit(base, NewUnit(prod, fresh))
+	return fresh, freshProd, nil
 }

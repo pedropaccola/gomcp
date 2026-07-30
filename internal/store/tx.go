@@ -11,11 +11,18 @@ import (
 // CreateFile adds an empty file to an existing package, optionally seeded
 // with a package doc comment. pkg may name a unit's XTest half via its
 // own "_test"-suffixed address (workspace.Workspace.EnsurePackage),
-// installing that half the first time something targets it.
+// installing that half — and a fresh Prod sibling too, if the whole
+// package is new — the first time something targets it.
 func (tx *Tx) CreateFile(pkg workspace.PackageID, name, doc string) error {
-	p, err := tx.ws.EnsurePackage(pkg)
+	p, freshProd, err := tx.ws.EnsurePackage(pkg)
 	if err != nil {
 		return err
+	}
+	if freshProd != nil {
+		stub := freshProd.ID.Base().File(freshProd.Name + ".go")
+		if err := tx.installFile(freshProd.ID.Base(), false, stub, []byte("package "+freshProd.Name+"\n")); err != nil {
+			return err
+		}
 	}
 	path, err := workspace.NewFilePath(tx.ws.Module(), p.ID.Base(), name)
 	if err != nil {
@@ -51,7 +58,8 @@ func (tx *Tx) CreatePackage(pkg workspace.PackagePath, name string) error {
 // CreateSymbol adds one new top-level declaration to a file of an existing
 // package, at its canonical position. pkg may name a unit's XTest half
 // via its own "_test"-suffixed address (workspace.Workspace.EnsurePackage),
-// installing that half the first time something targets it. The file is
+// installing that half — and a fresh Prod sibling too, if the whole
+// package is new — the first time something targets it. The file is
 // required, never inferred — but a missing file inside the package is
 // created implicitly, since creation cannot destroy. A new plain
 // (non-position-dependent) const or var merges into the file's existing
@@ -66,9 +74,15 @@ func (tx *Tx) CreatePackage(pkg workspace.PackagePath, name string) error {
 // otherwise it falls to the standard const/var region, same as an
 // untyped iota group always does.
 func (tx *Tx) CreateSymbol(pkg workspace.PackageID, fileName, src string) error {
-	p, err := tx.ws.EnsurePackage(pkg)
+	p, freshProd, err := tx.ws.EnsurePackage(pkg)
 	if err != nil {
 		return err
+	}
+	if freshProd != nil {
+		stub := freshProd.ID.Base().File(freshProd.Name + ".go")
+		if err := tx.installFile(freshProd.ID.Base(), false, stub, []byte("package "+freshProd.Name+"\n")); err != nil {
+			return err
+		}
 	}
 	canon := p.ID.Base()
 	isXTest := p.ID.Kind() == workspace.KindXTest
