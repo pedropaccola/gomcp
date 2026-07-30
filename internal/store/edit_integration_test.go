@@ -1221,3 +1221,27 @@ func TestMoveSymbolGroupMovesTypeAndMethodsAcrossFiles(t *testing.T) {
 		}
 	}
 }
+
+// TestEditDeltaCoversTransitiveImportersNotJustChangedFiles locks in a
+// guarantee the whole tool leans on: Store.Edit diffs two full-workspace
+// diagnostics snapshots, not one filtered to tx.changed, specifically so
+// a transitive importer that Recheck v2 pulls into its scope — and that
+// genuinely develops a new diagnostic — still shows up in Delta even
+// though tx never spliced that importer's own file. Every blast-radius
+// test exercises this as a side effect; this is the one whose whole
+// point is naming the guarantee itself. Circle is deleted from shapes,
+// never touching use.go, which references it externally.
+func TestEditDeltaCoversTransitiveImportersNotJustChangedFiles(t *testing.T) {
+	e := sandboxStore(t)
+	report := mustEdit(t, e, func(tx *Tx) error {
+		return tx.DeleteSymbol(spkg("shapes"), "Circle")
+	})
+	if !slices.ContainsFunc(deltaStrings(report), func(s string) bool {
+		return strings.Contains(s, "example.com/sandbox/use")
+	}) {
+		t.Errorf("deleting Circle must break use.go's references: %v", deltaStrings(report))
+	}
+	if slices.Contains(report.Changed, sfile("use", "use.go")) {
+		t.Error("use.go was never spliced by this transaction and must not appear in Changed, even though its diagnostics changed")
+	}
+}
