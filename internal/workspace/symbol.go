@@ -3,6 +3,7 @@ package workspace
 import (
 	"go/ast"
 	"go/token"
+	"strings"
 )
 
 // SymbolKind classifies a top-level declaration.
@@ -53,10 +54,7 @@ func (s *Symbol) Doc() string {
 
 // Key is the symbol-index key: "Recv.Name" for methods, "Name" otherwise.
 func (s *Symbol) Key() string {
-	if s.Kind == KindMethod && s.Recv != "" {
-		return s.Recv + "." + s.Name
-	}
-	return s.Name
+	return MethodKey(s.Recv, s.Name)
 }
 
 // Decl returns the symbol's top-level declaration — the splice point for
@@ -191,4 +189,25 @@ func RecvTypeName(recv *ast.FieldList) string {
 			return ""
 		}
 	}
+}
+
+// MethodKey composes recv against name into the "Recv.Name" grammar, or
+// returns name bare when recv is empty — the one place a method's
+// symbol-index key is assembled.
+func MethodKey(recv, name string) string {
+	if recv == "" {
+		return name
+	}
+	return recv + "." + name
+}
+
+// ParseSymbolKey splits key into recv and name at the first ".", isMethod
+// reporting whether a "." was present at all — independent of whether
+// recv or name individually end up empty, which is the caller's own
+// grammar to validate, not this function's.
+func ParseSymbolKey(key string) (recv, name string, isMethod bool) {
+	if r, n, ok := strings.Cut(key, "."); ok {
+		return r, n, true
+	}
+	return "", key, false
 }

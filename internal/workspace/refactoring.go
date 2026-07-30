@@ -500,20 +500,18 @@ func (w *Workspace) ValidateNewName(pkg PackagePath, key, newKey string) (newNam
 	if !ok {
 		return "", NoSymbolError(key, pkg)
 	}
-	name := newKey
+	recv, name, isMethod := ParseSymbolKey(newKey)
 	if sym.Kind != KindMethod {
-		if strings.Contains(newKey, ".") {
+		if isMethod {
 			return "", fmt.Errorf("%q is not a method: newSymbolKey must be a bare identifier", sym.Key())
 		}
 	} else {
-		recv, methodName, ok := strings.Cut(newKey, ".")
-		if !ok {
+		if !isMethod {
 			return "", fmt.Errorf("%q is a method: newSymbolKey must be %q (its receiver cannot change)", sym.Key(), sym.Recv+".<new name>")
 		}
 		if recv != sym.Recv {
 			return "", fmt.Errorf("cannot change %q's receiver: got %q, want %q", sym.Key(), recv, sym.Recv)
 		}
-		name = methodName
 	}
 	if err := w.refuseUnsafeUnexport(owner, sym, name); err != nil {
 		return "", err

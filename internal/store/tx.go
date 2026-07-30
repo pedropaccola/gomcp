@@ -429,18 +429,15 @@ func (tx *Tx) MoveSymbol(pkg workspace.PackagePath, key string, newPkgPath works
 		if !ok {
 			return workspace.NoSymbolError(key, pkg)
 		}
-		// Captured as plain values, not read off sym again after the
+		// Captured as a plain value, not read off sym again after the
 		// rename: renameSymbol calls applyFileSplices, which can fork the
-		// package sym was resolved from, and a Kind/Recv pair extracted
-		// now stays correct regardless — rename never changes either.
-		isMethod, recv := sym.Kind == workspace.KindMethod, sym.Recv
+		// package sym was resolved from, and Recv extracted now stays
+		// correct regardless — rename never changes it.
+		recv := sym.Recv
 		if err := tx.renameSymbol(pkg, key, newName); err != nil {
 			return err
 		}
-		workingKey = newName
-		if isMethod {
-			workingKey = recv + "." + newName
-		}
+		workingKey = workspace.MethodKey(recv, newName)
 	}
 	if newFileName == "" {
 		return nil
@@ -523,10 +520,7 @@ func (tx *Tx) renameSymbol(pkg workspace.PackagePath, key, newName string) error
 	if !ok {
 		return workspace.NoSymbolError(key, pkg)
 	}
-	newKey := newName
-	if sym.Kind == workspace.KindMethod {
-		newKey = sym.Recv + "." + newName
-	}
+	newKey := workspace.MethodKey(sym.Recv, newName)
 	if _, exists := owner.Symbol(newKey); exists {
 		return errSymbolExists(newKey, pkg)
 	}
