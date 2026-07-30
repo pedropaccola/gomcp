@@ -58,7 +58,7 @@ func createPackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[CreateP
 				if err != nil {
 					return batchErr("creates", i, n, err)
 				}
-				if err := tx.CreatePackage(pkg, optStr(entry.Name)); err != nil {
+				if err := tx.CreatePackage(pkg.Base(), optStr(entry.Name)); err != nil {
 					return batchErr("creates", i, n, err)
 				}
 			}

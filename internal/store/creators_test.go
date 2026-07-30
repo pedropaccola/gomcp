@@ -5,10 +5,10 @@ import "testing"
 func TestTxCreateFile(t *testing.T) {
 	v := viewFixture(t, "package pkg\n\nfunc Foo() {}\n")
 	tx := NewTx(v)
-	if err := tx.CreateFile("test.mod/pkg", "extra.go", ""); err != nil {
+	if err := tx.CreateFile(tpkgID("pkg"), "extra.go", ""); err != nil {
 		t.Fatalf("CreateFile: %v", err)
 	}
-	files, ok := v.PackageFiles("test.mod/pkg")
+	files, ok := v.PackageFiles(tpkgID("pkg"))
 	if !ok {
 		t.Fatal("test.mod/pkg not found")
 	}
@@ -20,7 +20,7 @@ func TestTxCreateFile(t *testing.T) {
 func TestTxCreateFileRefusesExisting(t *testing.T) {
 	v := viewFixture(t, "package pkg\n\nfunc Foo() {}\n")
 	tx := NewTx(v)
-	if err := tx.CreateFile("test.mod/pkg", "pkg.go", ""); err == nil {
+	if err := tx.CreateFile(tpkgID("pkg"), "pkg.go", ""); err == nil {
 		t.Error("CreateFile must refuse a file that already exists")
 	}
 }
@@ -31,7 +31,7 @@ func TestTxCreatePackage(t *testing.T) {
 	if err := tx.CreatePackage("test.mod/newpkg", ""); err != nil {
 		t.Fatalf("CreatePackage: %v", err)
 	}
-	files, ok := v.PackageFiles("test.mod/newpkg")
+	files, ok := v.PackageFiles(tpkgID("newpkg"))
 	if !ok {
 		t.Fatal("newpkg not found after CreatePackage")
 	}
@@ -51,7 +51,7 @@ func TestTxCreatePackageRefusesExisting(t *testing.T) {
 func TestTxCreateSymbolRefusesCollision(t *testing.T) {
 	v := viewFixture(t, "package pkg\n\nfunc Foo() {}\n")
 	tx := NewTx(v)
-	if err := tx.CreateSymbol("test.mod/pkg", "pkg.go", "func Foo() {}"); err == nil {
+	if err := tx.CreateSymbol(tpkgID("pkg"), "pkg.go", "func Foo() {}"); err == nil {
 		t.Error("CreateSymbol must refuse a name already declared in the package")
 	}
 }
@@ -59,10 +59,10 @@ func TestTxCreateSymbolRefusesCollision(t *testing.T) {
 func TestTxCreateSymbolTouchesFile(t *testing.T) {
 	v := viewFixture(t, "package pkg\n\nfunc Foo() {}\n")
 	tx := NewTx(v)
-	if err := tx.CreateSymbol("test.mod/pkg", "pkg.go", "func Bar() {}"); err != nil {
+	if err := tx.CreateSymbol(tpkgID("pkg"), "pkg.go", "func Bar() {}"); err != nil {
 		t.Fatalf("CreateSymbol: %v", err)
 	}
-	if _, _, ok := v.Symbol("test.mod/pkg", "Bar"); !ok {
+	if _, ok := v.Symbol("test.mod/pkg", "Bar"); !ok {
 		t.Error("Bar not found after CreateSymbol")
 	}
 	changed := tx.ChangedKeys()
@@ -74,10 +74,10 @@ func TestTxCreateSymbolTouchesFile(t *testing.T) {
 func TestTxCreateFileXTest(t *testing.T) {
 	v := viewFixture(t, "package pkg\n\nfunc Foo() {}\n")
 	tx := NewTx(v)
-	if err := tx.CreateFile("test.mod/pkg_test", "extra_test.go", ""); err != nil {
+	if err := tx.CreateFile(tpkgID("pkg_test"), "extra_test.go", ""); err != nil {
 		t.Fatalf("CreateFile: %v", err)
 	}
-	files, ok := v.PackageFiles("test.mod/pkg")
+	files, ok := v.PackageFiles(tpkgID("pkg"))
 	if !ok {
 		t.Fatal("test.mod/pkg not found")
 	}
@@ -92,8 +92,8 @@ func TestTxCreateFileXTest(t *testing.T) {
 	if xtest == nil {
 		t.Fatal("XTest half not installed")
 	}
-	if xtest.Name != "pkg_test" || xtest.PkgPath != "test.mod/pkg_test" {
-		t.Errorf("XTest = %+v, want Name pkg_test and PkgPath test.mod/pkg_test", xtest)
+	if xtest.Name != "pkg_test" || xtest.ID.String() != "test.mod/pkg_test" {
+		t.Errorf("XTest = %+v, want Name pkg_test and ID test.mod/pkg_test", xtest)
 	}
 	if _, ok := xtest.File("test.mod/pkg/extra_test.go"); !ok {
 		t.Error("extra_test.go not installed in the new XTest package")
@@ -103,7 +103,7 @@ func TestTxCreateFileXTest(t *testing.T) {
 func TestTxCreateFileXTestRefusesWithoutProd(t *testing.T) {
 	v := viewFixture(t, "package pkg\n")
 	tx := NewTx(v)
-	if err := tx.CreateFile("test.mod/missing_test", "extra_test.go", ""); err == nil {
+	if err := tx.CreateFile(tpkgID("missing_test"), "extra_test.go", ""); err == nil {
 		t.Error("CreateFile on a nonexistent package's XTest half should fail")
 	}
 }

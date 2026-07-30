@@ -9,8 +9,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-
-	"github.com/pedropaccola/gomcp/internal/address"
 )
 
 // Splice is one byte-span edit against a file's canonical Src: replace
@@ -18,7 +16,7 @@ import (
 // Aggregate boundary, unlike the Symbol/Package/File pointers the
 // analysis that produces one is computed from.
 type Splice struct {
-	Path       address.FilePath
+	Path       FilePath
 	Start, End int
 	Repl       []byte
 }
@@ -61,7 +59,7 @@ func recvNameOfType(t types.Type) string {
 }
 
 // ProdPackage resolves a workspace address to its production package.
-func (w *Workspace) ProdPackage(pkg address.PkgPath) (*Package, bool) {
+func (w *Workspace) ProdPackage(pkg PackagePath) (*Package, bool) {
 	unit, ok := w.Unit(pkg)
 	if !ok || unit.Prod() == nil {
 		return nil, false
@@ -74,7 +72,7 @@ func (w *Workspace) ProdPackage(pkg address.PkgPath) (*Package, bool) {
 // XTest before falling back to the external dependency cache — the one
 // resolver every address-based lookup in this package composes on, so
 // dependency symbols work everywhere a workspace symbol does.
-func (w *Workspace) ResolveSymbol(pkg address.PkgPath, key string) (*Symbol, *Package, bool) {
+func (w *Workspace) ResolveSymbol(pkg PackagePath, key string) (*Symbol, *Package, bool) {
 	if unit, ok := w.Unit(pkg); ok {
 		for _, p := range unit.Members() {
 			if sym, ok := p.Symbol(key); ok {
@@ -172,7 +170,7 @@ func (w *Workspace) referencesTo(target ObjectKey, exclude *Symbol) []symbolRef 
 //  4. Blocking referrer: does code staying behind in srcPkg reference an
 //     unexported symbol that's leaving? (An exported one leaving is a
 //     fixup, not a conflict — see ComputeQualifierFixups.)
-func (w *Workspace) DetectMoveConflicts(srcPkg, destPkg address.PkgPath, movingKeys []string) []string {
+func (w *Workspace) DetectMoveConflicts(srcPkg, destPkg PackagePath, movingKeys []string) []string {
 	if srcPkg == destPkg {
 		return nil
 	}
@@ -312,7 +310,7 @@ func (w *Workspace) DetectMoveConflicts(srcPkg, destPkg address.PkgPath, movingK
 // matches DetectMoveConflicts' (srcPkg, destPkg, movingKeys), not the
 // reverse — the two are always called back-to-back on the same
 // relocation.
-func (w *Workspace) ComputeQualifierFixups(srcPkg, destPkg address.PkgPath, movingKeys []string) ([]Splice, error) {
+func (w *Workspace) ComputeQualifierFixups(srcPkg, destPkg PackagePath, movingKeys []string) ([]Splice, error) {
 	destOwner, ok := w.ProdPackage(destPkg)
 	if !ok {
 		return nil, fmt.Errorf("no package at %q", destPkg)
@@ -333,7 +331,7 @@ func (w *Workspace) ComputeQualifierFixups(srcPkg, destPkg address.PkgPath, movi
 	}
 
 	type declSpan struct{ start, end token.Pos }
-	movingSpans := make(map[address.FilePath][]declSpan, len(moving))
+	movingSpans := make(map[FilePath][]declSpan, len(moving))
 	movingObjKeys := make(map[ObjectKey]bool, len(moving))
 	inboundTargets := make(map[ObjectKey]bool, len(moving))
 	for _, m := range moving {
@@ -352,7 +350,7 @@ func (w *Workspace) ComputeQualifierFixups(srcPkg, destPkg address.PkgPath, movi
 			inboundTargets[k] = true
 		}
 	}
-	fromMoving := func(file address.FilePath, pos token.Pos) bool {
+	fromMoving := func(file FilePath, pos token.Pos) bool {
 		for _, sp := range movingSpans[file] {
 			if pos >= sp.start && pos < sp.end {
 				return true
@@ -371,7 +369,7 @@ func (w *Workspace) ComputeQualifierFixups(srcPkg, destPkg address.PkgPath, movi
 		moving := fromMoving(file.Path, name.Pos())
 		switch {
 		case inboundTargets[key] && !moving:
-			if pkg.PkgPath == destPkg {
+			if pkg.ID.Base() == destPkg {
 				if qualifier != nil {
 					if sp, ok := w.NewSpliceAtPos(pkg, file.Path, qualifier.Pos(), name.End(), []byte(name.Name)); ok {
 						edits = append(edits, sp)
@@ -424,7 +422,7 @@ func (w *Workspace) ComputeQualifierFixups(srcPkg, destPkg address.PkgPath, movi
 // Aggregate-owned analysis, same rationale as DetectMoveConflicts: key is
 // resolved fresh here, not accepted as a pointer a caller might already
 // be holding.
-func (w *Workspace) ComputeRenameSplices(pkg address.PkgPath, key, newName string) ([]Splice, error) {
+func (w *Workspace) ComputeRenameSplices(pkg PackagePath, key, newName string) ([]Splice, error) {
 	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return nil, fmt.Errorf("no symbol %q in %q", key, pkg)
@@ -467,7 +465,7 @@ func (w *Workspace) ComputeRenameSplices(pkg address.PkgPath, key, newName strin
 // (its files are disjoint from what needs to change); its XTest half is,
 // since it imports its own Prod sibling. Aggregate-owned analysis, same
 // rationale as DetectMoveConflicts.
-func (w *Workspace) ComputePackageMoveSplices(oldPkg, newPkg address.PkgPath, renameName bool, oldBase, newBase string) []Splice {
+func (w *Workspace) ComputePackageMoveSplices(oldPkg, newPkg PackagePath, renameName bool, oldBase, newBase string) []Splice {
 	prodOwner, _ := w.ProdPackage(oldPkg)
 	oldImport, newImport := string(oldPkg), string(newPkg)
 	var edits []Splice
@@ -512,7 +510,7 @@ func (w *Workspace) ComputePackageMoveSplices(oldPkg, newPkg address.PkgPath, re
 // through a rename, so newKey must name it explicitly ("Recv.Name") and
 // Recv must match; a non-method's newKey must be a bare identifier,
 // since there is no receiver to qualify it with.
-func (w *Workspace) ValidateNewName(pkg address.PkgPath, key, newKey string) (newName string, err error) {
+func (w *Workspace) ValidateNewName(pkg PackagePath, key, newKey string) (newName string, err error) {
 	sym, _, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return "", fmt.Errorf("no symbol %q in %q", key, pkg)
@@ -553,7 +551,7 @@ func (w *Workspace) offsetSpan(owner *Package, file *File, from, to token.Pos) (
 // replacing that range with repl, resolving it through NewSpliceAtOffset —
 // ok=false when the range doesn't resolve to a valid, in-bounds byte
 // span.
-func (w *Workspace) NewSpliceAtPos(pkg *Package, path address.FilePath, from, to token.Pos, repl []byte) (Splice, bool) {
+func (w *Workspace) NewSpliceAtPos(pkg *Package, path FilePath, from, to token.Pos, repl []byte) (Splice, bool) {
 	file, ok := pkg.File(path)
 	if !ok {
 		return Splice{}, false
@@ -573,7 +571,7 @@ func (w *Workspace) NewSpliceAtPos(pkg *Package, path address.FilePath, from, to
 // caller that already holds a resolved offset (an insertion point from
 // InsertOffset, an extraction span from ExtractDeclaration) uses it
 // directly instead of hand-building a Splice.
-func (w *Workspace) NewSpliceAtOffset(pkg *Package, path address.FilePath, start, end int, repl []byte) (Splice, bool) {
+func (w *Workspace) NewSpliceAtOffset(pkg *Package, path FilePath, start, end int, repl []byte) (Splice, bool) {
 	file, ok := pkg.File(path)
 	if !ok {
 		return Splice{}, false
@@ -589,17 +587,17 @@ func (w *Workspace) NewSpliceAtOffset(pkg *Package, path address.FilePath, start
 // gathers. Returns every path written, in address order — a caller's
 // material for its own change-tracking, since tracking what changed isn't
 // this method's own concern.
-func (w *Workspace) ApplyFileSplices(splices []Splice) ([]address.FilePath, error) {
-	byPath := make(map[address.FilePath][]Splice)
+func (w *Workspace) ApplyFileSplices(splices []Splice) ([]FilePath, error) {
+	byPath := make(map[FilePath][]Splice)
 	for _, s := range splices {
 		byPath[s.Path] = append(byPath[s.Path], s)
 	}
-	paths := make([]address.FilePath, 0, len(byPath))
+	paths := make([]FilePath, 0, len(byPath))
 	for path := range byPath {
 		paths = append(paths, path)
 	}
 	slices.Sort(paths)
-	touched := make([]address.FilePath, 0, len(paths))
+	touched := make([]FilePath, 0, len(paths))
 	for _, path := range paths {
 		file, owner, ok := w.ResolveFileByPath(path)
 		if !ok {
@@ -608,8 +606,8 @@ func (w *Workspace) ApplyFileSplices(splices []Splice) ([]address.FilePath, erro
 		batch := byPath[path]
 		slices.SortFunc(batch, func(a, b Splice) int { return cmp.Compare(a.Start, b.Start) })
 		batch = slices.CompactFunc(batch, func(a, b Splice) bool { return a.Start == b.Start && a.End == b.End })
-		addr := path.PkgPath()
-		if err := w.SwapFile(addr, owner.Kind == KindXTest, path, ApplySplices(file.Src(), batch)); err != nil {
+		addr := path.PackagePath()
+		if err := w.SwapFile(addr, owner.ID.Kind() == KindXTest, path, ApplySplices(file.Src(), batch)); err != nil {
 			return nil, err
 		}
 		touched = append(touched, path)
@@ -631,7 +629,7 @@ func (w *Workspace) ApplyFileSplices(splices []Splice) ([]address.FilePath, erro
 // destPath's file, the extracted text — is resolved fresh from w, once,
 // inside this one call: no caller ever holds a pointer across it.
 // Returns every path written, for the caller's own change-tracking.
-func (w *Workspace) RelocateDeclaration(srcPkg, destPkg address.PkgPath, key string, destPath address.FilePath) ([]address.FilePath, error) {
+func (w *Workspace) RelocateDeclaration(srcPkg, destPkg PackagePath, key string, destPath FilePath) ([]FilePath, error) {
 	sym, owner, ok := w.ResolveSymbol(srcPkg, key)
 	if !ok {
 		return nil, fmt.Errorf("no symbol %q in %q", key, srcPkg)
@@ -646,7 +644,7 @@ func (w *Workspace) RelocateDeclaration(srcPkg, destPkg address.PkgPath, key str
 	if strings.HasSuffix(destPath.String(), "_test.go") != strings.HasSuffix(sym.File.String(), "_test.go") {
 		return nil, fmt.Errorf("moving %q from %q to %q would cross the test build boundary", key, sym.File, destPath)
 	}
-	srcIsXTest := owner.Kind == KindXTest
+	srcIsXTest := owner.ID.Kind() == KindXTest
 	kind, recv := sym.Kind, sym.Recv
 	src, extractSplice, err := w.ExtractDeclaration(srcPkg, key)
 	if err != nil {
@@ -664,7 +662,7 @@ func (w *Workspace) RelocateDeclaration(srcPkg, destPkg address.PkgPath, key str
 		if err := w.SwapFile(destPkg, false, destPath, []byte("package "+destOwner.Name+"\n\n"+src+"\n")); err != nil {
 			return nil, err
 		}
-		return []address.FilePath{sym.File, destPath}, nil
+		return []FilePath{sym.File, destPath}, nil
 	}
 	dest, destOwner, ok = w.ResolveFileByPath(destPath)
 	if !ok {
@@ -681,7 +679,7 @@ func (w *Workspace) RelocateDeclaration(srcPkg, destPkg address.PkgPath, key str
 	if err := w.SwapFile(destPkg, false, destPath, ApplySplices(dest.Src(), []Splice{sp})); err != nil {
 		return nil, err
 	}
-	return []address.FilePath{sym.File, destPath}, nil
+	return []FilePath{sym.File, destPath}, nil
 }
 
 // RelocateFile moves path from pkg's isXTest half to newPath in
@@ -695,7 +693,7 @@ func (w *Workspace) RelocateDeclaration(srcPkg, destPkg address.PkgPath, key str
 // newPkgPath's packages re-resolved fresh afterward, since applying
 // those fixups may have forked either. Returns every path written, for
 // the caller's own change-tracking.
-func (w *Workspace) RelocateFile(pkg address.PkgPath, path address.FilePath, isXTest bool, newPkgPath address.PkgPath, newPath address.FilePath) ([]address.FilePath, error) {
+func (w *Workspace) RelocateFile(pkg PackagePath, path FilePath, isXTest bool, newPkgPath PackagePath, newPath FilePath) ([]FilePath, error) {
 	unit, ok := w.Unit(pkg)
 	if !ok {
 		return nil, fmt.Errorf("no package at %q", pkg)
@@ -722,7 +720,7 @@ func (w *Workspace) RelocateFile(pkg address.PkgPath, path address.FilePath, isX
 	if err != nil {
 		return nil, err
 	}
-	var touched []address.FilePath
+	var touched []FilePath
 	if len(fixups) > 0 {
 		fixupTouched, err := w.ApplyFileSplices(fixups)
 		if err != nil {
@@ -772,7 +770,7 @@ func (w *Workspace) RelocateFile(pkg address.PkgPath, path address.FilePath, isX
 // half-built Unit could be installed or observed, since NewUnit is the
 // only way to construct one at all. Returns every path written, for the
 // caller's own change-tracking.
-func (w *Workspace) MovePackage(oldPkg, newPkg address.PkgPath, renameName bool, oldBase, newBase string) ([]address.FilePath, error) {
+func (w *Workspace) MovePackage(oldPkg, newPkg PackagePath, renameName bool, oldBase, newBase string) ([]FilePath, error) {
 	unit, ok := w.Unit(oldPkg)
 	if !ok {
 		return nil, fmt.Errorf("no package at %q", oldPkg)
@@ -801,8 +799,8 @@ func (w *Workspace) MovePackage(oldPkg, newPkg address.PkgPath, renameName bool,
 	var halves []half
 	var prodMoved, xtestMoved *Package
 	for _, orig := range unit.Members() {
-		moved := orig.Relocated(oldPkg, newPkg, renameName)
-		isXTest := orig.Kind == KindXTest
+		moved := orig.Relocated(newPkg, renameName)
+		isXTest := orig.ID.Kind() == KindXTest
 		halves = append(halves, half{orig: orig, moved: moved, isXTest: isXTest})
 		if isXTest {
 			xtestMoved = moved
@@ -854,7 +852,7 @@ func (w *Workspace) MovePackage(oldPkg, newPkg address.PkgPath, renameName bool,
 // your receiver" placement resolves correctly for a method landing
 // right after the type it just moved in with. Returns every path
 // written.
-func (w *Workspace) RelocateSymbols(srcPkg, destPkg address.PkgPath, keys []string, destPath address.FilePath) ([]address.FilePath, error) {
+func (w *Workspace) RelocateSymbols(srcPkg, destPkg PackagePath, keys []string, destPath FilePath) ([]FilePath, error) {
 	seen := make(map[string]bool, len(keys))
 	var movingKeys []string
 	for _, key := range keys {
@@ -872,7 +870,7 @@ func (w *Workspace) RelocateSymbols(srcPkg, destPkg address.PkgPath, keys []stri
 	if conflicts := w.DetectMoveConflicts(srcPkg, destPkg, movingKeys); len(conflicts) > 0 {
 		return nil, fmt.Errorf("moving %v to %q would break the workspace: %s", keys, destPkg, strings.Join(conflicts, "; "))
 	}
-	var touched []address.FilePath
+	var touched []FilePath
 	if srcPkg != destPkg {
 		fixups, err := w.ComputeQualifierFixups(srcPkg, destPkg, movingKeys)
 		if err != nil {

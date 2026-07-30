@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
@@ -17,10 +16,10 @@ func TestLookupNavigation(t *testing.T) {
 	e := sandboxStore(t)
 	ws := e.ws
 
-	var paths []address.PkgPath
+	var paths []workspace.PackagePath
 	for _, addr := range ws.UnitKeys() {
 		unit, _ := ws.Unit(addr)
-		paths = append(paths, unit.PkgPath())
+		paths = append(paths, unit.Path())
 	}
 	if !slices.IsSorted(paths) {
 		t.Error("Packages not in path order")
@@ -43,7 +42,7 @@ func TestLookupNavigation(t *testing.T) {
 	}
 
 	file, ok := pkg.File("example.com/sandbox/shapes/shapes.go")
-	if !ok || file.Path != address.FilePath("example.com/sandbox/shapes/shapes.go") {
+	if !ok || file.Path != workspace.FilePath("example.com/sandbox/shapes/shapes.go") {
 		t.Fatal("File(shapes/shapes.go) resolution failed")
 	}
 	if _, ok := xtest.File("example.com/sandbox/shapes/external_test.go"); !ok {
@@ -68,10 +67,10 @@ func TestLookupNavigation(t *testing.T) {
 func TestLookupSymbolsAndExtraction(t *testing.T) {
 	e := sandboxStore(t)
 	err := e.Read(context.Background(), func(v *View) error {
-		if !v.HasPackage(spkg("shapes")) {
+		if !v.HasPackage(spkgID("shapes")) {
 			t.Fatal(`Package(shapes) not found`)
 		}
-		if _, _, ok := v.Symbol(spkg("shapes"), "Shape"); !ok {
+		if _, ok := v.Symbol(spkg("shapes"), "Shape"); !ok {
 			t.Fatal(`Symbol(shapes, "Shape") not found`)
 		}
 		src, ok := v.DeclSource(spkg("shapes"), "Shape")
@@ -94,10 +93,10 @@ func TestLookupSymbolsAndExtraction(t *testing.T) {
 		}
 
 		// Enumerators: methods on a generic receiver, files round-trip.
-		if methods := v.Methods(spkg("shapes"), "Stack"); len(methods) != 1 || methods[0].Key != "Stack.Push" {
+		if methods := v.Methods(spkgID("shapes"), "Stack"); len(methods) != 1 || methods[0].Key != "Stack.Push" {
 			t.Errorf("Methods(Stack) = %v", methods)
 		}
-		files, ok := v.PackageFiles(spkg("shapes"))
+		files, ok := v.PackageFiles(spkgID("shapes"))
 		if !ok {
 			t.Fatal("PackageFiles(shapes) not found")
 		}
@@ -129,13 +128,13 @@ func TestSymbolDiagnostics(t *testing.T) {
 		t.Fatalf("Bootstrap: %v", err)
 	}
 	err := e.Read(context.Background(), func(v *View) error {
-		if _, _, ok := v.Symbol("example.com/broken", "broken"); !ok {
+		if _, ok := v.Symbol("example.com/broken", "broken"); !ok {
 			t.Skip("parser recovery did not index the broken decl; nothing to attribute")
 		}
 		if diags := v.SymbolDiagnostics("example.com/broken", "broken"); len(diags) == 0 {
 			t.Error("SymbolDiagnostics(broken) empty, expected the parse error inside its span")
 		}
-		if _, _, ok := v.Symbol("example.com/broken", "ok"); !ok {
+		if _, ok := v.Symbol("example.com/broken", "ok"); !ok {
 			t.Fatal("healthy symbol not indexed")
 		}
 		if diags := v.SymbolDiagnostics("example.com/broken", "ok"); len(diags) != 0 {
@@ -151,8 +150,8 @@ func TestSymbolDiagnostics(t *testing.T) {
 func TestLookupScans(t *testing.T) {
 	e := sandboxStore(t)
 	err := e.Read(context.Background(), func(v *View) error {
-		hasKey := func(ms []Match, key string) bool {
-			return slices.ContainsFunc(ms, func(m Match) bool { return m.Key == key })
+		hasKey := func(ms []Symbol, key string) bool {
+			return slices.ContainsFunc(ms, func(m Symbol) bool { return m.Key == key })
 		}
 
 		if ms := v.SymbolsLike("AREA"); !hasKey(ms, "Circle.Area") || !hasKey(ms, "TotalArea") {
@@ -162,7 +161,7 @@ func TestLookupScans(t *testing.T) {
 			t.Error("SymbolsLike must scan XTest packages too")
 		}
 
-		var consts []Match
+		var consts []Symbol
 		for _, pkg := range v.Packages() {
 			syms, ok := v.PackageSymbols(pkg)
 			if !ok {
@@ -170,7 +169,7 @@ func TestLookupScans(t *testing.T) {
 			}
 			for _, sym := range syms {
 				if sym.Kind == workspace.KindConst.String() {
-					consts = append(consts, Match{Pkg: pkg, Key: sym.Key, Kind: workspace.KindConst})
+					consts = append(consts, sym)
 				}
 			}
 		}
@@ -259,7 +258,7 @@ func TestSymbolsImplementing(t *testing.T) {
 func TestSymbolsReferencing(t *testing.T) {
 	e := sandboxStore(t)
 	err := e.Read(context.Background(), func(v *View) error {
-		refsOf := func(pkg address.PkgPath, key string) []string {
+		refsOf := func(pkg workspace.PackagePath, key string) []string {
 			t.Helper()
 			matches, err := v.SymbolsReferencing(pkg, key)
 			if err != nil {
@@ -301,11 +300,11 @@ func TestPublicViewSurface(t *testing.T) {
 		t.Fatalf("LoadExternal(io): %v", err)
 	}
 	err := e.Read(context.Background(), func(v *View) error {
-		if !v.HasPackage(spkg("shapes")) {
+		if !v.HasPackage(spkgID("shapes")) {
 			t.Fatal("Package(shapes) not found")
 		}
-		files, _ := v.PackageFiles(spkg("shapes"))
-		syms, _ := v.PackageSymbols(spkg("shapes"))
+		files, _ := v.PackageFiles(spkgID("shapes"))
+		syms, _ := v.PackageSymbols(spkgID("shapes"))
 		if len(files) == 0 || len(syms) == 0 {
 			t.Error("PackageFiles/PackageSymbols empty")
 		}
@@ -313,15 +312,15 @@ func TestPublicViewSurface(t *testing.T) {
 			t.Error("PackageSymbols(shapes) missing Shape")
 		}
 
-		sym, owner, ok := v.Symbol(spkg("shapes"), "Circle.Area")
+		sym, ok := v.Symbol(spkg("shapes"), "Circle.Area")
 		if !ok {
 			t.Fatal("Symbol(Circle.Area) not found")
 		}
 		if sym.Kind != workspace.KindMethod.String() {
 			t.Errorf("Symbol(Circle.Area) = %+v, want kind Method", sym)
 		}
-		if owner != spkg("shapes") {
-			t.Errorf("Symbol owner = %q", owner)
+		if sym.Owner != spkgID("shapes") {
+			t.Errorf("Symbol owner = %q", sym.Owner)
 		}
 
 		if sig, ok := v.Signature(spkg("shapes"), "Circle.Area"); !ok || sig != "func (c Circle) Area() float64" {
@@ -342,7 +341,7 @@ func TestPublicViewSurface(t *testing.T) {
 			t.Fatal("Packages() empty")
 		}
 		for _, p := range pkgs {
-			if p == "" {
+			if p == (workspace.PackageID{}) {
 				t.Error("Packages() entry with empty path")
 			}
 		}
@@ -350,7 +349,7 @@ func TestPublicViewSurface(t *testing.T) {
 		if !v.HasExternalPackage("io") {
 			t.Fatal("ExternalPackage(io) not found")
 		}
-		if _, _, ok := v.Symbol("io", "Reader"); !ok {
+		if _, ok := v.Symbol("io", "Reader"); !ok {
 			t.Error("ExternalPackage(io).Symbol(Reader) not found")
 		}
 		return nil
@@ -363,7 +362,7 @@ func TestPublicViewSurface(t *testing.T) {
 func TestPackageAndFileDoc(t *testing.T) {
 	e := sandboxStore(t)
 	e.Read(context.Background(), func(v *View) error {
-		doc, ok := v.PackageDoc(spkg("shapes"))
+		doc, ok := v.PackageDoc(spkgID("shapes"))
 		if !ok {
 			t.Fatal("shapes package not resolvable")
 		}
@@ -372,7 +371,7 @@ func TestPackageAndFileDoc(t *testing.T) {
 			t.Errorf("PackageDoc = %q, want %q", doc, want)
 		}
 		var groupsDoc, shapesDoc string
-		files, _ := v.PackageFiles(spkg("shapes"))
+		files, _ := v.PackageFiles(spkgID("shapes"))
 		for _, f := range files {
 			switch f.Base() {
 			case "groups.go":
@@ -388,7 +387,7 @@ func TestPackageAndFileDoc(t *testing.T) {
 			t.Errorf("shapes.go Doc = %q", shapesDoc)
 		}
 
-		useDoc, ok := v.PackageDoc(spkg("use"))
+		useDoc, ok := v.PackageDoc(spkgID("use"))
 		if !ok {
 			t.Fatal("use package not resolvable")
 		}

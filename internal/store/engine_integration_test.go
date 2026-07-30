@@ -10,7 +10,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
@@ -32,8 +31,8 @@ func TestBootstrapLiveRepo(t *testing.T) {
 	if !ok || prod == nil {
 		t.Fatal("internal/store unit missing after bootstrap")
 	}
-	if prod.PkgPath != "github.com/pedropaccola/gomcp/internal/store" {
-		t.Errorf("unexpected PkgPath %q", prod.PkgPath)
+	if prod.ID.String() != "github.com/pedropaccola/gomcp/internal/store" {
+		t.Errorf("unexpected ID %q", prod.ID)
 	}
 	if sym, ok := prod.Symbol("Store.Bootstrap"); !ok || sym.Kind != workspace.KindMethod {
 		t.Error(`Symbol("Store.Bootstrap") missing or not a method`)
@@ -51,11 +50,11 @@ func TestBootstrapSandbox(t *testing.T) {
 		t.Fatal("shapes unit missing")
 	}
 
-	if pkg.Name != "shapes" || pkg.PkgPath != "example.com/sandbox/shapes" {
-		t.Errorf("Prod = %q %q, synthesized variants not filtered?", pkg.Name, pkg.PkgPath)
+	if pkg.Name != "shapes" || pkg.ID.String() != "example.com/sandbox/shapes" {
+		t.Errorf("Prod = %q %q, synthesized variants not filtered?", pkg.Name, pkg.ID)
 	}
 	// Widest-variant preference: the in-package test file folds into Prod.
-	if _, ok := pkg.File(address.FilePath("example.com/sandbox/shapes/internal_test.go")); !ok {
+	if _, ok := pkg.File(workspace.FilePath("example.com/sandbox/shapes/internal_test.go")); !ok {
 		t.Error("internal_test.go not in Prod: widest variant was not preferred")
 	}
 	if _, ok := pkg.Symbol("TestAreaInternal"); !ok {
@@ -68,8 +67,8 @@ func TestBootstrapSandbox(t *testing.T) {
 	if xtest == nil || xtest.Name != "shapes_test" {
 		t.Fatalf("XTest missing or misnamed: %+v", xtest)
 	}
-	if xtest.PkgPath != "example.com/sandbox/shapes_test" {
-		t.Errorf("XTest.PkgPath = %q", xtest.PkgPath)
+	if xtest.ID.String() != "example.com/sandbox/shapes_test" {
+		t.Errorf("XTest.ID = %q", xtest.ID)
 	}
 	if _, ok := xtest.Symbol("TestAreaExternal"); !ok {
 		t.Error("external test symbol not indexed")
@@ -80,7 +79,7 @@ func TestBootstrapSandbox(t *testing.T) {
 		t.Errorf(`Symbol("Stack.Push") = %+v, generic receiver not unwrapped`, sym)
 	}
 	// init functions are keyless, collected per file.
-	groups, ok := pkg.File(address.FilePath("example.com/sandbox/shapes/groups.go"))
+	groups, ok := pkg.File(workspace.FilePath("example.com/sandbox/shapes/groups.go"))
 	if !ok || len(groups.Inits) != 1 {
 		t.Errorf("groups.go Inits = %v, want exactly one", groups)
 	}
@@ -161,14 +160,14 @@ func TestExternalLoading(t *testing.T) {
 		if !v.HasExternalPackage("io") {
 			t.Fatal("io missing from the external cache")
 		}
-		if _, _, ok := v.Symbol("io", "Reader"); !ok {
+		if _, ok := v.Symbol("io", "Reader"); !ok {
 			t.Fatal("io.Reader not indexed")
 		}
 		src, ok := v.DeclSource("io", "Reader")
 		if !ok || !strings.Contains(src, "Read(p []byte) (n int, err error)") {
 			t.Errorf("DeclSource(io.Reader) = %q, %v", src, ok)
 		}
-		syms, ok := v.PackageSymbols("io")
+		syms, ok := v.PackageSymbols(pkgID("io", "io"))
 		if !ok {
 			t.Fatal("io package symbols not found")
 		}
@@ -197,7 +196,7 @@ func TestExternalRefusalsAndReset(t *testing.T) {
 	}
 	// Dependencies are read-only: mutation verbs never see them.
 	if _, err := e.Edit(context.Background(), func(tx *Tx) error {
-		return tx.CreateSymbol("io", "extra.go", "func Nope() {}")
+		return tx.CreateSymbol(pkgID("io", "io"), "extra.go", "func Nope() {}")
 	}); err == nil || !strings.Contains(err.Error(), "no package") {
 		t.Errorf("mutating a dependency must fail, got %v", err)
 	}
@@ -241,7 +240,7 @@ func TestLoadExternalConcurrent(t *testing.T) {
 		if !v.HasExternalPackage("io") {
 			t.Fatal("io missing from the external cache after concurrent loads")
 		}
-		if _, _, ok := v.Symbol("io", "Reader"); !ok {
+		if _, ok := v.Symbol("io", "Reader"); !ok {
 			t.Error("io.Reader not indexed after concurrent loads")
 		}
 		return nil
@@ -272,7 +271,7 @@ func TestConcurrentReadEditStress(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < readIterations; j++ {
 				err := e.Read(ctx, func(v *View) error {
-					if _, _, ok := v.Symbol(spkg("shapes"), "NotShape"); !ok {
+					if _, ok := v.Symbol(spkg("shapes"), "NotShape"); !ok {
 						return errors.New("NotShape missing during concurrent read")
 					}
 					_ = v.AllDiagnostics()
@@ -287,7 +286,7 @@ func TestConcurrentReadEditStress(t *testing.T) {
 	}
 
 	type editTarget struct {
-		pkg    address.PkgPath
+		pkg    workspace.PackagePath
 		key    string
 		bodies [2]string
 	}

@@ -3,8 +3,6 @@ package workspace
 import (
 	"errors"
 	"strconv"
-
-	"github.com/pedropaccola/gomcp/internal/address"
 )
 
 // ErrNarrowlyChecked is returned by SymbolsImplementing when the current
@@ -27,8 +25,8 @@ var ErrNarrowlyChecked = errors.New("workspace was narrowly rechecked: SymbolsIm
 // imports — anything outside w.UnitKeys() — are dead ends: they can't
 // import a workspace package back. Aggregate-owned analysis, since it's
 // pure Entity-graph traversal with no engine-specific knowledge.
-func (w *Workspace) ComputeRecheckScope(dirty map[address.PkgPath]bool) map[address.PkgPath]bool {
-	importedBy := make(map[address.PkgPath][]address.PkgPath) // imported -> importing unit addresses
+func (w *Workspace) ComputeRecheckScope(dirty map[PackagePath]bool) map[PackagePath]bool {
+	importedBy := make(map[PackagePath][]PackagePath) // imported -> importing unit addresses
 	for _, addr := range w.UnitKeys() {
 		unit, _ := w.Unit(addr)
 		for _, pkg := range unit.Members() {
@@ -38,7 +36,7 @@ func (w *Workspace) ComputeRecheckScope(dirty map[address.PkgPath]bool) map[addr
 					if err != nil {
 						continue
 					}
-					target := address.PkgPath(path)
+					target := PackagePath(path)
 					if _, ok := w.Unit(target); !ok {
 						continue // external dependency, not a workspace package
 					}
@@ -48,8 +46,8 @@ func (w *Workspace) ComputeRecheckScope(dirty map[address.PkgPath]bool) map[addr
 		}
 	}
 
-	scope := make(map[address.PkgPath]bool, len(dirty))
-	queue := make([]address.PkgPath, 0, len(dirty))
+	scope := make(map[PackagePath]bool, len(dirty))
+	queue := make([]PackagePath, 0, len(dirty))
 	for pkg := range dirty {
 		if !scope[pkg] {
 			scope[pkg] = true

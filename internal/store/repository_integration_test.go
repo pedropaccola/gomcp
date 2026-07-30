@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/pedropaccola/gomcp/internal/address"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 func TestFlushWritesAndUnlinks(t *testing.T) {
@@ -17,7 +17,7 @@ func TestFlushWritesAndUnlinks(t *testing.T) {
 		t.Fatalf("Bootstrap: %v", err)
 	}
 	mustEdit(t, e, func(tx *Tx) error {
-		if err := tx.CreateSymbol(spkg("shapes"), "extra.go", "func Twice(x float64) float64 { return 2 * x }"); err != nil {
+		if err := tx.CreateSymbol(spkgID("shapes"), "extra.go", "func Twice(x float64) float64 { return 2 * x }"); err != nil {
 			return err
 		}
 		return tx.DeleteFile(spkg("broken"), "broken.go")
@@ -90,7 +90,7 @@ func TestModelMatchesDiskAfterFlush(t *testing.T) {
 		t.Fatalf("Bootstrap: %v", err)
 	}
 	mustEdit(t, e, func(tx *Tx) error {
-		if err := tx.CreateSymbol(spkg("shapes"), "extra.go", "func Twice(x float64) float64 { return 2 * x }"); err != nil {
+		if err := tx.CreateSymbol(spkgID("shapes"), "extra.go", "func Twice(x float64) float64 { return 2 * x }"); err != nil {
 			return err
 		}
 		if err := tx.MoveFile(spkg("shapes"), "groups.go", "", "extras.go"); err != nil {
@@ -135,7 +135,7 @@ func TestModelMatchesDiskAfterGroupAndMethodMutations(t *testing.T) {
 func TestReloadDiscards(t *testing.T) {
 	e := sandboxStore(t)
 	mustEdit(t, e, func(tx *Tx) error {
-		if err := tx.CreateSymbol(spkg("shapes"), "extra.go", "func Extra() {}"); err != nil {
+		if err := tx.CreateSymbol(spkgID("shapes"), "extra.go", "func Extra() {}"); err != nil {
 			return err
 		}
 		return tx.DeleteFile(spkg("use"), "alias.go")
@@ -144,12 +144,12 @@ func TestReloadDiscards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reload: %v", err)
 	}
-	for _, want := range []address.FilePath{sfile("shapes", "extra.go"), sfile("use", "alias.go")} {
+	for _, want := range []workspace.FilePath{sfile("shapes", "extra.go"), sfile("use", "alias.go")} {
 		if !slices.Contains(discarded, want) {
 			t.Errorf("discarded missing %q: %v", want, discarded)
 		}
 	}
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "Extra"); ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "Extra"); ok {
 		t.Error("unflushed symbol survived reload")
 	}
 	if _, _, ok := resolveFile(e, sfile("use", "alias.go")); !ok {
@@ -169,7 +169,7 @@ func TestMoveFileAndFlush(t *testing.T) {
 	if len(report.Delta) != 0 {
 		t.Errorf("file move introduced diagnostics: %v", deltaStrings(report))
 	}
-	for _, want := range []address.FilePath{sfile("shapes", "groups.go"), sfile("shapes", "extras.go")} {
+	for _, want := range []workspace.FilePath{sfile("shapes", "groups.go"), sfile("shapes", "extras.go")} {
 		if !slices.Contains(report.Changed, want) {
 			t.Errorf("Changed = %v, missing %s", report.Changed, want)
 		}
@@ -191,7 +191,7 @@ func TestCreatePackageThroughRecheck(t *testing.T) {
 		if err := tx.CreatePackage(spkg("util"), ""); err != nil {
 			return err
 		}
-		return tx.CreateSymbol(spkg("util"), "util.go", "func Half(x float64) float64 { return x / 2 }")
+		return tx.CreateSymbol(spkgID("util"), "util.go", "func Half(x float64) float64 { return x / 2 }")
 	})
 	if len(report.Delta) != 0 {
 		t.Errorf("new package produced diagnostics: %v", deltaStrings(report))
@@ -200,10 +200,10 @@ func TestCreatePackageThroughRecheck(t *testing.T) {
 	if !ok {
 		t.Fatal("util package missing after recheck — overlay-only directories not surviving the reload")
 	}
-	if pkg.PkgPath != "example.com/sandbox/util" {
-		t.Errorf("recheck did not resolve the import path: %q", pkg.PkgPath)
+	if pkg.ID.String() != "example.com/sandbox/util" {
+		t.Errorf("recheck did not resolve the import path: %q", pkg.ID)
 	}
-	if _, _, ok := resolveSymbol(e, spkg("util"), "Half"); !ok {
+	if _, ok := resolveSymbol(e, spkg("util"), "Half"); !ok {
 		t.Error("Half not resolvable in the new package")
 	}
 }

@@ -11,7 +11,7 @@ func TestTxEditFile(t *testing.T) {
 	if err := tx.EditFile("test.mod/pkg", "pkg.go", "Package pkg does things."); err != nil {
 		t.Fatalf("EditFile: %v", err)
 	}
-	doc, ok := v.PackageDoc("test.mod/pkg")
+	doc, ok := v.PackageDoc(tpkgID("pkg"))
 	if !ok {
 		t.Fatal("test.mod/pkg not found")
 	}

@@ -5,8 +5,6 @@ import (
 	"iter"
 	"maps"
 	"slices"
-
-	"github.com/pedropaccola/gomcp/internal/address"
 )
 
 // Workspace is the one mutable root of the model: the unit map, tombstone
@@ -30,9 +28,9 @@ import (
 // synchronized externally — internal/store.Store's own mutex is the
 // only caller that does this today.
 type Workspace struct {
-	module      address.PkgPath
+	module      PackagePath
 	fset        *token.FileSet
-	units       map[address.PkgPath]*Unit
+	units       map[PackagePath]*Unit
 	unitsForked bool
 
 	// narrowlyChecked marks a generation assembled by a dirty-scoped
@@ -50,7 +48,7 @@ type Workspace struct {
 	// mask. The owning package is captured here, at tombstone-creation
 	// time, rather than re-derived from the path later: every caller that
 	// tombstones a path already has its package in hand.
-	removed       map[address.FilePath]tombstoneEntry
+	removed       map[FilePath]tombstoneEntry
 	removedForked bool
 
 	// forkedPkgs marks which *Package objects this generation has already
@@ -61,8 +59,8 @@ type Workspace struct {
 	// FileSet — workspace swaps must not invalidate cached positions.
 	// Negative results are cached too, so a mistyped address costs one
 	// load per session.
-	external     map[address.PkgPath]*Package
-	externalErr  map[address.PkgPath]error
+	external     map[PackagePath]*Package
+	externalErr  map[PackagePath]error
 	externalFset *token.FileSet
 }
 
@@ -71,10 +69,10 @@ type Workspace struct {
 func NewWorkspace() *Workspace {
 	return &Workspace{
 		fset:         token.NewFileSet(),
-		units:        make(map[address.PkgPath]*Unit),
-		removed:      make(map[address.FilePath]tombstoneEntry),
-		external:     make(map[address.PkgPath]*Package),
-		externalErr:  make(map[address.PkgPath]error),
+		units:        make(map[PackagePath]*Unit),
+		removed:      make(map[FilePath]tombstoneEntry),
+		external:     make(map[PackagePath]*Package),
+		externalErr:  make(map[PackagePath]error),
 		externalFset: token.NewFileSet(),
 	}
 }
@@ -83,14 +81,14 @@ func NewWorkspace() *Workspace {
 // tombstones and the dependency cache — the bootstrap swap. units come
 // from the loader and are trusted as its output. Always a full load, so
 // narrowlyChecked clears.
-func (w *Workspace) Reset(module address.PkgPath, fset *token.FileSet, units map[address.PkgPath]*Unit) {
+func (w *Workspace) Reset(module PackagePath, fset *token.FileSet, units map[PackagePath]*Unit) {
 	w.module = module
 	w.fset = fset
 	w.units = units
 	w.narrowlyChecked = false
-	w.removed = make(map[address.FilePath]tombstoneEntry)
-	w.external = make(map[address.PkgPath]*Package)
-	w.externalErr = make(map[address.PkgPath]error)
+	w.removed = make(map[FilePath]tombstoneEntry)
+	w.external = make(map[PackagePath]*Package)
+	w.externalErr = make(map[PackagePath]error)
 	w.externalFset = token.NewFileSet()
 }
 
@@ -99,7 +97,7 @@ func (w *Workspace) Reset(module address.PkgPath, fset *token.FileSet, units map
 // the post-mutation swap. narrow marks whether this was a dirty-scoped
 // recheck (some packages carried forward from an earlier session) rather
 // than a full one — see narrowlyChecked.
-func (w *Workspace) SwapLoaded(fset *token.FileSet, units map[address.PkgPath]*Unit, narrow bool) {
+func (w *Workspace) SwapLoaded(fset *token.FileSet, units map[PackagePath]*Unit, narrow bool) {
 	w.fset = fset
 	w.units = units
 	w.narrowlyChecked = narrow
@@ -107,7 +105,7 @@ func (w *Workspace) SwapLoaded(fset *token.FileSet, units map[address.PkgPath]*U
 
 // Module is the workspace's module path: the prefix of every workspace
 // package address.
-func (w *Workspace) Module() address.PkgPath {
+func (w *Workspace) Module() PackagePath {
 	return w.module
 }
 
@@ -120,27 +118,27 @@ func (w *Workspace) FileSet() *token.FileSet {
 // FsetOf is the FileSet a package's positions live in: the external
 // cache's for dependencies, the workspace FileSet otherwise.
 func (w *Workspace) FsetOf(pkg *Package) *token.FileSet {
-	if pkg != nil && pkg.Kind == KindExternal {
+	if pkg != nil && pkg.ID.Kind() == KindExternal {
 		return w.externalFset
 	}
 	return w.fset
 }
 
 // Unit resolves a canonical package address.
-func (w *Workspace) Unit(pkg address.PkgPath) (*Unit, bool) {
+func (w *Workspace) Unit(pkg PackagePath) (*Unit, bool) {
 	unit, ok := w.units[pkg]
 	return unit, ok
 }
 
 // UnitKeys enumerates every unit's address, sorted — determinism by
 // construction: the raw map never leaves the workspace.
-func (w *Workspace) UnitKeys() []address.PkgPath {
+func (w *Workspace) UnitKeys() []PackagePath {
 	return slices.Sorted(maps.Keys(w.units))
 }
 
 // InstallUnit maps a unit at an address; creation and package moves end
 // here.
-func (w *Workspace) InstallUnit(pkg address.PkgPath, unit *Unit) {
+func (w *Workspace) InstallUnit(pkg PackagePath, unit *Unit) {
 	w.ensureUnitsForked()
 	w.units[pkg] = unit
 }
@@ -148,7 +146,7 @@ func (w *Workspace) InstallUnit(pkg address.PkgPath, unit *Unit) {
 // RemoveUnit unmaps an address without tombstoning its files — package
 // moves relocate files individually first. DeletePackage-style removal
 // tombstones each file, then removes the unit.
-func (w *Workspace) RemoveUnit(pkg address.PkgPath) {
+func (w *Workspace) RemoveUnit(pkg PackagePath) {
 	w.ensureUnitsForked()
 	delete(w.units, pkg)
 }
@@ -173,6 +171,6 @@ func (w *Workspace) Files() iter.Seq2[FileRef, *File] {
 // it — the identity Workspace.Files' callers need alongside the file
 // itself, since *File carries neither.
 type FileRef struct {
-	Pkg     address.PkgPath
+	Pkg     PackagePath
 	IsXTest bool
 }

@@ -67,10 +67,9 @@ documented on the type that actually implements it.
   vocabulary that used to live in a separate `internal/dto` package:
   `store.Symbol`/`Diagnostic`/`EditReport` are `store`'s own
   declarations, each narrowed to what an actual `tools` call site reads
-  rather than mirroring `workspace`'s field list wholesale. `store.Match`
-  is the one exception — a temporary alias to `workspace.SymbolMatch`,
-  tracked for removal once the `PackageID` identity work in
-  `NOTES-address-identity.md` lands.
+  rather than mirroring `workspace`'s field list wholesale. `Symbol.Owner`
+  (a `workspace.PackageID`) carries a scan hit's real resolved identity,
+  closing the gap that once made a separate `store.Match` type necessary.
 - **`disk`** is the go/packages.Load pipeline and the filesystem's other
   door: `Loader` holds no lock and no workspace state of its own — just
   `RootDir`/`Logf` — so `store` calls into it while `store`'s own lock is
@@ -86,9 +85,13 @@ scoped to their call) are documented on the types and methods that hold
 them, not here — `workspace.File`, `Package.RebuildIndex`, `store.View`,
 `store.Tx`, `Store.Edit` are the ones worth reading first. Same for the
 per-layer naming grammars: `Tx`'s verb categories and `View`'s narrow
-address-keyed accessors versus its whole-workspace scanners are on their
-own type docs; the address conventions (`package` vs `file` arguments,
-import-path vs workspace-relative spelling) are on `canonPkg`/`fileArg`
-(`internal/tools/shared.go`). Read the relevant type's doc comment before
+identity-keyed accessors versus its whole-workspace scanners are on their
+own type docs; the identity vocabulary itself (`PackagePath`, the sealed
+`PackageID`, `FilePath`, and `NewPackageID`'s agent-facing `_test`-suffix
+parsing) is on `internal/workspace/identity.go`; the tools-layer
+resolution seam (`package` vs `file` arguments, import-path vs
+workspace-relative spelling, dependency addresses excluded from writes)
+is on `writeWorkspacePkg`/`readPackage` (`internal/tools/edit.go`,
+`internal/tools/read.go`). Read the relevant type's doc comment before
 extending it, rather than working from a second-hand summary that can go
 stale on its own.

@@ -1,8 +1,8 @@
 package tools
 
 import (
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/store"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 // toolConfig holds process-wide tool configuration set once at Register
@@ -61,9 +61,8 @@ type DiagnosticEntry struct {
 	Message   string  `json:"message"`
 }
 
-// diagsForFile narrows a package's diagnostics down to one file's own.
-func diagsForFile(diags []store.Diagnostic, path address.FilePath) []store.Diagnostic {
-	out := diags[:0:0]
+func diagsForFile(diags []store.Diagnostic, path workspace.FilePath) []store.Diagnostic {
+	out := make([]store.Diagnostic, 0, len(diags))
 	for _, d := range diags {
 		if d.File == path {
 			out = append(out, d)

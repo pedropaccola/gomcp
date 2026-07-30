@@ -8,7 +8,7 @@ func TestTxDeleteFile(t *testing.T) {
 	if err := tx.DeleteFile("test.mod/pkg", "pkg.go"); err != nil {
 		t.Fatalf("DeleteFile: %v", err)
 	}
-	if _, _, ok := v.Symbol("test.mod/pkg", "Foo"); ok {
+	if _, ok := v.Symbol("test.mod/pkg", "Foo"); ok {
 		t.Error("Foo must be gone after its file is deleted")
 	}
 }
@@ -19,7 +19,7 @@ func TestTxDeletePackage(t *testing.T) {
 	if err := tx.DeletePackage("test.mod/pkg"); err != nil {
 		t.Fatalf("DeletePackage: %v", err)
 	}
-	if v.HasPackage("test.mod/pkg") {
+	if v.HasPackage(tpkgID("pkg")) {
 		t.Error("test.mod/pkg must be gone after DeletePackage")
 	}
 }
@@ -30,10 +30,10 @@ func TestTxDeleteSymbol(t *testing.T) {
 	if err := tx.DeleteSymbol("test.mod/pkg", "Foo"); err != nil {
 		t.Fatalf("DeleteSymbol: %v", err)
 	}
-	if _, _, ok := v.Symbol("test.mod/pkg", "Foo"); ok {
+	if _, ok := v.Symbol("test.mod/pkg", "Foo"); ok {
 		t.Error("Foo still resolves after DeleteSymbol")
 	}
-	if _, _, ok := v.Symbol("test.mod/pkg", "Bar"); !ok {
+	if _, ok := v.Symbol("test.mod/pkg", "Bar"); !ok {
 		t.Error("Bar must survive deleting its sibling Foo")
 	}
 }

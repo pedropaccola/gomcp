@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/store"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 // DescribeFileInput is one or more files to describe, in one round trip,
@@ -93,7 +93,7 @@ func describePackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[Descr
 		n := len(in.Describes)
 		out := DescribePackageOutput{Results: make([]DescribePackageResult, n)}
 		for i, entry := range in.Describes {
-			err := readPackage(ctx, eng, entry.PkgPath, func(v *store.View, pkg address.PkgPath) error {
+			err := readPackage(ctx, eng, entry.PkgPath, func(v *store.View, pkg workspace.PackageID) error {
 				res := &out.Results[i]
 				if doc, _ := v.PackageDoc(pkg); doc != "" {
 					res.Doc = new(string)
@@ -104,7 +104,7 @@ func describePackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[Descr
 				for _, f := range files {
 					res.Files = append(res.Files, f.Base())
 				}
-				res.DiagnosticsTruncated = newDiagnosticsTruncated(v.Diagnostics(pkg), cfg.diagLimit)
+				res.DiagnosticsTruncated = newDiagnosticsTruncated(v.Diagnostics(pkg.Base()), cfg.diagLimit)
 				return nil
 			})
 			if err != nil {
@@ -123,13 +123,13 @@ func describeFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[Describe
 		n := len(in.Describes)
 		out := DescribeFileOutput{Results: make([]DescribeFileResult, n)}
 		for i, entry := range in.Describes {
-			err := readFile(ctx, eng, entry.PkgPath, entry.FileName, func(v *store.View, fp address.FilePath, pkg address.PkgPath) error {
+			err := readFile(ctx, eng, entry.PkgPath, entry.FileName, func(v *store.View, fp workspace.FilePath, pkg workspace.PackageID) error {
 				res := &out.Results[i]
 				if doc, ok := v.FileDoc(fp); ok && doc != "" {
 					res.Doc = new(string)
 					*res.Doc = doc
 				}
-				res.DiagnosticsTruncated = newDiagnosticsTruncated(diagsForFile(v.Diagnostics(pkg), fp), cfg.diagLimit)
+				res.DiagnosticsTruncated = newDiagnosticsTruncated(diagsForFile(v.Diagnostics(pkg.Base()), fp), cfg.diagLimit)
 				return nil
 			})
 			if err != nil {
@@ -148,8 +148,8 @@ func describeSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[Descri
 		n := len(in.Describes)
 		out := DescribeSymbolOutput{Results: make([]DescribeSymbolResult, n)}
 		for i, entry := range in.Describes {
-			err := readSymbol(ctx, eng, entry.PkgPath, entry.SymbolKey, func(v *store.View, sym store.Symbol, owner address.PkgPath) error {
-				src, ok := v.DeclSource(owner, sym.Key)
+			err := readSymbol(ctx, eng, entry.PkgPath, entry.SymbolKey, func(v *store.View, sym store.Symbol, owner workspace.PackageID) error {
+				src, ok := v.DeclSource(owner.Base(), sym.Key)
 				if !ok {
 					return fmt.Errorf("source extraction failed for %q", entry.SymbolKey)
 				}
@@ -157,11 +157,11 @@ func describeSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[Descri
 				res.File = sym.File.Base()
 				res.Source = src
 				res.Kind = sym.Kind
-				diags := v.SymbolDiagnostics(owner, sym.Key)
+				diags := v.SymbolDiagnostics(owner.Base(), sym.Key)
 				if sym.IsType() {
 					res.Methods = methodSignatures(v, owner, sym.Key)
 					for _, m := range v.Methods(owner, sym.Key) {
-						diags = append(diags, v.SymbolDiagnostics(owner, m.Key)...)
+						diags = append(diags, v.SymbolDiagnostics(owner.Base(), m.Key)...)
 					}
 				}
 				res.DiagnosticsTruncated = newDiagnosticsTruncated(diags, cfg.diagLimit)

@@ -4,7 +4,6 @@ import (
 	"context"
 	"go/token"
 
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
@@ -42,8 +41,8 @@ func (e *Store) recheckFullLocked(ctx context.Context, ws *workspace.Workspace) 
 // single unified type-checking session.
 func (e *Store) recheckScopedLocked(ctx context.Context, ws *workspace.Workspace, forceFull bool) error {
 	overlay := make(map[string][]byte)
-	dirty := make(map[address.FilePath]address.PkgPath)
-	dirtyPkgs := make(map[address.PkgPath]bool)
+	dirty := make(map[workspace.FilePath]workspace.PackagePath)
+	dirtyPkgs := make(map[workspace.PackagePath]bool)
 	module := ws.Module()
 	for path, pkg := range changedSet(ws) {
 		dirtyPkgs[pkg] = true
@@ -63,7 +62,7 @@ func (e *Store) recheckScopedLocked(ctx context.Context, ws *workspace.Workspace
 
 	scope := ws.ComputeRecheckScope(dirtyPkgs)
 	if forceFull {
-		scope = make(map[address.PkgPath]bool, len(ws.UnitKeys()))
+		scope = make(map[workspace.PackagePath]bool, len(ws.UnitKeys()))
 		for _, addr := range ws.UnitKeys() {
 			scope[addr] = true
 		}
@@ -78,7 +77,7 @@ func (e *Store) recheckScopedLocked(ctx context.Context, ws *workspace.Workspace
 
 	newFset := token.NewFileSet()
 	oldFset := ws.FileSet()
-	kept := make(map[address.PkgPath]*workspace.Unit)
+	kept := make(map[workspace.PackagePath]*workspace.Unit)
 	for _, addr := range ws.UnitKeys() {
 		unit, _ := ws.Unit(addr)
 		if scope[addr] {
@@ -128,13 +127,12 @@ func (e *Store) recheckScopedLocked(ctx context.Context, ws *workspace.Workspace
 // changedSet is the union of dirty files and tombstoned paths, each
 // paired with the directory-canonical package address that owns it (the
 // key Workspace.units and go/packages patterns actually use — not
-// necessarily a *workspace.Package's own .PkgPath, which for an XTest
-// half names its own distinct import path). Known already at every
-// path's point of origin (the unit-key loop below, or the tombstone's
-// own creation-time record), so callers never re-derive it from the
-// path.
-func changedSet(ws *workspace.Workspace) map[address.FilePath]address.PkgPath {
-	out := make(map[address.FilePath]address.PkgPath)
+// necessarily a *workspace.Package's own .ID, which for an XTest half
+// names its own distinct import path). Known already at every path's
+// point of origin (the unit-key loop below, or the tombstone's own
+// creation-time record), so callers never re-derive it from the path.
+func changedSet(ws *workspace.Workspace) map[workspace.FilePath]workspace.PackagePath {
+	out := make(map[workspace.FilePath]workspace.PackagePath)
 	for ref, file := range ws.Files() {
 		if file.IsDirty() {
 			out[file.Path] = ref.Pkg

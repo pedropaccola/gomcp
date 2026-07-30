@@ -5,7 +5,6 @@ import (
 	"go/token"
 	"slices"
 
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
@@ -13,12 +12,12 @@ import (
 // with a package doc comment. pkg may name a unit's XTest half via its
 // own "_test"-suffixed address (workspace.Workspace.EnsurePackage),
 // installing that half the first time something targets it.
-func (tx *Tx) CreateFile(pkg address.PkgPath, name, doc string) error {
-	canon, p, isXTest, err := tx.ws.EnsurePackage(pkg)
+func (tx *Tx) CreateFile(pkg workspace.PackageID, name, doc string) error {
+	p, err := tx.ws.EnsurePackage(pkg)
 	if err != nil {
 		return err
 	}
-	path, err := address.NewFilePath(tx.ws.Module(), canon, name)
+	path, err := workspace.NewFilePath(tx.ws.Module(), p.ID.Base(), name)
 	if err != nil {
 		return err
 	}
@@ -26,13 +25,13 @@ func (tx *Tx) CreateFile(pkg address.PkgPath, name, doc string) error {
 		return fmt.Errorf("file %q already exists", path)
 	}
 	content := string(renderDocComment(doc)) + "package " + p.Name + "\n"
-	return tx.installFile(canon, isXTest, path, []byte(content))
+	return tx.installFile(p.ID.Base(), p.ID.Kind() == workspace.KindXTest, path, []byte(content))
 }
 
 // CreatePackage creates a new package at a module-prefixed address with one
 // file named after the package. name defaults to the address base. Fails if
 // the address already holds a package; the directory is created at Flush.
-func (tx *Tx) CreatePackage(pkg address.PkgPath, name string) error {
+func (tx *Tx) CreatePackage(pkg workspace.PackagePath, name string) error {
 	if pkg == tx.ws.Module() {
 		return fmt.Errorf("cannot create a package at %q: workspace packages live under module %q", pkg, tx.ws.Module())
 	}
@@ -45,7 +44,7 @@ func (tx *Tx) CreatePackage(pkg address.PkgPath, name string) error {
 	if !token.IsIdentifier(name) {
 		return fmt.Errorf("%q is not a valid package name", name)
 	}
-	tx.ws.InstallUnit(pkg, workspace.NewUnit(workspace.NewPackage(name, pkg, nil, nil, workspace.KindProd), nil))
+	tx.ws.InstallUnit(pkg, workspace.NewUnit(workspace.NewPackage(name, pkg, workspace.KindProd, nil, nil), nil))
 	return tx.installFile(pkg, false, pkg.File(name+".go"), []byte("package "+name+"\n"))
 }
 
@@ -66,11 +65,13 @@ func (tx *Tx) CreatePackage(pkg address.PkgPath, name string) error {
 // clustering declPrecedes already gives methods with their receiver;
 // otherwise it falls to the standard const/var region, same as an
 // untyped iota group always does.
-func (tx *Tx) CreateSymbol(pkg address.PkgPath, fileName, src string) error {
-	canon, p, isXTest, err := tx.ws.EnsurePackage(pkg)
+func (tx *Tx) CreateSymbol(pkg workspace.PackageID, fileName, src string) error {
+	p, err := tx.ws.EnsurePackage(pkg)
 	if err != nil {
 		return err
 	}
+	canon := p.ID.Base()
+	isXTest := p.ID.Kind() == workspace.KindXTest
 	frag, err := parseDeclFragment(src)
 	if err != nil {
 		return err
@@ -83,7 +84,7 @@ func (tx *Tx) CreateSymbol(pkg address.PkgPath, fileName, src string) error {
 			return fmt.Errorf("symbol %q already exists in %q: use EditSymbol", key, pkg)
 		}
 	}
-	path, err := address.NewFilePath(tx.ws.Module(), canon, fileName)
+	path, err := workspace.NewFilePath(tx.ws.Module(), canon, fileName)
 	if err != nil {
 		return err
 	}
@@ -133,20 +134,20 @@ func (tx *Tx) CreateSymbol(pkg address.PkgPath, fileName, src string) error {
 // path for Flush. Deletion is idempotent: a missing package or file is a
 // noop, not a failure — the file being gone is the success condition,
 // whoever caused it.
-func (tx *Tx) DeleteFile(pkg address.PkgPath, name string) error {
+func (tx *Tx) DeleteFile(pkg workspace.PackagePath, name string) error {
 	unit, ok := tx.ws.Unit(pkg)
 	if !ok {
 		return nil
 	}
 	for _, owner := range unit.Members() {
-		path, err := address.NewFilePath(tx.ws.Module(), owner.PkgPath, name)
+		path, err := workspace.NewFilePath(tx.ws.Module(), owner.ID.Base(), name)
 		if err != nil {
 			return err
 		}
 		if _, ok := owner.File(path); !ok {
 			continue
 		}
-		tx.ws.DropFile(pkg, owner.Kind == workspace.KindXTest, path)
+		tx.ws.DropFile(pkg, owner.ID.Kind() == workspace.KindXTest, path)
 		tx.markChanged(path)
 		return nil
 	}
@@ -155,7 +156,7 @@ func (tx *Tx) DeleteFile(pkg address.PkgPath, name string) error {
 
 // DeletePackage removes a whole package address, tombstoning every file.
 // Deletion is idempotent: a missing package is a noop, not a failure.
-func (tx *Tx) DeletePackage(pkg address.PkgPath) error {
+func (tx *Tx) DeletePackage(pkg workspace.PackagePath) error {
 	unit, ok := tx.ws.Unit(pkg)
 	if !ok {
 		return nil
@@ -186,7 +187,7 @@ func (tx *Tx) DeletePackage(pkg address.PkgPath) error {
 // collapses to a full removal, same as deleting a solo name.
 //
 // Deletion is idempotent: a missing symbol is a noop, not a failure.
-func (tx *Tx) DeleteSymbol(pkg address.PkgPath, key string) error {
+func (tx *Tx) DeleteSymbol(pkg workspace.PackagePath, key string) error {
 	splices, found, err := tx.ws.ComputeDeletionSplices(pkg, key)
 	if err != nil {
 		return err
@@ -199,19 +200,19 @@ func (tx *Tx) DeleteSymbol(pkg address.PkgPath, key string) error {
 	if !ok {
 		return fmt.Errorf("internal error: %q vanished while deleting %q", path, key)
 	}
-	return tx.installFile(pkg, owner.Kind == workspace.KindXTest, path, workspace.ApplySplices(file.Src(), splices))
+	return tx.installFile(pkg, owner.ID.Kind() == workspace.KindXTest, path, workspace.ApplySplices(file.Src(), splices))
 }
 
 // EditFile replaces or clears a file's package doc comment — the comment
 // block directly above the package clause — leaving the rest of the file
 // untouched. The one sanctioned door into floating-comment space: every
 // other comment stays unaddressable by design.
-func (tx *Tx) EditFile(pkg address.PkgPath, name, doc string) error {
+func (tx *Tx) EditFile(pkg workspace.PackagePath, name, doc string) error {
 	p, ok := tx.ws.ProdPackage(pkg)
 	if !ok {
 		return fmt.Errorf("no package at %q", pkg)
 	}
-	path, err := address.NewFilePath(tx.ws.Module(), p.PkgPath, name)
+	path, err := workspace.NewFilePath(tx.ws.Module(), p.ID.Base(), name)
 	if err != nil {
 		return err
 	}
@@ -246,7 +247,7 @@ func (tx *Tx) EditFile(pkg address.PkgPath, name, doc string) error {
 // non-position-dependent group member to introduce iota is refused —
 // that converts the group's structure, not just one value, and isn't
 // supported through a single member's replacement.
-func (tx *Tx) EditSymbol(pkg address.PkgPath, key, src string) error {
+func (tx *Tx) EditSymbol(pkg workspace.PackagePath, key, src string) error {
 	wasPositionDependent, groupTok, target, err := tx.ws.ComputeEditPlan(pkg, key)
 	if err != nil {
 		return err
@@ -279,7 +280,7 @@ func (tx *Tx) EditSymbol(pkg address.PkgPath, key, src string) error {
 		return fmt.Errorf("internal error: %q vanished while editing %q", target.Path, key)
 	}
 	target.Repl = []byte(replacement)
-	return tx.installFile(pkg, owner.Kind == workspace.KindXTest, target.Path, workspace.ApplySplices(file.Src(), []workspace.Splice{target}))
+	return tx.installFile(pkg, owner.ID.Kind() == workspace.KindXTest, target.Path, workspace.ApplySplices(file.Src(), []workspace.Splice{target}))
 }
 
 // MoveFile relocates a file to another package (newPkgPath) and/or gives
@@ -293,7 +294,7 @@ func (tx *Tx) EditSymbol(pkg address.PkgPath, key, src string) error {
 // has its qualifier fixed up first (Workspace.ComputeQualifierFixups) —
 // external callers of the file's exported declarations, and the file's
 // own outbound references to exported siblings staying behind, alike.
-func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.PkgPath, newName string) error {
+func (tx *Tx) MoveFile(pkg workspace.PackagePath, fileName string, newPkgPath workspace.PackagePath, newName string) error {
 	if newPkgPath == "" && newName == "" {
 		return fmt.Errorf("nothing to do for %q: give newPkgPath and/or newName", fileName)
 	}
@@ -302,8 +303,8 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 		return fmt.Errorf("no package at %q", pkg)
 	}
 	for _, owner := range unit.Members() {
-		isXTest := owner.Kind == workspace.KindXTest
-		path, err := address.NewFilePath(tx.ws.Module(), owner.PkgPath, fileName)
+		isXTest := owner.ID.Kind() == workspace.KindXTest
+		path, err := workspace.NewFilePath(tx.ws.Module(), owner.ID.Base(), fileName)
 		if err != nil {
 			return err
 		}
@@ -321,7 +322,7 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 		if newName != "" {
 			baseName = newName
 		}
-		newPath, err := address.NewFilePath(tx.ws.Module(), destOwner.PkgPath, baseName)
+		newPath, err := workspace.NewFilePath(tx.ws.Module(), destOwner.ID.Base(), baseName)
 		if err != nil {
 			return err
 		}
@@ -348,7 +349,7 @@ func (tx *Tx) MoveFile(pkg address.PkgPath, fileName string, newPkgPath address.
 // base (the convention), the package clause, every unaliased qualifier,
 // and each file's own "Package oldBase" doc-comment opening are renamed
 // too; aliased imports keep their alias untouched.
-func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
+func (tx *Tx) MovePackage(oldPkg, newPkg workspace.PackagePath) error {
 	if oldPkg == tx.ws.Module() {
 		return fmt.Errorf("no workspace package at %q", oldPkg)
 	}
@@ -398,7 +399,7 @@ func (tx *Tx) MovePackage(oldPkg, newPkg address.PkgPath) error {
 // toward the destination loses it, and any other qualifier is repointed
 // — see relocateSymbol. Moves never cross the test build boundary, and
 // the destination file is created when missing.
-func (tx *Tx) MoveSymbol(pkg address.PkgPath, key string, newPkgPath address.PkgPath, newFileName, newSymbolKey string) error {
+func (tx *Tx) MoveSymbol(pkg workspace.PackagePath, key string, newPkgPath workspace.PackagePath, newFileName, newSymbolKey string) error {
 	if newPkgPath != "" && newFileName == "" {
 		return fmt.Errorf("newPkgPath given without newFileName: a cross-package move must name the destination file")
 	}
@@ -447,7 +448,7 @@ func (tx *Tx) MoveSymbol(pkg address.PkgPath, key string, newPkgPath address.Pkg
 // with an N-symbol batch multiplies the interface for a combination
 // nobody's asked for — rename first with MoveSymbol, then move. Composes
 // on Workspace.RelocateSymbols for the actual mechanics.
-func (tx *Tx) MoveSymbolGroup(pkg address.PkgPath, keys []string, newPkgPath address.PkgPath, newFileName string) error {
+func (tx *Tx) MoveSymbolGroup(pkg workspace.PackagePath, keys []string, newPkgPath workspace.PackagePath, newFileName string) error {
 	if len(keys) < 2 {
 		return fmt.Errorf("MoveSymbolGroup needs at least two symbol_keys; refactor_move_symbol's single-key path already covers one")
 	}
@@ -459,7 +460,7 @@ func (tx *Tx) MoveSymbolGroup(pkg address.PkgPath, keys []string, newPkgPath add
 	if !ok {
 		return fmt.Errorf("no package at %q: create_package first", destPkg)
 	}
-	destPath, err := address.NewFilePath(tx.ws.Module(), destOwner.PkgPath, newFileName)
+	destPath, err := workspace.NewFilePath(tx.ws.Module(), destOwner.ID.Base(), newFileName)
 	if err != nil {
 		return err
 	}
@@ -477,12 +478,12 @@ func (tx *Tx) MoveSymbolGroup(pkg address.PkgPath, keys []string, newPkgPath add
 // Composes on Workspace.RelocateSymbols for the actual mechanics — see
 // its own doc comment for the conflict/qualifier-fixup guarantees.
 // Private: composed by MoveSymbol, never called standalone.
-func (tx *Tx) relocateSymbol(srcPkg, destPkg address.PkgPath, key, fileName string) error {
+func (tx *Tx) relocateSymbol(srcPkg, destPkg workspace.PackagePath, key, fileName string) error {
 	destOwner, ok := tx.ws.ProdPackage(destPkg)
 	if !ok {
 		return fmt.Errorf("no package at %q: create_package first", destPkg)
 	}
-	destPath, err := address.NewFilePath(tx.ws.Module(), destOwner.PkgPath, fileName)
+	destPath, err := workspace.NewFilePath(tx.ws.Module(), destOwner.ID.Base(), fileName)
 	if err != nil {
 		return err
 	}
@@ -501,7 +502,7 @@ func (tx *Tx) relocateSymbol(srcPkg, destPkg address.PkgPath, key, fileName stri
 // interface method does not chase implementors; broken satisfactions
 // arrive in the echo instead. Private: the public verb is MoveSymbol,
 // which composes this with relocateSymbol.
-func (tx *Tx) renameSymbol(pkg address.PkgPath, key, newName string) error {
+func (tx *Tx) renameSymbol(pkg workspace.PackagePath, key, newName string) error {
 	if !token.IsIdentifier(newName) {
 		return fmt.Errorf("%q is not a valid identifier", newName)
 	}

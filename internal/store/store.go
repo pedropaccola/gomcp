@@ -21,7 +21,6 @@ import (
 	"context"
 	"sync"
 
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/disk"
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
@@ -87,7 +86,7 @@ func (e *Store) Bootstrap(ctx context.Context) error {
 // in flight, the result is discarded and the load retried against the
 // fresh cache instead of installing positions keyed to a FileSet that's
 // no longer current.
-func (e *Store) LoadExternal(ctx context.Context, pkg address.PkgPath) error {
+func (e *Store) LoadExternal(ctx context.Context, pkg workspace.PackagePath) error {
 	for {
 		e.mu.RLock()
 		ws := e.ws
@@ -207,10 +206,10 @@ func (e *Store) EnsureFullyChecked(ctx context.Context) error {
 // EditReport is the echo of a committed transaction: store's own copy,
 // relocated next to Store.Edit, its sole constructor.
 type EditReport struct {
-	Changed   []address.FilePath // files created, modified, moved, or deleted by this Tx
-	Delta     []Diagnostic       // diagnostics introduced by this transaction
-	Resolved  []Diagnostic       // pre-existing diagnostics this transaction fixed
-	Unrelated int                // pre-existing diagnostics this transaction left untouched
-	Stale     bool               // recheck failed: state applied, Delta unavailable
-	Note      string             // human-readable recheck failure, when Stale
+	Changed   []workspace.FilePath // files created, modified, moved, or deleted by this Tx
+	Delta     []Diagnostic         // diagnostics introduced by this transaction
+	Resolved  []Diagnostic         // pre-existing diagnostics this transaction fixed
+	Unrelated int                  // pre-existing diagnostics this transaction left untouched
+	Stale     bool                 // recheck failed: state applied, Delta unavailable
+	Note      string               // human-readable recheck failure, when Stale
 }

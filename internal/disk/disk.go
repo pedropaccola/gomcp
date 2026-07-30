@@ -18,7 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/workspace"
 	"golang.org/x/tools/go/packages"
 )
@@ -32,7 +31,7 @@ type Loader struct {
 
 // Load runs the full pipeline against disk plus an optional overlay of
 // in-memory contents, for the whole module.
-func (l *Loader) Load(ctx context.Context, overlay map[string][]byte) (*token.FileSet, address.PkgPath, map[address.PkgPath]*workspace.Unit, error) {
+func (l *Loader) Load(ctx context.Context, overlay map[string][]byte) (*token.FileSet, workspace.PackagePath, map[workspace.PackagePath]*workspace.Unit, error) {
 	return l.LoadInto(ctx, token.NewFileSet(), overlay, "./...")
 }
 
@@ -44,7 +43,7 @@ func (l *Loader) Load(ctx context.Context, overlay map[string][]byte) (*token.Fi
 // entries via fset.Base(), which is past the end of whatever's already
 // registered, so carried-forward files and freshly parsed ones never
 // collide.
-func (l *Loader) LoadInto(ctx context.Context, fset *token.FileSet, overlay map[string][]byte, patterns ...string) (*token.FileSet, address.PkgPath, map[address.PkgPath]*workspace.Unit, error) {
+func (l *Loader) LoadInto(ctx context.Context, fset *token.FileSet, overlay map[string][]byte, patterns ...string) (*token.FileSet, workspace.PackagePath, map[workspace.PackagePath]*workspace.Unit, error) {
 	loadStart := time.Now()
 	srcPkgs, err := packages.Load(&packages.Config{
 		Mode:    packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
@@ -64,10 +63,10 @@ func (l *Loader) LoadInto(ctx context.Context, fset *token.FileSet, overlay map[
 	}
 	buildStart := time.Now()
 
-	var module address.PkgPath
+	var module workspace.PackagePath
 	for _, srcPkg := range srcPkgs {
 		if srcPkg.Module != nil && srcPkg.Module.Path != "" {
-			module = address.PkgPath(srcPkg.Module.Path)
+			module = workspace.PackagePath(srcPkg.Module.Path)
 			break
 		}
 	}
@@ -106,17 +105,17 @@ func (l *Loader) LoadInto(ctx context.Context, fset *token.FileSet, overlay map[
 	// file constructed from either half addresses through the same package
 	// key Workspace.units is keyed by. Both halves are built before NewUnit
 	// assembles them, so a Unit is never observed half-built.
-	units := make(map[address.PkgPath]*workspace.Unit)
+	units := make(map[workspace.PackagePath]*workspace.Unit)
 	for _, cand := range selected {
 		if ctx.Err() != nil {
 			return nil, "", nil, fmt.Errorf("workspace load aborted by context cancellation: %w", ctx.Err())
 		}
-		var canonicalPkg address.PkgPath
+		var canonicalPkg workspace.PackagePath
 		switch {
 		case cand.prod != nil:
-			canonicalPkg = address.PkgPath(cand.prod.PkgPath)
+			canonicalPkg = workspace.PackagePath(cand.prod.PkgPath)
 		case cand.xtest != nil:
-			canonicalPkg = address.PkgPath(cand.xtest.PkgPath).Canon()
+			canonicalPkg = workspace.PackagePath(strings.TrimSuffix(cand.xtest.PkgPath, "_test"))
 		}
 		var prod, xtest *workspace.Package
 		var err error
@@ -142,23 +141,24 @@ func (l *Loader) LoadInto(ctx context.Context, fset *token.FileSet, overlay map[
 // canonical bytes from overlay-or-disk, the loader's ASTs and type info,
 // and a fresh symbol index. Files outside the workspace (generated cgo
 // output) are skipped with a diagnostic rather than tracked as
-// untouchable paths. canonicalPkg addresses every file this builds —
-// srcPkg.PkgPath itself only for Package.PkgPath, since the XTest
-// variant's own PkgPath differs from the shared unit key (see LoadInto).
-// Prod vs XTest is derived from srcPkg.Name here, the same rule
-// LoadInto's own Pass 1 already classified by — nothing for the caller
-// to separately track and pass in sync.
-func (l *Loader) buildPackage(srcPkg *packages.Package, canonicalPkg address.PkgPath, fset *token.FileSet, overlay map[string][]byte) (*workspace.Package, error) {
+// untouchable paths. canonicalPkg addresses every file this builds, and
+// is Package.ID's own path — srcPkg.PkgPath itself is never used for
+// identity, since the XTest variant's own PkgPath differs from the
+// shared unit key (see LoadInto). Prod vs XTest is derived from
+// srcPkg.Name here, the same rule LoadInto's own Pass 1 already
+// classified by — nothing for the caller to separately track and pass in
+// sync.
+func (l *Loader) buildPackage(srcPkg *packages.Package, canonicalPkg workspace.PackagePath, fset *token.FileSet, overlay map[string][]byte) (*workspace.Package, error) {
 	kind := workspace.KindProd
 	if strings.HasSuffix(srcPkg.Name, "_test") {
 		kind = workspace.KindXTest
 	}
-	pkg := workspace.NewPackage(srcPkg.Name, address.PkgPath(srcPkg.PkgPath), srcPkg.Types, srcPkg.TypesInfo, kind)
+	pkg := workspace.NewPackage(srcPkg.Name, canonicalPkg, kind, srcPkg.Types, srcPkg.TypesInfo)
 
 	for _, astFile := range srcPkg.Syntax {
 		absFilePath := fset.File(astFile.FileStart).Name()
 		relFilePath, err := l.relativePath(absFilePath)
-		if err != nil || address.IsOutsideRoot(relFilePath) {
+		if err != nil || workspace.IsOutsideRoot(relFilePath) {
 			// Generated files (e.g. cgo output) live outside the workspace;
 			// record and move on rather than tracking untouchable paths.
 			pkg.Diags = append(pkg.Diags, workspace.Diagnostic{
@@ -189,9 +189,9 @@ func (l *Loader) relativePath(fullPath string) (string, error) {
 
 // ingestErrors converts load errors into Diagnostics, attaching them to the
 // file they point at when it is tracked, and to the package otherwise.
-// canonicalPkg, not pkg.PkgPath, addresses each attributed file — see
+// canonicalPkg, not pkg.ID, addresses each attributed file — see
 // buildPackage.
-func (l *Loader) ingestErrors(pkg *workspace.Package, canonicalPkg address.PkgPath, errs []packages.Error) {
+func (l *Loader) ingestErrors(pkg *workspace.Package, canonicalPkg workspace.PackagePath, errs []packages.Error) {
 	for _, pkgErr := range errs {
 		// go list relays compiler output prefixed with "# pkg" and positions
 		// pointing into overlay temp copies; the same problems arrive again
@@ -202,7 +202,7 @@ func (l *Loader) ingestErrors(pkg *workspace.Package, canonicalPkg address.PkgPa
 		}
 		diag := workspace.Diagnostic{Kind: toDiagKind(pkgErr.Kind), Msg: pkgErr.Msg}
 		if absFile, line, col, ok := splitPos(pkgErr.Pos); ok {
-			if relFile, err := l.relativePath(absFile); err == nil && !address.IsOutsideRoot(relFile) {
+			if relFile, err := l.relativePath(absFile); err == nil && !workspace.IsOutsideRoot(relFile) {
 				diag.File, diag.Line, diag.Col = canonicalPkg.File(filepath.Base(relFile)), line, col
 			}
 		}
@@ -217,7 +217,7 @@ func (l *Loader) ingestErrors(pkg *workspace.Package, canonicalPkg address.PkgPa
 // FetchExternal is LoadExternal's lock-free slow path: the actual
 // go/packages.Load and type-check against a specific FileSet snapshot,
 // captured by the caller before releasing the store's lock.
-func (l *Loader) FetchExternal(ctx context.Context, pkg address.PkgPath, fset *token.FileSet) (*workspace.Package, error) {
+func (l *Loader) FetchExternal(ctx context.Context, pkg workspace.PackagePath, fset *token.FileSet) (*workspace.Package, error) {
 	srcPkgs, err := packages.Load(&packages.Config{
 		Mode:    packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes,
 		Context: ctx,
@@ -229,7 +229,7 @@ func (l *Loader) FetchExternal(ctx context.Context, pkg address.PkgPath, fset *t
 		return nil, fmt.Errorf("dependency %q failed to load: %w", pkg, err)
 	}
 	for _, srcPkg := range srcPkgs {
-		if address.PkgPath(srcPkg.PkgPath) != pkg || srcPkg.Name == "" || len(srcPkg.Syntax) == 0 {
+		if workspace.PackagePath(srcPkg.PkgPath) != pkg || srcPkg.Name == "" || len(srcPkg.Syntax) == 0 {
 			continue
 		}
 		return l.buildExternal(srcPkg, fset)
@@ -250,8 +250,8 @@ func (l *Loader) FetchExternal(ctx context.Context, pkg address.PkgPath, fset *t
 // since this runs with no lock held and the published cache can move on
 // beneath it.
 func (l *Loader) buildExternal(srcPkg *packages.Package, fset *token.FileSet) (*workspace.Package, error) {
-	pkgPath := address.PkgPath(srcPkg.PkgPath)
-	pkg := workspace.NewPackage(srcPkg.Name, pkgPath, srcPkg.Types, nil, workspace.KindExternal)
+	pkgPath := workspace.PackagePath(srcPkg.PkgPath)
+	pkg := workspace.NewPackage(srcPkg.Name, pkgPath, workspace.KindExternal, srcPkg.Types, nil)
 	for _, astFile := range srcPkg.Syntax {
 		abs := fset.File(astFile.FileStart).Name()
 		src, err := os.ReadFile(abs)
@@ -267,7 +267,7 @@ func (l *Loader) buildExternal(srcPkg *packages.Package, fset *token.FileSet) (*
 
 // AbsPath maps a file's canonical address, relative to module, back to
 // the filesystem.
-func (l *Loader) AbsPath(module address.PkgPath, p address.FilePath) string {
+func (l *Loader) AbsPath(module workspace.PackagePath, p workspace.FilePath) string {
 	return filepath.Join(l.RootDir, p.RelativePath(module))
 }
 

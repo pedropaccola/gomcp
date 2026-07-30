@@ -2,8 +2,6 @@ package workspace
 
 import (
 	"iter"
-
-	"github.com/pedropaccola/gomcp/internal/address"
 )
 
 // Unit holds the packages of one workspace address: the production package
@@ -20,7 +18,7 @@ type Unit struct {
 // it — how dirty state survives a reload built from overlays. Replaces
 // rather than mutates in place, since a File may still be shared with
 // another Workspace generation via Clone.
-func (u *Unit) MarkDirty(path address.FilePath) {
+func (u *Unit) MarkDirty(path FilePath) {
 	for _, p := range u.Members() {
 		if file, ok := p.files[path]; ok {
 			cp := *file
@@ -40,14 +38,14 @@ func (u *Unit) XTest() *Package {
 	return u.xtest
 }
 
-// PkgPath is the address this unit is installed under — always the
+// Path is the address this unit is installed under — always the
 // production-shaped one, even when only the XTest half exists (its own
-// PkgPath carries a "_test" suffix this strips via address.PkgPath.Canon).
-func (u *Unit) PkgPath() address.PkgPath {
+// ID carries KindXTest, whose Base() strips the "_test" spelling).
+func (u *Unit) Path() PackagePath {
 	if u.prod != nil {
-		return u.prod.PkgPath
+		return u.prod.ID.Base()
 	}
-	return u.xtest.PkgPath.Canon()
+	return u.xtest.ID.Base()
 }
 
 // Members returns the unit's non-nil packages, Prod before XTest — 1 or 2
@@ -73,7 +71,7 @@ func (u *Unit) Files() iter.Seq2[bool, *File] {
 	return func(yield func(bool, *File) bool) {
 		for _, pkg := range u.Members() {
 			for _, file := range pkg.Files() {
-				if !yield(pkg.Kind == KindXTest, file) {
+				if !yield(pkg.ID.Kind() == KindXTest, file) {
 					return
 				}
 			}

@@ -5,7 +5,6 @@ import (
 	"go/token"
 	"strings"
 
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
@@ -28,7 +27,7 @@ func (tx *Tx) applyFileSplices(splices []workspace.Splice) error {
 // itself rather than trusted from a pointer the caller might have
 // resolved before an intervening mutation. Every fallible step precedes
 // the swap; an error means state is untouched.
-func (tx *Tx) installFile(addr address.PkgPath, isXTest bool, newPath address.FilePath, candidate []byte) error {
+func (tx *Tx) installFile(addr workspace.PackagePath, isXTest bool, newPath workspace.FilePath, candidate []byte) error {
 	if err := tx.ws.SwapFile(addr, isXTest, newPath, candidate); err != nil {
 		return err
 	}
@@ -38,7 +37,7 @@ func (tx *Tx) installFile(addr address.PkgPath, isXTest bool, newPath address.Fi
 
 // markChanged records paths as changed by this transaction; every verb reports
 // its footprint here regardless of prior dirtiness.
-func (tx *Tx) markChanged(paths ...address.FilePath) {
+func (tx *Tx) markChanged(paths ...workspace.FilePath) {
 	for _, path := range paths {
 		tx.changed[path] = true
 	}
@@ -56,12 +55,12 @@ func (tx *Tx) markChanged(paths ...address.FilePath) {
 // next reload.
 func (tx *Tx) RepairMissingImports() bool {
 	// Unique importable package names known to the workspace.
-	candidates := make(map[string]address.PkgPath) // package name -> import path
+	candidates := make(map[string]workspace.PackagePath) // package name -> import path
 	ambiguous := make(map[string]bool)
 	for _, addr := range tx.ws.UnitKeys() {
 		unit, _ := tx.ws.Unit(addr)
 		pkg := unit.Prod()
-		if pkg == nil || pkg.PkgPath == "" || pkg.Name == "main" {
+		if pkg == nil || pkg.ID.Base() == "" || pkg.Name == "main" {
 			continue
 		}
 		if _, dup := candidates[pkg.Name]; dup {
@@ -69,10 +68,10 @@ func (tx *Tx) RepairMissingImports() bool {
 			delete(candidates, pkg.Name)
 			continue
 		}
-		candidates[pkg.Name] = pkg.PkgPath
+		candidates[pkg.Name] = pkg.ID.Base()
 	}
 
-	needed := make(map[address.FilePath]map[string]bool) // file -> import paths
+	needed := make(map[workspace.FilePath]map[string]bool) // file -> import paths
 	for _, diag := range tx.AllDiagnostics() {
 		if diag.Kind != workspace.DiagType || diag.File == "" {
 			continue
@@ -86,7 +85,7 @@ func (tx *Tx) RepairMissingImports() bool {
 			continue
 		}
 		file, owner, ok := tx.ws.ResolveFileByPath(diag.File)
-		if !ok || owner.PkgPath == path || importsPath(file.Ast(), string(path)) {
+		if !ok || owner.ID.Base() == path || importsPath(file.Ast(), string(path)) {
 			continue
 		}
 		if needed[diag.File] == nil {
@@ -111,8 +110,8 @@ func (tx *Tx) RepairMissingImports() bool {
 			continue
 		}
 		candidate := workspace.ApplySplices(file.Src(), []workspace.Splice{sp})
-		addr := filePath.PkgPath()
-		if err := tx.installFile(addr, owner.Kind == workspace.KindXTest, filePath, candidate); err != nil {
+		addr := filePath.PackagePath()
+		if err := tx.installFile(addr, owner.ID.Kind() == workspace.KindXTest, filePath, candidate); err != nil {
 			continue // repair is best-effort; the diagnostic stays visible
 		}
 		repaired = true

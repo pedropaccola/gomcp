@@ -3,10 +3,11 @@ package tools
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/store"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 type MoveFileInput struct {
@@ -37,7 +38,7 @@ func moveSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[MoveSymbol
 			if err != nil {
 				return err
 			}
-			var newPkg address.PkgPath
+			var newPkg workspace.PackageID
 			if newPkgPath := optStr(in.NewPkgPath); newPkgPath != "" {
 				newPkg, err = writeWorkspacePkg(tx.View, newPkgPath)
 				if err != nil {
@@ -52,12 +53,12 @@ func moveSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[MoveSymbol
 				if optStr(in.NewSymbolKey) != "" {
 					return fmt.Errorf("symbol_keys can't be combined with new_symbol_key: rename one symbol at a time with symbol_key, then move the group")
 				}
-				return tx.MoveSymbolGroup(pkg, in.SymbolKeys, newPkg, newFile)
+				return tx.MoveSymbolGroup(pkg.Base(), in.SymbolKeys, newPkg.Base(), newFile)
 			}
 			if in.SymbolKey == "" {
 				return fmt.Errorf("give symbol_key or symbol_keys")
 			}
-			return tx.MoveSymbol(pkg, in.SymbolKey, newPkg, newFile, optStr(in.NewSymbolKey))
+			return tx.MoveSymbol(pkg.Base(), in.SymbolKey, newPkg.Base(), newFile, optStr(in.NewSymbolKey))
 		})
 		if err != nil {
 			return nil, out, err
@@ -74,14 +75,14 @@ func moveFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[MoveFileInpu
 			if err != nil {
 				return err
 			}
-			var newPkg address.PkgPath
+			var newPkg workspace.PackageID
 			if newPkgPath := optStr(in.NewPkgPath); newPkgPath != "" {
 				newPkg, err = writeWorkspacePkg(tx.View, newPkgPath)
 				if err != nil {
 					return err
 				}
 			}
-			return tx.MoveFile(pkg, in.FileName, newPkg, optStr(in.NewFileName))
+			return tx.MoveFile(pkg.Base(), in.FileName, newPkg.Base(), optStr(in.NewFileName))
 		})
 		if err != nil {
 			return nil, out, err
@@ -102,7 +103,7 @@ func movePackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[MovePacka
 			if err != nil {
 				return err
 			}
-			return tx.MovePackage(pkg, newPkg)
+			return tx.MovePackage(pkg.Base(), newPkg.Base())
 		})
 		if err != nil {
 			return nil, out, err
@@ -113,17 +114,18 @@ func movePackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[MovePacka
 }
 
 // pruneVacatedPackages drops any bucket in files whose package address no
-// longer resolves to a package once the transaction has committed — a
-// move whose old address is now fully empty, not merely modified, so
-// listing it beside the destination would read as "still lives here"
-// when the package is actually gone.
+// longer resolves to a unit once the transaction has committed — a move
+// whose old address is now fully empty, not merely modified, so listing
+// it beside the destination would read as "still lives here" when the
+// package is actually gone.
 func pruneVacatedPackages(ctx context.Context, eng *store.Store, files map[string][]string) map[string][]string {
 	if len(files) == 0 {
 		return files
 	}
 	eng.Read(ctx, func(v *store.View) error {
+		units := v.UnitKeys()
 		for addr := range files {
-			if !v.HasPackage(address.PkgPath(addr)) {
+			if !slices.Contains(units, workspace.PackagePath(addr)) {
 				delete(files, addr)
 			}
 		}

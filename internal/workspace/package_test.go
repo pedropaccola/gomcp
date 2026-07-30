@@ -4,14 +4,12 @@ import (
 	"go/parser"
 	"go/token"
 	"testing"
-
-	"github.com/pedropaccola/gomcp/internal/address"
 )
 
 func TestCloneAndCloneShell(t *testing.T) {
 	w := NewWorkspace()
-	w.Reset("example.com/mod", token.NewFileSet(), map[address.PkgPath]*Unit{})
-	w.InstallUnit("example.com/mod/pkg", NewUnit(&Package{Name: "pkg", PkgPath: "example.com/mod/pkg"}, nil))
+	w.Reset("example.com/mod", token.NewFileSet(), map[PackagePath]*Unit{})
+	w.InstallUnit("example.com/mod/pkg", NewUnit(&Package{Name: "pkg", ID: newPackageID("example.com/mod/pkg", KindProd)}, nil))
 	if err := w.SwapFile("example.com/mod/pkg", false, "example.com/mod/pkg/pkg.go", []byte("package pkg\n\nfunc Hello() {}\n")); err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +22,7 @@ func TestCloneAndCloneShell(t *testing.T) {
 		t.Error("Clone must share File values")
 	}
 	shell := p.cloneShell()
-	if shell.Name != p.Name || shell.PkgPath != p.PkgPath {
+	if shell.Name != p.Name || shell.ID != p.ID {
 		t.Error("CloneShell must keep metadata")
 	}
 	if len(shell.Files()) != 0 || len(shell.Symbols()) != 0 {
@@ -39,7 +37,7 @@ func TestLoadPathAndExternalIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &Package{Name: "dep", PkgPath: "example.com/dep", Kind: KindExternal}
+	p := &Package{Name: "dep", ID: newPackageID("example.com/dep", KindExternal)}
 	p.LoadFile("example.com/dep/dep.go", src, astFile)
 	file, ok := p.File("example.com/dep/dep.go")
 	if !ok || file.IsDirty() {

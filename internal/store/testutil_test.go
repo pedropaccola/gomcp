@@ -7,7 +7,6 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
@@ -71,18 +70,18 @@ func copySandbox(tb testing.TB) string {
 	return dst
 }
 
-func matchKeys(matches []Match) []string {
+func matchKeys(matches []Symbol) []string {
 	out := make([]string, 0, len(matches))
 	for _, m := range matches {
-		out = append(out, m.Pkg.String()+":"+m.Key)
+		out = append(out, m.Owner.String()+":"+m.Key)
 	}
 	return out
 }
 
 // spkg addresses a sandbox package the way the store now expects:
 // module-qualified.
-func spkg(dir string) address.PkgPath {
-	return address.PkgPath("example.com/sandbox/" + dir)
+func spkg(dir string) workspace.PackagePath {
+	return workspace.PackagePath("example.com/sandbox/" + dir)
 }
 
 // assertModelEqualsDisk verifies e's in-memory model matches what a fresh
@@ -124,7 +123,7 @@ func assertModelEqualsDisk(tb testing.TB, e *Store) {
 
 // diffPackagePair compares one Prod or XTest package belonging to the same
 // unit address; either side may be nil.
-func diffPackagePair(tb testing.TB, gotView, wantView *View, addr address.PkgPath, half string, got, want *workspace.Package) {
+func diffPackagePair(tb testing.TB, gotView, wantView *View, addr workspace.PackagePath, half string, got, want *workspace.Package) {
 	tb.Helper()
 	if (got == nil) != (want == nil) {
 		tb.Errorf("%s (%s): presence diverged: got %v, want %v", addr, half, got != nil, want != nil)
@@ -165,8 +164,8 @@ func diffPackagePair(tb testing.TB, gotView, wantView *View, addr address.PkgPat
 	}
 }
 
-func filePaths(files []*workspace.File) []address.FilePath {
-	out := make([]address.FilePath, len(files))
+func filePaths(files []*workspace.File) []workspace.FilePath {
+	out := make([]workspace.FilePath, len(files))
 	for i, f := range files {
 		out[i] = f.Path
 	}
@@ -184,9 +183,9 @@ func symbolKeys(symbols []*workspace.Symbol) []string {
 // resolveFile gives tests raw access to a file's underlying workspace
 // pointers, which View's own public API doesn't expose (it returns
 // dto.File, not *workspace.File).
-func resolveFile(e *Store, path address.FilePath) (*workspace.File, *workspace.Package, bool) {
+func resolveFile(e *Store, path workspace.FilePath) (*workspace.File, *workspace.Package, bool) {
 	ws := e.ws
-	pkgPath := address.PkgPath(filepath.Dir(string(path)))
+	pkgPath := workspace.PackagePath(filepath.Dir(string(path)))
 	if unit, ok := ws.Unit(pkgPath); ok {
 		for _, pkg := range []*workspace.Package{unit.Prod(), unit.XTest()} {
 			if pkg == nil {
@@ -202,7 +201,7 @@ func resolveFile(e *Store, path address.FilePath) (*workspace.File, *workspace.P
 
 // resolvePackage gives tests raw access to a package's underlying
 // workspace pointer, which View's own public API doesn't expose.
-func resolvePackage(e *Store, pkg address.PkgPath) (*workspace.Package, bool) {
+func resolvePackage(e *Store, pkg workspace.PackagePath) (*workspace.Package, bool) {
 	unit, ok := e.ws.Unit(pkg)
 	if !ok || unit.Prod() == nil {
 		return nil, false
@@ -212,7 +211,7 @@ func resolvePackage(e *Store, pkg address.PkgPath) (*workspace.Package, bool) {
 
 // resolveXTest gives tests raw access to an XTest package's underlying
 // workspace pointer, which View's own public API doesn't expose.
-func resolveXTest(e *Store, pkg address.PkgPath) (*workspace.Package, bool) {
+func resolveXTest(e *Store, pkg workspace.PackagePath) (*workspace.Package, bool) {
 	unit, ok := e.ws.Unit(pkg)
 	if !ok || unit.XTest() == nil {
 		return nil, false
@@ -223,15 +222,14 @@ func resolveXTest(e *Store, pkg address.PkgPath) (*workspace.Package, bool) {
 // resolveSymbol looks up pkg's key through View's own public Symbol
 // method — the same read path production code uses, not a private
 // reimplementation of that resolution order kept in sync by hand.
-func resolveSymbol(e *Store, pkg address.PkgPath, key string) (Symbol, address.PkgPath, bool) {
+func resolveSymbol(e *Store, pkg workspace.PackagePath, key string) (Symbol, bool) {
 	var sym Symbol
-	var owner address.PkgPath
 	var found bool
 	_ = e.Read(context.Background(), func(v *View) error {
-		sym, owner, found = v.Symbol(pkg, key)
+		sym, found = v.Symbol(pkg, key)
 		return nil
 	})
-	return sym, owner, found
+	return sym, found
 }
 
 func deltaStrings(report *EditReport) []string {
@@ -256,6 +254,37 @@ func mustEdit(t *testing.T, e *Store, fn func(*Tx) error) *EditReport {
 
 // sfile addresses a sandbox file the way the store now expects:
 // module-qualified, dir being the package's own bare directory name.
-func sfile(dir, name string) address.FilePath {
-	return address.FilePath("example.com/sandbox/" + dir + "/" + name)
+func sfile(dir, name string) workspace.FilePath {
+	return workspace.FilePath("example.com/sandbox/" + dir + "/" + name)
+}
+
+// spkgID addresses a sandbox package as a resolved identity — dir may
+// carry the "_test" suffix to name the XTest half, same as spkg.
+func spkgID(dir string) workspace.PackageID {
+	id, err := workspace.NewPackageID("example.com/sandbox", dir)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
+// tpkgID addresses a package in the "test.mod"-module unit fixtures
+// (viewFixture/testutil.SimpleFixture) as a resolved identity — dir may
+// carry the "_test" suffix to name the XTest half.
+func tpkgID(dir string) workspace.PackageID {
+	id, err := workspace.NewPackageID("test.mod", dir)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
+// pkgID builds a resolved identity for an ad-hoc module+address pair —
+// the general form spkgID/tpkgID specialize.
+func pkgID(module, addr string) workspace.PackageID {
+	id, err := workspace.NewPackageID(workspace.PackagePath(module), addr)
+	if err != nil {
+		panic(err)
+	}
+	return id
 }

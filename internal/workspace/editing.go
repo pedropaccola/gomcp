@@ -3,8 +3,6 @@ package workspace
 import (
 	"fmt"
 	"go/token"
-
-	"github.com/pedropaccola/gomcp/internal/address"
 )
 
 // ComputeEditPlan reports the facts EditSymbol needs about key's current
@@ -13,7 +11,7 @@ import (
 // kind when grouped (token.ILLEGAL otherwise), and the Splice the
 // replacement itself lands in. Aggregate-owned analysis, same rationale
 // as DetectMoveConflicts: key is resolved fresh here.
-func (w *Workspace) ComputeEditPlan(pkg address.PkgPath, key string) (wasPositionDependent bool, groupTok token.Token, target Splice, err error) {
+func (w *Workspace) ComputeEditPlan(pkg PackagePath, key string) (wasPositionDependent bool, groupTok token.Token, target Splice, err error) {
 	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return false, token.ILLEGAL, Splice{}, fmt.Errorf("no symbol %q in %q", key, pkg)
@@ -48,7 +46,7 @@ func (w *Workspace) ComputeEditPlan(pkg address.PkgPath, key string) (wasPositio
 // pkg, blocking a replacement of key — a same-group sibling doesn't
 // count when key is itself position-dependent, since resubmitting the
 // whole group necessarily re-mentions every member.
-func (w *Workspace) DetectEditCollisions(pkg address.PkgPath, key string, newKeys []string) []string {
+func (w *Workspace) DetectEditCollisions(pkg PackagePath, key string, newKeys []string) []string {
 	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return nil

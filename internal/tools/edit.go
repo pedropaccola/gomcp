@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/store"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 // WriteOutput is the shared echo of every write tool (creators, editors,
@@ -50,14 +50,16 @@ func runEdit(ctx context.Context, eng *store.Store, cfg *toolConfig, fn func(*st
 // mutation handlers — the write-side check: dependencies are refused, the
 // workspace is the only mutable world. Takes a *store.View (never eng
 // *store.Store directly) so it's safe to call from inside a Read/Edit
-// closure too — View never acquires the store lock itself.
-func writeWorkspacePkg(v *store.View, addr string) (address.PkgPath, error) {
-	canon, err := address.NewPkgPath(v.Module(), addr)
+// closure too — View never acquires the store lock itself. Returns the
+// full kind-aware identity: CreateFile/CreateSymbol need it as-is, every
+// other verb narrows it with .Base().
+func writeWorkspacePkg(v *store.View, addr string) (workspace.PackageID, error) {
+	canon, err := workspace.NewPackageID(v.Module(), addr)
 	if err != nil {
-		return "", err
+		return workspace.PackageID{}, err
 	}
-	if v.HasExternalPackage(address.PkgPath(addr)) {
-		return "", fmt.Errorf("dependency %q is read-only", addr)
+	if v.HasExternalPackage(workspace.PackagePath(addr)) {
+		return workspace.PackageID{}, fmt.Errorf("dependency %q is read-only", addr)
 	}
 	return canon, nil
 }
@@ -68,13 +70,13 @@ func writeWorkspacePkg(v *store.View, addr string) (address.PkgPath, error) {
 // stay sorted. Every FilePath is already module-qualified by
 // construction (pkg+"/"+basename), so its directory portion is already
 // the exact package address — no separate composition needed.
-func filesByPackage(paths []address.FilePath) map[string][]string {
+func filesByPackage(paths []workspace.FilePath) map[string][]string {
 	if len(paths) == 0 {
 		return nil
 	}
 	out := make(map[string][]string)
 	for _, p := range paths {
-		key := p.PkgPath().String()
+		key := p.PackagePath().String()
 		out[key] = append(out[key], p.Base())
 	}
 	return out
@@ -95,8 +97,8 @@ func batchErr(field string, i, n int, err error) error {
 // rejects a batch that addresses the same (package, key) pair twice — the
 // invariant editFile and editSymbol both need, each keyed by a different
 // notion of "key" (a file name, a symbol key).
-func resolveBatchTargets(v *store.View, n int, field, noun string, target func(i int) (pkgPath, key string)) ([]address.PkgPath, error) {
-	pkgs := make([]address.PkgPath, n)
+func resolveBatchTargets(v *store.View, n int, field, noun string, target func(i int) (pkgPath, key string)) ([]workspace.PackagePath, error) {
+	pkgs := make([]workspace.PackagePath, n)
 	seen := make(map[string]bool, n)
 	for i := 0; i < n; i++ {
 		pkgPath, key := target(i)
@@ -104,8 +106,8 @@ func resolveBatchTargets(v *store.View, n int, field, noun string, target func(i
 		if err != nil {
 			return nil, batchErr(field, i, n, err)
 		}
-		pkgs[i] = pkg
-		addr := string(pkg) + "\x00" + key
+		pkgs[i] = pkg.Base()
+		addr := pkgs[i].String() + "\x00" + key
 		if seen[addr] {
 			return nil, fmt.Errorf("%s[%d]: duplicate target %q in %q — a batch must address each %s once", field, i, key, pkg, noun)
 		}

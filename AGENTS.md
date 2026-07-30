@@ -23,12 +23,11 @@ the package design; ROADMAP.md tracks agreed-but-deferred work.
 ## Layout
 
     cmd/gomcp/          entrypoint: flags, workspace root, MCP stdio server
-    internal/address/   shared leaf vocabulary (RelativePath, PkgPath,
-                        CleanPath), depended on directly by workspace,
-                        disk, store, and tools
     internal/workspace/ the trusted core: model vocabulary and the
                         Workspace, mutable only through its named
-                        primitives, one concept per file
+                        primitives, one concept per file — including the
+                        identity vocabulary (PackagePath, PackageID,
+                        FilePath) every other package addresses through
     internal/disk/      the go/packages.Load pipeline and raw filesystem
                         contact: Loader holds no lock and no workspace
                         state, just RootDir/Logf, so store calls into it

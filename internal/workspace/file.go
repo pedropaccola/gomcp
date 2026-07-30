@@ -3,8 +3,6 @@ package workspace
 import (
 	"go/ast"
 	"strings"
-
-	"github.com/pedropaccola/gomcp/internal/address"
 )
 
 // File invariant: src is the canonical bytes and ast is always a parse of
@@ -13,7 +11,7 @@ import (
 // Package.LoadFile (load path, the type checker's own AST) — never by
 // assignment.
 type File struct {
-	Path  address.FilePath
+	Path  FilePath
 	src   []byte
 	ast   *ast.File
 	Inits []*ast.FuncDecl
@@ -43,6 +41,6 @@ func (f *File) Doc() string {
 // point behind File's two legitimate doors, Workspace.SwapFile and
 // Package.LoadFile, so a future field never has to be kept in sync by
 // hand between them.
-func newFile(path address.FilePath, src []byte, astFile *ast.File, dirty bool) *File {
+func newFile(path FilePath, src []byte, astFile *ast.File, dirty bool) *File {
 	return &File{Path: path, src: src, ast: astFile, dirty: dirty}
 }

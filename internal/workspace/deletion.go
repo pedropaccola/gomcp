@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
-
-	"github.com/pedropaccola/gomcp/internal/address"
 )
 
 // trimRange reports the byte range removing the idx'th element of a
@@ -78,7 +76,7 @@ func (w *Workspace) trimSpecName(owner *Package, sym *Symbol, spec *ast.ValueSpe
 // false means key doesn't exist — deletion is idempotent, a caller should
 // treat that as success, not an error. Aggregate-owned analysis, same
 // rationale as DetectMoveConflicts: key is resolved fresh here.
-func (w *Workspace) ComputeDeletionSplices(pkg address.PkgPath, key string) (splices []Splice, found bool, err error) {
+func (w *Workspace) ComputeDeletionSplices(pkg PackagePath, key string) (splices []Splice, found bool, err error) {
 	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return nil, false, nil

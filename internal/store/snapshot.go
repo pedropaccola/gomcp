@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
@@ -43,12 +42,12 @@ type View struct {
 // Store, one layer up.
 type Tx struct {
 	*View
-	changed map[address.FilePath]bool // paths this transaction touched
+	changed map[workspace.FilePath]bool // paths this transaction touched
 }
 
 // ChangedKeys is the sorted set of paths this transaction touched, for
 // Store.Edit's report.
-func (tx *Tx) ChangedKeys() []address.FilePath {
+func (tx *Tx) ChangedKeys() []workspace.FilePath {
 	return sortedKeys(tx.changed)
 }
 
@@ -60,5 +59,5 @@ func NewView(ws *workspace.Workspace, ctx context.Context) *View {
 
 // NewTx constructs a Tx over view. Store.Edit is the only caller.
 func NewTx(view *View) *Tx {
-	return &Tx{View: view, changed: make(map[address.FilePath]bool)}
+	return &Tx{View: view, changed: make(map[workspace.FilePath]bool)}
 }

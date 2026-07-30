@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
-
-	"github.com/pedropaccola/gomcp/internal/address"
 )
 
 // isSoloGroup reports whether sym is ungrouped, or the only member of its
@@ -91,7 +89,7 @@ func (w *Workspace) specSpan(pkg *Package, sym *Symbol) (span, bool) {
 // the rest. Aggregate-owned analysis, same rationale as
 // DetectMoveConflicts: key is resolved fresh here, not accepted as a
 // pointer a caller might already be holding.
-func (w *Workspace) ExtractDeclaration(pkg address.PkgPath, key string) (string, Splice, error) {
+func (w *Workspace) ExtractDeclaration(pkg PackagePath, key string) (string, Splice, error) {
 	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return "", Splice{}, fmt.Errorf("no symbol %q in %q", key, pkg)
@@ -141,7 +139,7 @@ func (w *Workspace) ExtractDeclaration(pkg address.PkgPath, key string) (string,
 // Deliberately narrow: var and type groups, and non-position-dependent
 // const groups, are grouped in source for readability only — nothing
 // about them requires moving together, so they are never expanded here.
-func (w *Workspace) PositionDependentGroupMembers(pkg address.PkgPath, key string) ([]string, error) {
+func (w *Workspace) PositionDependentGroupMembers(pkg PackagePath, key string) ([]string, error) {
 	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return nil, fmt.Errorf("no symbol %q in %q", key, pkg)

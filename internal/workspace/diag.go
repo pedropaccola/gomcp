@@ -2,8 +2,6 @@ package workspace
 
 import (
 	"fmt"
-
-	"github.com/pedropaccola/gomcp/internal/address"
 )
 
 // DiagKind classifies a problem report by its source in the load pipeline.
@@ -29,7 +27,7 @@ func (k DiagKind) String() string {
 // [packages.Error] during loads; every later source (type re-checks after
 // mutations) funnels into the same shape.
 type Diagnostic struct {
-	File address.FilePath // "" when not attributable to a workspace file
+	File FilePath // "" when not attributable to a workspace file
 	Line int
 	Col  int
 	Kind DiagKind
@@ -47,7 +45,7 @@ func (d Diagnostic) String() string {
 // whose position falls inside its declaration span, doc comment
 // included. A positional view, never the inventory: diagnostics outside
 // every declaration remain visible only at file scope and coarser.
-func (w *Workspace) SymbolDiagnostics(pkg address.PkgPath, key string) []Diagnostic {
+func (w *Workspace) SymbolDiagnostics(pkg PackagePath, key string) []Diagnostic {
 	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return nil

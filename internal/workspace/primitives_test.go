@@ -4,14 +4,12 @@ import (
 	"fmt"
 	"go/token"
 	"testing"
-
-	"github.com/pedropaccola/gomcp/internal/address"
 )
 
 func TestSwapFileParseEnforcedAndDirty(t *testing.T) {
 	w := NewWorkspace()
-	w.Reset("example.com/mod", token.NewFileSet(), map[address.PkgPath]*Unit{})
-	w.InstallUnit("example.com/mod/pkg", NewUnit(&Package{Name: "pkg", PkgPath: "example.com/mod/pkg"}, nil))
+	w.Reset("example.com/mod", token.NewFileSet(), map[PackagePath]*Unit{})
+	w.InstallUnit("example.com/mod/pkg", NewUnit(&Package{Name: "pkg", ID: newPackageID("example.com/mod/pkg", KindProd)}, nil))
 	if err := w.SwapFile("example.com/mod/pkg", false, "example.com/mod/pkg/pkg.go", []byte("package pkg\n\nfunc broken( {}\n")); err == nil {
 		t.Fatal("SwapFile accepted unparseable bytes")
 	}
@@ -69,7 +67,7 @@ func TestCloneIsolatesMutationsFromOriginal(t *testing.T) {
 
 func TestForkExternalIndependentCache(t *testing.T) {
 	w := NewWorkspace()
-	w.Reset("test.mod", token.NewFileSet(), map[address.PkgPath]*Unit{})
+	w.Reset("test.mod", token.NewFileSet(), map[PackagePath]*Unit{})
 	forked := w.ForkExternal()
 	forked.FailExternal("dep", fmt.Errorf("boom"))
 	if _, ok := w.ExternalFailure("dep"); ok {

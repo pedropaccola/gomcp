@@ -7,8 +7,6 @@ import (
 	"maps"
 	"slices"
 	"strings"
-
-	"github.com/pedropaccola/gomcp/internal/address"
 )
 
 // Package is one compiled package of the model: files, the derived symbol
@@ -17,14 +15,10 @@ import (
 // accessors — determinism and containment by construction; they change
 // only through the Workspace primitives, RebuildIndex, and NewPackage.
 type Package struct {
-	Name    string
-	PkgPath address.PkgPath // import path: the canonical address
+	Name string
+	ID   PackageID // identity: canonical path plus Prod/XTest/External
 
-	// Kind classifies this package as production, external-test, or an
-	// external dependency — see PackageKind.
-	Kind PackageKind
-
-	files   map[address.FilePath]*File
+	files   map[FilePath]*File
 	symbols map[string]*Symbol // derived index; see RebuildIndex
 	Diags   []Diagnostic       // package-scoped: no usable file position
 
@@ -36,15 +30,17 @@ type Package struct {
 	typesInfo *types.Info
 }
 
-// NewPackage constructs a package with its type-checker output, the load
-// path's other door for the fields NewPackage/LoadFile own — direct
-// struct literals from outside this package can no longer set typesPkg/
-// typesInfo now that they're sealed.
-func NewPackage(name string, pkgPath address.PkgPath, typesPkg *types.Package, typesInfo *types.Info, kind PackageKind) *Package {
+// NewPackage constructs a package from raw, already-trusted identity
+// pieces (path, kind) plus its type-checker output — the load path's
+// door for a fresh Package, building the sealed ID internally so callers
+// outside this package (disk's buildPackage/buildExternal) never need
+// their own way to mint one. Also the door for typesPkg/typesInfo: direct
+// struct literals from outside this package can no longer set them now
+// that they're sealed.
+func NewPackage(name string, path PackagePath, kind PackageKind, typesPkg *types.Package, typesInfo *types.Info) *Package {
 	return &Package{
 		Name:      name,
-		PkgPath:   pkgPath,
-		Kind:      kind,
+		ID:        newPackageID(path, kind),
 		typesPkg:  typesPkg,
 		typesInfo: typesInfo,
 	}
@@ -53,9 +49,9 @@ func NewPackage(name string, pkgPath address.PkgPath, typesPkg *types.Package, t
 // LoadFile installs bytes with the loader's AST as a clean file — the
 // load path's door for content, where the AST is the one the type checker
 // saw and is stored as-is; SwapFile is the mutation path's door.
-func (p *Package) LoadFile(path address.FilePath, src []byte, astFile *ast.File) {
+func (p *Package) LoadFile(path FilePath, src []byte, astFile *ast.File) {
 	if p.files == nil {
-		p.files = make(map[address.FilePath]*File)
+		p.files = make(map[FilePath]*File)
 	}
 	p.files[path] = newFile(path, src, astFile, false)
 }
@@ -74,13 +70,13 @@ func (p *Package) Clone() *Package {
 // through the content pipeline.
 func (p *Package) cloneShell() *Package {
 	shell := *p
-	shell.files = make(map[address.FilePath]*File, len(p.files))
+	shell.files = make(map[FilePath]*File, len(p.files))
 	shell.symbols = make(map[string]*Symbol)
 	return &shell
 }
 
 // File resolves one file by path.
-func (p *Package) File(path address.FilePath) (*File, bool) {
+func (p *Package) File(path FilePath) (*File, bool) {
 	file, ok := p.files[path]
 	return file, ok
 }
@@ -109,7 +105,7 @@ func (p *Package) RebuildIndex() {
 	for _, file := range p.files {
 		file.Inits = IndexAST(file.Path, file.ast, p.symbols)
 	}
-	if p.Kind != KindExternal {
+	if p.ID.Kind() != KindExternal {
 		return
 	}
 	for key, sym := range p.symbols {
@@ -160,7 +156,7 @@ func (p *Package) Doc() string {
 // File — Flush's half of the dirty lifecycle; SwapFile and MoveFile set
 // the mark. Replaces rather than mutates in place, since a File may still
 // be shared with another Workspace generation via Clone.
-func (p *Package) MarkFlushed(path address.FilePath) {
+func (p *Package) MarkFlushed(path FilePath) {
 	if file, ok := p.files[path]; ok {
 		cp := *file
 		cp.dirty = false
@@ -169,35 +165,15 @@ func (p *Package) MarkFlushed(path address.FilePath) {
 }
 
 // Relocated returns a detached shell of p as it becomes after a package
-// move from oldPkg to newPkg: same shape as cloneShell, but with PkgPath
-// rewritten to the destination address, and Name rewritten too when
+// move to newPkg: same shape as cloneShell, but with ID rewritten to the
+// destination address (kind preserved), and Name rewritten too when
 // renameName — the one place a package's own identity-under-move is
 // derived.
-func (p *Package) Relocated(oldPkg, newPkg address.PkgPath, renameName bool) *Package {
+func (p *Package) Relocated(newPkg PackagePath, renameName bool) *Package {
 	moved := p.cloneShell()
-	moved.PkgPath = address.PkgPath(strings.Replace(string(p.PkgPath), string(oldPkg), string(newPkg), 1))
+	moved.ID = newPackageID(newPkg, p.ID.Kind())
 	if renameName {
-		moved.Name = newPkg.Base() + strings.TrimPrefix(p.Name, oldPkg.Base())
+		moved.Name = newPkg.Base() + strings.TrimPrefix(p.Name, p.ID.Base().Base())
 	}
 	return moved
-}
-
-// PackageKind classifies what a package is relative to the workspace:
-// its own production or external-test half, or a read-only dependency
-// from the module cache. Mutually exclusive by construction — closes the
-// illegal state IsXTest and External as two independent bools allowed
-// (both true simultaneously), even though no code path ever produced it.
-type PackageKind int
-
-const (
-	KindProd PackageKind = iota
-	KindXTest
-	KindExternal
-)
-
-var packageKindNames = [...]string{"prod", "xtest", "external"}
-
-// String returns k's lowercase name.
-func (k PackageKind) String() string {
-	return packageKindNames[k]
 }

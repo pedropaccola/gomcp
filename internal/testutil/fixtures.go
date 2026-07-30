@@ -8,7 +8,6 @@ import (
 	"go/types"
 	"testing"
 
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
@@ -26,8 +25,8 @@ func (f funcImporter) Import(path string) (*types.Package, error) { return f(pat
 func SimpleFixture(tb testing.TB, src string) *workspace.Workspace {
 	tb.Helper()
 	w := workspace.NewWorkspace()
-	w.Reset("test.mod", token.NewFileSet(), map[address.PkgPath]*workspace.Unit{})
-	w.InstallUnit("test.mod/pkg", workspace.NewUnit(workspace.NewPackage("pkg", "test.mod/pkg", nil, nil, workspace.KindProd), nil))
+	w.Reset("test.mod", token.NewFileSet(), map[workspace.PackagePath]*workspace.Unit{})
+	w.InstallUnit("test.mod/pkg", workspace.NewUnit(workspace.NewPackage("pkg", "test.mod/pkg", workspace.KindProd, nil, nil), nil))
 	if err := w.SwapFile("test.mod/pkg", false, "test.mod/pkg/pkg.go", []byte(src)); err != nil {
 		tb.Fatalf("SimpleFixture: SwapFile: %v", err)
 	}
@@ -83,7 +82,7 @@ func TypesFixture(tb testing.TB, srcs map[string]string) *workspace.Workspace {
 	}
 
 	w := workspace.NewWorkspace()
-	w.Reset("test.mod", fset, map[address.PkgPath]*workspace.Unit{})
+	w.Reset("test.mod", fset, map[workspace.PackagePath]*workspace.Unit{})
 	for path := range srcs {
 		if _, err := doImport(path); err != nil {
 			tb.Fatalf("TypesFixture: %v", err)
@@ -91,10 +90,10 @@ func TypesFixture(tb testing.TB, srcs map[string]string) *workspace.Workspace {
 	}
 	for path, src := range srcs {
 		name := files[path].Name.Name
-		wp := workspace.NewPackage(name, address.PkgPath(path), checked[path], infos[path], workspace.KindProd)
-		wp.LoadFile(address.FilePath(path+"/file.go"), []byte(src), files[path])
+		wp := workspace.NewPackage(name, workspace.PackagePath(path), workspace.KindProd, checked[path], infos[path])
+		wp.LoadFile(workspace.FilePath(path+"/file.go"), []byte(src), files[path])
 		wp.RebuildIndex()
-		w.InstallUnit(address.PkgPath(path), workspace.NewUnit(wp, nil))
+		w.InstallUnit(workspace.PackagePath(path), workspace.NewUnit(wp, nil))
 	}
 	return w
 }

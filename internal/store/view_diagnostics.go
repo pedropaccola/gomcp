@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
@@ -20,7 +19,7 @@ func (v *View) AllDiagnostics() []Diagnostic {
 
 // Diagnostics aggregates one package address's package- and file-scoped
 // diagnostics across its Prod and XTest packages.
-func (v *View) Diagnostics(pkg address.PkgPath) []Diagnostic {
+func (v *View) Diagnostics(pkg workspace.PackagePath) []Diagnostic {
 	unit, ok := v.ws.Unit(pkg)
 	if !ok {
 		return nil
@@ -41,11 +40,11 @@ func (v *View) Diagnostics(pkg address.PkgPath) []Diagnostic {
 // included. It is a positional view, never the inventory: diagnostics that
 // fall outside every declaration remain visible only at file scope and
 // coarser.
-func (v *View) SymbolDiagnostics(pkg address.PkgPath, key string) []Diagnostic {
+func (v *View) SymbolDiagnostics(pkg workspace.PackagePath, key string) []Diagnostic {
 	return newDiagnostics(v.ws.SymbolDiagnostics(pkg, key), pkg, key)
 }
 
-func (v *View) attributeDiagnostics(ds []workspace.Diagnostic, fallback address.PkgPath) []Diagnostic {
+func (v *View) attributeDiagnostics(ds []workspace.Diagnostic, fallback workspace.PackagePath) []Diagnostic {
 	if ds == nil {
 		return nil
 	}
@@ -56,7 +55,7 @@ func (v *View) attributeDiagnostics(ds []workspace.Diagnostic, fallback address.
 			if p, k, ok := v.ws.AddressAtLine(d.File, d.Line); ok {
 				pkg, key = p, k
 			} else if _, owner, ok := v.ws.ResolveFileByPath(d.File); ok {
-				pkg = owner.PkgPath
+				pkg = owner.ID.Base()
 			}
 		}
 		out[i] = newDiagnostic(d, pkg, key)
@@ -74,8 +73,8 @@ func (v *View) attributeDiagnostics(ds []workspace.Diagnostic, fallback address.
 // nothing in internal/tools ever spells this type by name, so there's
 // nothing to dissolve or duplicate.
 type Diagnostic struct {
-	File    address.FilePath
-	Package address.PkgPath
+	File    workspace.FilePath
+	Package workspace.PackagePath
 	Key     string
 	Kind    workspace.DiagKind
 	Msg     string
@@ -94,14 +93,14 @@ func (d Diagnostic) String() string {
 
 // newDiagnostic copies one workspace diagnostic into store's shape,
 // attributing it to pkg/key when the caller has already resolved them.
-func newDiagnostic(d workspace.Diagnostic, pkg address.PkgPath, key string) Diagnostic {
+func newDiagnostic(d workspace.Diagnostic, pkg workspace.PackagePath, key string) Diagnostic {
 	return Diagnostic{File: d.File, Package: pkg, Key: key, Kind: d.Kind, Msg: d.Msg}
 }
 
 // newDiagnostics copies a slice of workspace diagnostics into store's
 // shape, all sharing the same pkg/key attribution (e.g. every diagnostic
 // inside one symbol's span), preserving nil for an empty slice.
-func newDiagnostics(ds []workspace.Diagnostic, pkg address.PkgPath, key string) []Diagnostic {
+func newDiagnostics(ds []workspace.Diagnostic, pkg workspace.PackagePath, key string) []Diagnostic {
 	if ds == nil {
 		return nil
 	}

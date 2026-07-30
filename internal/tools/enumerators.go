@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/store"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 type ListFilesInput struct {
@@ -68,13 +68,13 @@ func listPackages(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListPack
 func listFiles(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListFilesInput, ListFilesOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListFilesInput) (*mcp.CallToolResult, ListFilesOutput, error) {
 		var out ListFilesOutput
-		err := readPackage(ctx, eng, in.PkgPath, func(v *store.View, pkg address.PkgPath) error {
+		err := readPackage(ctx, eng, in.PkgPath, func(v *store.View, pkg workspace.PackageID) error {
 			files, _ := v.PackageFiles(pkg)
 			out.Files = make([]string, 0, len(files))
 			for _, f := range files {
 				out.Files = append(out.Files, f.Base())
 			}
-			out.DiagnosticsTruncated = newDiagnosticsTruncated(v.Diagnostics(pkg), cfg.diagLimit)
+			out.DiagnosticsTruncated = newDiagnosticsTruncated(v.Diagnostics(pkg.Base()), cfg.diagLimit)
 			return nil
 		})
 		return nil, out, err
@@ -84,8 +84,8 @@ func listFiles(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListFilesIn
 func listSymbols(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListSymbolsInput, ListSymbolsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListSymbolsInput) (*mcp.CallToolResult, ListSymbolsOutput, error) {
 		var out ListSymbolsOutput
-		err := readPackage(ctx, eng, in.PkgPath, func(v *store.View, pkg address.PkgPath) error {
-			var targetFile address.FilePath
+		err := readPackage(ctx, eng, in.PkgPath, func(v *store.View, pkg workspace.PackageID) error {
+			var targetFile workspace.FilePath
 			if fileName := optStr(in.FileName); fileName != "" {
 				fp, err := v.ResolveFile(pkg, fileName)
 				if err != nil {
@@ -102,10 +102,10 @@ func listSymbols(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListSymbo
 				out.Symbols = append(out.Symbols, SymbolEntry{
 					SymbolKey: sym.Key,
 					Kind:      sym.Kind,
-					Summary:   summarize(v, pkg, sym),
+					Summary:   summarize(v, pkg.Base(), sym),
 				})
 			}
-			diags := v.Diagnostics(pkg)
+			diags := v.Diagnostics(pkg.Base())
 			if targetFile != "" {
 				diags = diagsForFile(diags, targetFile)
 			}
@@ -119,11 +119,11 @@ func listSymbols(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListSymbo
 func listMethods(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListMethodsInput, ListMethodsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListMethodsInput) (*mcp.CallToolResult, ListMethodsOutput, error) {
 		var out ListMethodsOutput
-		err := readPackage(ctx, eng, in.PkgPath, func(v *store.View, pkg address.PkgPath) error {
+		err := readPackage(ctx, eng, in.PkgPath, func(v *store.View, pkg workspace.PackageID) error {
 			out.Methods = methodSignatures(v, pkg, in.SymbolKey)
 			var diags []store.Diagnostic
 			for _, m := range v.Methods(pkg, in.SymbolKey) {
-				diags = append(diags, v.SymbolDiagnostics(pkg, m.Key)...)
+				diags = append(diags, v.SymbolDiagnostics(pkg.Base(), m.Key)...)
 			}
 			out.DiagnosticsTruncated = newDiagnosticsTruncated(diags, cfg.diagLimit)
 			return nil
@@ -135,7 +135,7 @@ func listMethods(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListMetho
 // summarize renders a symbol's one-line summary: the signature for funcs and
 // methods, the trimmed first declaration line — doc comment skipped — for
 // everything else.
-func summarize(v *store.View, pkg address.PkgPath, sym store.Symbol) string {
+func summarize(v *store.View, pkg workspace.PackagePath, sym store.Symbol) string {
 	if sig, ok := v.Signature(pkg, sym.Key); ok {
 		return sig
 	}

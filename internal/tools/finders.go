@@ -7,8 +7,8 @@ import (
 	"regexp"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/store"
+	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 type MatchEntry struct {
@@ -70,15 +70,15 @@ func searchImplementors(eng *store.Store) mcp.ToolHandlerFor[SearchImplementorsI
 		var out SearchOutput
 		search := func() error {
 			return eng.Read(ctx, func(v *store.View) error {
-				pkg, err := address.NewPkgPath(v.Module(), in.PkgPath)
+				pkg, err := workspace.NewPackageID(v.Module(), in.PkgPath)
 				if err != nil {
 					return err
 				}
-				owner, err := v.ResolveType(pkg, in.SymbolKey)
+				owner, err := v.ResolveType(pkg.Base(), in.SymbolKey)
 				if err != nil {
 					return err
 				}
-				matches, err := v.SymbolsImplementing(owner, in.SymbolKey)
+				matches, err := v.SymbolsImplementing(owner.Base(), in.SymbolKey)
 				if err != nil {
 					return err
 				}
@@ -104,11 +104,11 @@ func searchReferences(eng *store.Store) mcp.ToolHandlerFor[SearchReferencesInput
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in SearchReferencesInput) (*mcp.CallToolResult, SearchOutput, error) {
 		var out SearchOutput
 		err := eng.Read(ctx, func(v *store.View) error {
-			_, owner, err := resolveAnySymbol(v, in.PkgPath, in.SymbolKey)
+			sym, err := resolveAnySymbol(v, in.PkgPath, in.SymbolKey)
 			if err != nil {
 				return err
 			}
-			matches, err := v.SymbolsReferencing(owner, in.SymbolKey)
+			matches, err := v.SymbolsReferencing(sym.Owner.Base(), in.SymbolKey)
 			if err != nil {
 				return err
 			}
@@ -122,29 +122,29 @@ func searchReferences(eng *store.Store) mcp.ToolHandlerFor[SearchReferencesInput
 // resolveAnySymbol resolves a workspace package address and symbol key —
 // the semantic finders' gate: dependencies are excluded, since their type
 // universe cannot be matched exactly against the workspace's.
-func resolveAnySymbol(v *store.View, addr, key string) (store.Symbol, address.PkgPath, error) {
-	pkg, err := address.NewPkgPath(v.Module(), addr)
+func resolveAnySymbol(v *store.View, addr, key string) (store.Symbol, error) {
+	pkg, err := workspace.NewPackageID(v.Module(), addr)
 	if err != nil {
-		return store.Symbol{}, "", err
+		return store.Symbol{}, err
 	}
-	if sym, owner, ok := v.Symbol(pkg, key); ok {
-		return sym, owner, nil
+	if sym, ok := v.Symbol(pkg.Base(), key); ok {
+		return sym, nil
 	}
-	if v.HasExternalPackage(address.PkgPath(addr)) {
-		return store.Symbol{}, "", fmt.Errorf("%q is a dependency: its API is served read-only by list_* and describe_*; semantic search stays in the workspace", addr)
+	if v.HasExternalPackage(workspace.PackagePath(addr)) {
+		return store.Symbol{}, fmt.Errorf("%q is a dependency: its API is served read-only by list_* and describe_*; semantic search stays in the workspace", addr)
 	}
-	return store.Symbol{}, "", fmt.Errorf("no symbol %q in package %q: call list_symbols for valid keys", key, addr)
+	return store.Symbol{}, fmt.Errorf("no symbol %q in package %q: call list_symbols for valid keys", key, addr)
 }
 
 // newMatchEntries renders scan hits for the search_* outputs: canonical
 // package address, key, kind.
-func newMatchEntries(matches []store.Match) []MatchEntry {
+func newMatchEntries(matches []store.Symbol) []MatchEntry {
 	out := make([]MatchEntry, 0, len(matches))
 	for _, m := range matches {
 		out = append(out, MatchEntry{
-			PkgPath:   m.Pkg.String(),
+			PkgPath:   m.Owner.String(),
 			SymbolKey: m.Key,
-			Kind:      m.Kind.String(),
+			Kind:      m.Kind,
 		})
 	}
 	return out

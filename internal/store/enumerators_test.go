@@ -4,10 +4,10 @@ import "testing"
 
 func TestViewMethods(t *testing.T) {
 	v := viewFixture(t, "package pkg\n\ntype Box struct{}\n\nfunc (b Box) M() {}\n\nfunc Other() {}\n")
-	if !v.HasPackage("test.mod/pkg") {
+	if !v.HasPackage(tpkgID("pkg")) {
 		t.Fatal("test.mod/pkg not found")
 	}
-	methods := v.Methods("test.mod/pkg", "Box")
+	methods := v.Methods(tpkgID("pkg"), "Box")
 	if len(methods) != 1 || methods[0].Key != "Box.M" {
 		t.Errorf("Methods(Box) = %+v, want only Box.M", methods)
 	}
@@ -16,7 +16,7 @@ func TestViewMethods(t *testing.T) {
 func TestViewPackages(t *testing.T) {
 	v := viewFixture(t, "package pkg\n\nfunc Foo() {}\n")
 	pkgs := v.Packages()
-	if len(pkgs) != 1 || pkgs[0] != "test.mod/pkg" {
+	if len(pkgs) != 1 || pkgs[0] != tpkgID("pkg") {
 		t.Errorf("Packages() = %+v, want just test.mod/pkg", pkgs)
 	}
 }

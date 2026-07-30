@@ -5,7 +5,6 @@ import (
 	"go/parser"
 	"maps"
 
-	"github.com/pedropaccola/gomcp/internal/address"
 	"golang.org/x/tools/imports"
 )
 
@@ -33,7 +32,7 @@ func (w *Workspace) Clone() *Workspace {
 // caller — nothing outside workspace needs to know goimports exists.
 // Every fallible step precedes the swap — an error means the model is
 // untouched.
-func (w *Workspace) SwapFile(addr address.PkgPath, isXTest bool, newPath address.FilePath, src []byte) error {
+func (w *Workspace) SwapFile(addr PackagePath, isXTest bool, newPath FilePath, src []byte) error {
 	formatted, err := imports.Process(newPath.String(), src, nil)
 	if err != nil {
 		return fmt.Errorf("%s does not format: %w", newPath, err)
@@ -44,7 +43,7 @@ func (w *Workspace) SwapFile(addr address.PkgPath, isXTest bool, newPath address
 	}
 	pkg := w.ensurePackageForked(addr, isXTest)
 	if pkg.files == nil {
-		pkg.files = make(map[address.FilePath]*File)
+		pkg.files = make(map[FilePath]*File)
 	}
 	pkg.files[newPath] = newFile(newPath, formatted, astFile, true)
 	w.ensureRemovedForked()
@@ -56,7 +55,7 @@ func (w *Workspace) SwapFile(addr address.PkgPath, isXTest bool, newPath address
 // DropFile removes one file from its owner: tombstoned for the disk
 // boundary, index rebuilt, and the unit pruned once its last file is gone
 // — an address with no files is no address.
-func (w *Workspace) DropFile(addr address.PkgPath, isXTest bool, path address.FilePath) {
+func (w *Workspace) DropFile(addr PackagePath, isXTest bool, path FilePath) {
 	owner := w.ensurePackageForked(addr, isXTest)
 	delete(owner.files, path)
 	owner.RebuildIndex()
@@ -68,7 +67,7 @@ func (w *Workspace) DropFile(addr address.PkgPath, isXTest bool, path address.Fi
 // MoveFile relocates a file within its owner — semantically free in Go,
 // files are storage. The old path is tombstoned, the new one untombstoned,
 // and the moved copy marked dirty for the next flush.
-func (w *Workspace) MoveFile(addr address.PkgPath, isXTest bool, oldPath, newPath address.FilePath) {
+func (w *Workspace) MoveFile(addr PackagePath, isXTest bool, oldPath, newPath FilePath) {
 	owner := w.ensurePackageForked(addr, isXTest)
 	file := owner.files[oldPath]
 	moved := *file
@@ -84,7 +83,7 @@ func (w *Workspace) MoveFile(addr address.PkgPath, isXTest bool, oldPath, newPat
 
 // pruneEmptyUnit drops a unit's packages once their last file is deleted,
 // and the unit itself once both are gone.
-func (w *Workspace) pruneEmptyUnit(pkg address.PkgPath) {
+func (w *Workspace) pruneEmptyUnit(pkg PackagePath) {
 	if unit, ok := w.units[pkg]; ok {
 		pruneIfEmpty(w.units, pkg, unit)
 	}
@@ -131,7 +130,7 @@ func (w *Workspace) ensureRemovedForked() {
 // generation this one was cloned from. addr must already be installed —
 // CreatePackage and MovePackage install an empty Unit before calling
 // this, precisely so it always is.
-func (w *Workspace) ensurePackageForked(addr address.PkgPath, isXTest bool) *Package {
+func (w *Workspace) ensurePackageForked(addr PackagePath, isXTest bool) *Package {
 	w.ensureUnitsForked()
 	unit := w.units[addr]
 	pkg := unit.prod
@@ -160,7 +159,7 @@ func (w *Workspace) ensurePackageForked(addr address.PkgPath, isXTest bool) *Pac
 // half of the dirty lifecycle; SwapFile and MoveFile set the mark. Forks
 // the package first if this generation hasn't already, same as every
 // other mutating primitive.
-func (w *Workspace) MarkFlushed(addr address.PkgPath, isXTest bool, path address.FilePath) {
+func (w *Workspace) MarkFlushed(addr PackagePath, isXTest bool, path FilePath) {
 	w.ensurePackageForked(addr, isXTest).MarkFlushed(path)
 }
 
@@ -168,7 +167,7 @@ func (w *Workspace) MarkFlushed(addr address.PkgPath, isXTest bool, path address
 // counterpart of DropFile: overlays can only mask a deleted file as empty,
 // so the mask's residue must not survive as a real file. Emptied packages
 // and units are pruned the way pruneEmptyUnit prunes installed ones.
-func DropTombstonedFile(units map[address.PkgPath]*Unit, pkg address.PkgPath, path address.FilePath) {
+func DropTombstonedFile(units map[PackagePath]*Unit, pkg PackagePath, path FilePath) {
 	unit, ok := units[pkg]
 	if !ok {
 		return
@@ -189,7 +188,7 @@ func DropTombstonedFile(units map[address.PkgPath]*Unit, pkg address.PkgPath, pa
 // removes it from units entirely once both are gone. Shared by
 // pruneEmptyUnit (an installed workspace) and DropTombstonedFile (a freshly
 // loaded unit map, before installation).
-func pruneIfEmpty(units map[address.PkgPath]*Unit, pkg address.PkgPath, unit *Unit) {
+func pruneIfEmpty(units map[PackagePath]*Unit, pkg PackagePath, unit *Unit) {
 	if unit.prod != nil && len(unit.prod.files) == 0 {
 		unit.prod = nil
 	}

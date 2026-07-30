@@ -8,30 +8,28 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-
-	"github.com/pedropaccola/gomcp/internal/address"
 )
 
-// SymbolMatch identifies one scan hit by address — a package, a symbol
-// key, and its kind — not a pointer, safe to return across the Aggregate
-// boundary. Kind is captured here (scanning already holds the *Symbol)
-// so callers don't need a second resolve just to know it. Callers
-// needing more resolve it fresh from the address.
+// SymbolMatch identifies one scan hit — the specific package variant
+// (Prod, XTest, or External) it lives in, a symbol key, its kind, and
+// its file — not a pointer, safe to return across the Aggregate
+// boundary. Kind and File are captured here (scanning already holds the
+// *Symbol) so callers don't need a second resolve just to know them.
 type SymbolMatch struct {
-	Pkg  address.PkgPath
+	Pkg  PackageID
 	Key  string
 	Kind SymbolKind
+	File FilePath
 }
 
 // symbolsWhere scans every symbol in the workspace and collects those for
 // which pred holds — the one primitive under every other scanner; new
 // filters should compose on it as predicates. Checks ctx once per unit
 // and stops early, returning whatever was found so far, if it's been
-// canceled or its deadline has passed. Iterates by unit address directly
-// (not allPackages) so each match records the canonical address callers
-// can resolve back through — an XTest package's own PkgPath field is not
-// necessarily that address (go/packages gives external-test variants
-// their own augmented import path).
+// canceled or its deadline has passed. Each match records pkg's own ID
+// (Prod or XTest, whichever half the symbol actually lives in), not the
+// unit's canonical address — a scan hit inside the XTest half must be
+// distinguishable from one in Prod.
 func (w *Workspace) symbolsWhere(ctx context.Context, pred func(*Package, *Symbol) bool) []SymbolMatch {
 	var out []SymbolMatch
 	for _, addr := range w.UnitKeys() {
@@ -42,7 +40,7 @@ func (w *Workspace) symbolsWhere(ctx context.Context, pred func(*Package, *Symbo
 		for _, pkg := range unit.Members() {
 			for _, sym := range pkg.Symbols() {
 				if pred(pkg, sym) {
-					out = append(out, SymbolMatch{Pkg: addr, Key: sym.Key(), Kind: sym.Kind})
+					out = append(out, SymbolMatch{Pkg: pkg.ID, Key: sym.Key(), Kind: sym.Kind, File: sym.File})
 				}
 			}
 		}
@@ -97,7 +95,7 @@ func (w *Workspace) SymbolsRegexp(ctx context.Context, re *regexp.Regexp) []Symb
 // dirty-scoped recheck: types.Implements needs every compared type built
 // from one consistent type-checking session, which a narrow recheck's
 // carried-forward packages don't guarantee — see ErrNarrowlyChecked.
-func (w *Workspace) SymbolsImplementing(ctx context.Context, pkg address.PkgPath, key string) ([]SymbolMatch, error) {
+func (w *Workspace) SymbolsImplementing(ctx context.Context, pkg PackagePath, key string) ([]SymbolMatch, error) {
 	if w.narrowlyChecked {
 		return nil, ErrNarrowlyChecked
 	}
@@ -140,11 +138,10 @@ func (w *Workspace) SymbolsImplementing(ctx context.Context, pkg address.PkgPath
 // receiver, name) — which is exact for Go and immune to the duplicate
 // type-checked instances that test variants create; also gated to
 // package-level declarations and methods only — see isPackageLevelUse's
-// doc comment for why that guard matters. Iterates by unit address
-// directly (not allPackages), same reason as symbolsWhere: each match
-// must record the canonical address, not an XTest package's own
-// possibly-augmented PkgPath.
-func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg address.PkgPath, key string) ([]SymbolMatch, error) {
+// doc comment for why that guard matters. Each match records the
+// referencing package's own ID (Prod or XTest, whichever half the
+// reference actually lives in), not the unit's canonical address.
+func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg PackagePath, key string) ([]SymbolMatch, error) {
 	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
 		return nil, fmt.Errorf("no symbol %q in %q", key, pkg)
@@ -153,13 +150,12 @@ func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg address.PkgPath,
 	if !ok {
 		return nil, fmt.Errorf("type information unavailable for %q", sym.Key())
 	}
-	type addrRef struct {
-		Addr address.PkgPath
-		Pkg  *Package
-		Sym  *Symbol
+	type pkgRef struct {
+		Pkg *Package
+		Sym *Symbol
 	}
 	seen := make(map[*Symbol]bool)
-	var refs []addrRef
+	var refs []pkgRef
 	for _, addr := range w.UnitKeys() {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -182,12 +178,12 @@ func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg address.PkgPath,
 					continue
 				}
 				seen[encl] = true
-				refs = append(refs, addrRef{Addr: addr, Pkg: p, Sym: encl})
+				refs = append(refs, pkgRef{Pkg: p, Sym: encl})
 			}
 		}
 	}
-	slices.SortFunc(refs, func(a, b addrRef) int {
-		if c := cmp.Compare(a.Addr, b.Addr); c != 0 {
+	slices.SortFunc(refs, func(a, b pkgRef) int {
+		if c := cmp.Compare(a.Pkg.ID.String(), b.Pkg.ID.String()); c != 0 {
 			return c
 		}
 		if c := cmp.Compare(a.Pkg.Name, b.Pkg.Name); c != 0 {
@@ -197,7 +193,7 @@ func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg address.PkgPath,
 	})
 	out := make([]SymbolMatch, len(refs))
 	for i, ref := range refs {
-		out[i] = SymbolMatch{Pkg: ref.Addr, Key: ref.Sym.Key(), Kind: ref.Sym.Kind}
+		out[i] = SymbolMatch{Pkg: ref.Pkg.ID, Key: ref.Sym.Key(), Kind: ref.Sym.Kind, File: ref.Sym.File}
 	}
 	return out, nil
 }
@@ -205,11 +201,11 @@ func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg address.PkgPath,
 // ResolveFileByPath resolves a file path to the file and its owning
 // package, checking the production package before the external test
 // package, falling back to the external dependency cache. path's own
-// directory is its owning package's canonical PkgPath by construction
-// (every FilePath is built as pkg+"/"+basename — see address.PkgPath.File)
+// directory is its owning package's canonical PackagePath by construction
+// (every FilePath is built as pkg+"/"+basename — see PackagePath.File)
 // — no scan over every package needed.
-func (w *Workspace) ResolveFileByPath(path address.FilePath) (*File, *Package, bool) {
-	pkgPath := path.PkgPath()
+func (w *Workspace) ResolveFileByPath(path FilePath) (*File, *Package, bool) {
+	pkgPath := path.PackagePath()
 	if unit, ok := w.Unit(pkgPath); ok {
 		for _, pkg := range unit.Members() {
 			if file, ok := pkg.File(path); ok {
@@ -230,7 +226,7 @@ func (w *Workspace) ResolveFileByPath(path address.FilePath) (*File, *Package, b
 // based resolution, for diagnostics, which carry a line number rather
 // than a token.Pos once translated. In grouped decls it prefers the
 // symbol whose own spec's line range contains the line.
-func (w *Workspace) AddressAtLine(path address.FilePath, line int) (pkg address.PkgPath, key string, ok bool) {
+func (w *Workspace) AddressAtLine(path FilePath, line int) (pkg PackagePath, key string, ok bool) {
 	_, owner, ok := w.ResolveFileByPath(path)
 	if !ok {
 		return "", "", false
@@ -250,18 +246,18 @@ func (w *Workspace) AddressAtLine(path address.FilePath, line int) (pkg address.
 			continue
 		}
 		if sym.Spec() == nil {
-			return owner.PkgPath, sym.Key(), true
+			return owner.ID.Base(), sym.Key(), true
 		}
 		specFrom, specTo := fset.Position(sym.Spec().Pos()).Line, fset.Position(sym.Spec().End()).Line
 		if line >= specFrom && line <= specTo {
-			return owner.PkgPath, sym.Key(), true
+			return owner.ID.Base(), sym.Key(), true
 		}
 		if groupHit == nil {
 			groupHit = sym
 		}
 	}
 	if groupHit != nil {
-		return owner.PkgPath, groupHit.Key(), true
+		return owner.ID.Base(), groupHit.Key(), true
 	}
 	return "", "", false
 }

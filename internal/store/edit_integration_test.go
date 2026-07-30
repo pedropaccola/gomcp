@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
@@ -16,7 +15,7 @@ func TestCreateSymbolAndRollback(t *testing.T) {
 	e := sandboxStore(t)
 
 	report := mustEdit(t, e, func(tx *Tx) error {
-		return tx.CreateSymbol(spkg("shapes"), "extra.go", "// Twice doubles x.\nfunc Twice(x float64) float64 { return 2 * x }")
+		return tx.CreateSymbol(spkgID("shapes"), "extra.go", "// Twice doubles x.\nfunc Twice(x float64) float64 { return 2 * x }")
 	})
 	if len(report.Delta) != 0 {
 		t.Errorf("valid creation produced diagnostics: %v", deltaStrings(report))
@@ -24,7 +23,7 @@ func TestCreateSymbolAndRollback(t *testing.T) {
 	if !slices.Contains(report.Changed, sfile("shapes", "extra.go")) {
 		t.Errorf("Changed missing the new file: %v", report.Changed)
 	}
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "Twice"); !ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "Twice"); !ok {
 		t.Fatal("Twice not resolvable after commit")
 	}
 	e.Read(context.Background(), func(v *View) error {
@@ -41,20 +40,20 @@ func TestCreateSymbolAndRollback(t *testing.T) {
 	// Rollback: an error after a successful verb must leave no trace.
 	boom := errors.New("abort")
 	if _, err := e.Edit(context.Background(), func(tx *Tx) error {
-		if err := tx.CreateSymbol(spkg("shapes"), "extra.go", "func Thrice(x float64) float64 { return 3 * x }"); err != nil {
+		if err := tx.CreateSymbol(spkgID("shapes"), "extra.go", "func Thrice(x float64) float64 { return 3 * x }"); err != nil {
 			return err
 		}
 		return boom
 	}); !errors.Is(err, boom) {
 		t.Fatalf("Edit must surface fn's error, got %v", err)
 	}
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "Thrice"); ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "Thrice"); ok {
 		t.Error("rolled-back symbol still visible")
 	}
 
 	// Collision: creating an existing key errors before any change.
 	if _, err := e.Edit(context.Background(), func(tx *Tx) error {
-		return tx.CreateSymbol(spkg("shapes"), "shapes.go", "func Circle() {}")
+		return tx.CreateSymbol(spkgID("shapes"), "shapes.go", "func Circle() {}")
 	}); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Errorf("collision must error mentioning existence, got %v", err)
 	}
@@ -106,7 +105,7 @@ func TestDeleteSymbolBlastRadius(t *testing.T) {
 	}) {
 		t.Errorf("deleting Base must break Embedded: %v", deltaStrings(report))
 	}
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "Base"); ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "Base"); ok {
 		t.Error("Base still resolvable after delete")
 	}
 }
@@ -119,13 +118,13 @@ func TestRenameSymbolPropagates(t *testing.T) {
 	if len(report.Delta) != 0 {
 		t.Errorf("a propagated rename must not introduce diagnostics: %v", deltaStrings(report))
 	}
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "Circle"); ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "Circle"); ok {
 		t.Error("old name still resolvable")
 	}
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "Round"); !ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "Round"); !ok {
 		t.Error("new name not resolvable")
 	}
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "Round.Area"); !ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "Round.Area"); !ok {
 		t.Error("method key did not follow the renamed receiver")
 	}
 	file, _, _ := resolveFile(e, sfile("use", "use.go"))
@@ -146,7 +145,7 @@ func TestMovePackagePropagates(t *testing.T) {
 		t.Error("old package address still resolvable")
 	}
 	pkg, ok := resolvePackage(e, spkg("geo"))
-	if !ok || pkg.Name != "geo" || pkg.PkgPath != "example.com/sandbox/geo" {
+	if !ok || pkg.Name != "geo" || pkg.ID != spkgID("geo") {
 		t.Fatalf("geo package wrong after move: %+v", pkg)
 	}
 	file, _, _ := resolveFile(e, sfile("use", "use.go"))
@@ -198,13 +197,13 @@ func TestMovePackagePropagates(t *testing.T) {
 func TestPlacementPolicy(t *testing.T) {
 	e := sandboxStore(t)
 	mustEdit(t, e, func(tx *Tx) error {
-		if err := tx.CreateSymbol(spkg("use"), "use.go", "const answer = 42"); err != nil {
+		if err := tx.CreateSymbol(spkgID("use"), "use.go", "const answer = 42"); err != nil {
 			return err
 		}
-		if err := tx.CreateSymbol(spkg("use"), "use.go", "type helper struct{}"); err != nil {
+		if err := tx.CreateSymbol(spkgID("use"), "use.go", "type helper struct{}"); err != nil {
 			return err
 		}
-		return tx.CreateSymbol(spkg("use"), "use.go", "func (helper) run() {}")
+		return tx.CreateSymbol(spkgID("use"), "use.go", "func (helper) run() {}")
 	})
 	file, _, _ := resolveFile(e, sfile("use", "use.go"))
 	src := string(file.Src())
@@ -239,10 +238,10 @@ func TestImportSelfRepair(t *testing.T) {
 		if err := tx.CreatePackage(spkg("colors"), ""); err != nil {
 			return err
 		}
-		if err := tx.CreateSymbol(spkg("colors"), "colors.go", `const Red = "red"`); err != nil {
+		if err := tx.CreateSymbol(spkgID("colors"), "colors.go", `const Red = "red"`); err != nil {
 			return err
 		}
-		return tx.CreateSymbol(spkg("use"), "use.go", "func PaintIt() string { return colors.Red }")
+		return tx.CreateSymbol(spkgID("use"), "use.go", "func PaintIt() string { return colors.Red }")
 	})
 	if len(report.Delta) != 0 {
 		t.Errorf("self-repair did not clear the delta: %v", deltaStrings(report))
@@ -259,15 +258,15 @@ func TestImportSelfRepair(t *testing.T) {
 func TestImportRepairRefusesAmbiguity(t *testing.T) {
 	e := sandboxStore(t)
 	report := mustEdit(t, e, func(tx *Tx) error {
-		for _, pkg := range []address.PkgPath{spkg("a/dup"), spkg("b/dup")} {
-			if err := tx.CreatePackage(pkg, ""); err != nil {
+		for _, dir := range []string{"a/dup", "b/dup"} {
+			if err := tx.CreatePackage(spkg(dir), ""); err != nil {
 				return err
 			}
-			if err := tx.CreateSymbol(pkg, "dup.go", "const X = 1"); err != nil {
+			if err := tx.CreateSymbol(spkgID(dir), "dup.go", "const X = 1"); err != nil {
 				return err
 			}
 		}
-		return tx.CreateSymbol(spkg("use"), "use.go", "func Which() int { return dup.X }")
+		return tx.CreateSymbol(spkgID("use"), "use.go", "func Which() int { return dup.X }")
 	})
 	if !slices.ContainsFunc(deltaStrings(report), func(s string) bool {
 		return strings.Contains(s, "undefined: dup")
@@ -294,7 +293,7 @@ func TestReplaceGroupedSpec(t *testing.T) {
 		}
 		return nil
 	})
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "debugMode"); !ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "debugMode"); !ok {
 		t.Error("sibling spec destroyed by grouped replacement")
 	}
 }
@@ -304,10 +303,10 @@ func TestDeleteGroupedSpec(t *testing.T) {
 	mustEdit(t, e, func(tx *Tx) error {
 		return tx.DeleteSymbol(spkg("shapes"), "Scalar")
 	})
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "Scalar"); ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "Scalar"); ok {
 		t.Error("Scalar still resolvable")
 	}
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "Pair"); !ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "Pair"); !ok {
 		t.Error("sibling spec destroyed by grouped deletion")
 	}
 	// Deleting the last member removes the whole (now empty) group decl.
@@ -327,10 +326,10 @@ func TestDeleteTrimsMultiNameSpec(t *testing.T) {
 	mustEdit(t, e, func(tx *Tx) error {
 		return tx.DeleteSymbol(spkg("shapes"), "minX")
 	})
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "minX"); ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "minX"); ok {
 		t.Error("minX still resolvable after delete")
 	}
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "maxX"); !ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "maxX"); !ok {
 		t.Error("maxX destroyed by trimming its sibling minX")
 	}
 	file, _, _ := resolveFile(e, sfile("shapes", "groups.go"))
@@ -366,7 +365,7 @@ func TestMoveSymbol(t *testing.T) {
 	if len(report.Delta) != 0 {
 		t.Errorf("move introduced diagnostics: %v", deltaStrings(report))
 	}
-	sym, _, ok := resolveSymbol(e, spkg("shapes"), "NotShape")
+	sym, ok := resolveSymbol(e, spkg("shapes"), "NotShape")
 	if !ok {
 		t.Fatal("NotShape lost by move")
 	}
@@ -391,14 +390,14 @@ func TestMoveGroupedSpec(t *testing.T) {
 	if len(report.Delta) != 0 {
 		t.Errorf("grouped move introduced diagnostics: %v", deltaStrings(report))
 	}
-	sym, _, ok := resolveSymbol(e, spkg("shapes"), "DefaultScale")
+	sym, ok := resolveSymbol(e, spkg("shapes"), "DefaultScale")
 	if !ok {
 		t.Fatal("DefaultScale lost by move")
 	}
 	if sym.File != sfile("shapes", "shapes.go") {
 		t.Errorf("DefaultScale lives in %q, want shapes/shapes.go", sym.File)
 	}
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "debugMode"); !ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "debugMode"); !ok {
 		t.Error("sibling spec destroyed by grouped move")
 	}
 	file, _, _ := resolveFile(e, sfile("shapes", "shapes.go"))
@@ -430,7 +429,7 @@ func TestMoveRefusals(t *testing.T) {
 func TestMoveToNewFile(t *testing.T) {
 	e := sandboxStore(t)
 	mustEdit(t, e, func(tx *Tx) error {
-		return tx.CreateSymbol(spkg("shapes"), "extra.go", "// Doubled reports twice the default scale.\nfunc Doubled() float64 { return 2 * DefaultScale }")
+		return tx.CreateSymbol(spkgID("shapes"), "extra.go", "// Doubled reports twice the default scale.\nfunc Doubled() float64 { return 2 * DefaultScale }")
 	})
 	report := mustEdit(t, e, func(tx *Tx) error {
 		return tx.MoveSymbol(spkg("shapes"), "Doubled", "", "moved.go", "")
@@ -438,7 +437,7 @@ func TestMoveToNewFile(t *testing.T) {
 	if len(report.Delta) != 0 {
 		t.Errorf("move introduced diagnostics: %v", deltaStrings(report))
 	}
-	sym, _, ok := resolveSymbol(e, spkg("shapes"), "Doubled")
+	sym, ok := resolveSymbol(e, spkg("shapes"), "Doubled")
 	if !ok {
 		t.Fatal("Doubled lost by move")
 	}
@@ -469,7 +468,7 @@ func TestEditDeltaExcludesPreexistingBrokenness(t *testing.T) {
 	}
 
 	report := mustEdit(t, e, func(tx *Tx) error {
-		return tx.CreateSymbol(spkg("shapes"), "extra.go", "func Quadruple(x float64) float64 { return 4 * x }")
+		return tx.CreateSymbol(spkgID("shapes"), "extra.go", "func Quadruple(x float64) float64 { return 4 * x }")
 	})
 	if len(report.Delta) != 0 {
 		t.Errorf("unrelated edit produced diagnostics: %v", deltaStrings(report))
@@ -486,10 +485,10 @@ func TestCreateFileWithDocAndEditFile(t *testing.T) {
 	e := sandboxStore(t)
 
 	mustEdit(t, e, func(tx *Tx) error {
-		return tx.CreateFile(spkg("shapes"), "extra_doc.go", "Extra holds throwaway fixtures for this test.")
+		return tx.CreateFile(spkgID("shapes"), "extra_doc.go", "Extra holds throwaway fixtures for this test.")
 	})
 	e.Read(context.Background(), func(v *View) error {
-		files, _ := v.PackageFiles(spkg("shapes"))
+		files, _ := v.PackageFiles(spkgID("shapes"))
 		for _, f := range files {
 			if f.Base() == "extra_doc.go" {
 				if doc, _ := v.FileDoc(f); doc != "Extra holds throwaway fixtures for this test." {
@@ -505,7 +504,7 @@ func TestCreateFileWithDocAndEditFile(t *testing.T) {
 		return tx.EditFile(spkg("shapes"), "extra_doc.go", "Replaced doc.")
 	})
 	e.Read(context.Background(), func(v *View) error {
-		files, _ := v.PackageFiles(spkg("shapes"))
+		files, _ := v.PackageFiles(spkgID("shapes"))
 		for _, f := range files {
 			if f.Base() == "extra_doc.go" {
 				if doc, _ := v.FileDoc(f); doc != "Replaced doc." {
@@ -521,7 +520,7 @@ func TestCreateFileWithDocAndEditFile(t *testing.T) {
 		return tx.EditFile(spkg("shapes"), "extra_doc.go", "")
 	})
 	e.Read(context.Background(), func(v *View) error {
-		files, _ := v.PackageFiles(spkg("shapes"))
+		files, _ := v.PackageFiles(spkgID("shapes"))
 		for _, f := range files {
 			if f.Base() == "extra_doc.go" {
 				if doc, _ := v.FileDoc(f); doc != "" {
@@ -540,7 +539,7 @@ func TestCreateFileWithDocAndEditFile(t *testing.T) {
 		if src, _ := v.DeclSource(spkg("shapes"), "Shape"); !strings.Contains(src, "Shape is anything with an area") {
 			t.Errorf("EditFile disturbed an unrelated declaration:\n%s", src)
 		}
-		files, _ := v.PackageFiles(spkg("shapes"))
+		files, _ := v.PackageFiles(spkgID("shapes"))
 		for _, f := range files {
 			if f.Base() == "shapes.go" {
 				if doc, _ := v.FileDoc(f); doc != "New shapes doc." {
@@ -574,7 +573,7 @@ func TestMoveSymbolRenameQualification(t *testing.T) {
 	if len(report.Delta) != 0 {
 		t.Errorf("non-method rename introduced diagnostics: %v", deltaStrings(report))
 	}
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "AlsoNotShape"); !ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "AlsoNotShape"); !ok {
 		t.Error("AlsoNotShape not resolvable after rename")
 	}
 
@@ -596,7 +595,7 @@ func TestMoveSymbolRenameQualification(t *testing.T) {
 	mustEdit(t, e, func(tx *Tx) error {
 		return tx.MoveSymbol(spkg("shapes"), "Circle.Area", "", "", "Circle.Extent")
 	})
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "Circle.Extent"); !ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "Circle.Extent"); !ok {
 		t.Error("Circle.Extent not resolvable after rename")
 	}
 }
@@ -619,7 +618,7 @@ func TestRenameUpdatesLeadingDoc(t *testing.T) {
 	// A doc that doesn't start with the symbol's own name is left alone —
 	// the safety boundary against corrupting unrelated prose.
 	mustEdit(t, e, func(tx *Tx) error {
-		return tx.CreateSymbol(spkg("shapes"), "extra.go",
+		return tx.CreateSymbol(spkgID("shapes"), "extra.go",
 			"// This helper returns something related to Foo.\nfunc Foo() int { return 0 }")
 	})
 	mustEdit(t, e, func(tx *Tx) error {
@@ -634,7 +633,7 @@ func TestRenameUpdatesLeadingDoc(t *testing.T) {
 func TestMoveSoloGroupedSpecPreservesDoc(t *testing.T) {
 	e := sandboxStore(t)
 	mustEdit(t, e, func(tx *Tx) error {
-		return tx.CreateSymbol(spkg("shapes"), "solo.go", "const (\n\t// Solo is the only member of its group.\n\tSolo = 1\n)")
+		return tx.CreateSymbol(spkgID("shapes"), "solo.go", "const (\n\t// Solo is the only member of its group.\n\tSolo = 1\n)")
 	})
 	mustEdit(t, e, func(tx *Tx) error {
 		return tx.MoveSymbol(spkg("shapes"), "Solo", "", "solo2.go", "")
@@ -649,7 +648,7 @@ func TestMoveSoloGroupedSpecPreservesDoc(t *testing.T) {
 func TestRenameSoloGroupedSpecUpdatesDoc(t *testing.T) {
 	e := sandboxStore(t)
 	mustEdit(t, e, func(tx *Tx) error {
-		return tx.CreateSymbol(spkg("shapes"), "solo.go", "const (\n\t// Solo is the only member of its group.\n\tSolo = 1\n)")
+		return tx.CreateSymbol(spkgID("shapes"), "solo.go", "const (\n\t// Solo is the only member of its group.\n\tSolo = 1\n)")
 	})
 	mustEdit(t, e, func(tx *Tx) error {
 		return tx.MoveSymbol(spkg("shapes"), "Solo", "", "", "Alone")
@@ -671,10 +670,10 @@ func TestMoveSymbolRenamesIotaGroupMember(t *testing.T) {
 	if len(report.Delta) != 0 {
 		t.Errorf("renaming a non-anchor iota member introduced diagnostics: %v", deltaStrings(report))
 	}
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "KindQuad"); !ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "KindQuad"); !ok {
 		t.Error("KindQuad not resolvable after rename")
 	}
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "KindSquare"); ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "KindSquare"); ok {
 		t.Error("old name KindSquare still resolvable")
 	}
 
@@ -687,10 +686,10 @@ func TestMoveSymbolRenamesIotaGroupMember(t *testing.T) {
 	if len(report.Delta) != 0 {
 		t.Errorf("renaming the iota group's anchor introduced diagnostics: %v", deltaStrings(report))
 	}
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "KindRound"); !ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "KindRound"); !ok {
 		t.Error("KindRound not resolvable after rename")
 	}
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "KindQuad"); !ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "KindQuad"); !ok {
 		t.Error("KindQuad lost when renaming the anchor")
 	}
 	file, _, _ := resolveFile(e, sfile("shapes", "groups.go"))
@@ -710,7 +709,7 @@ func TestMoveWholeIotaGroup(t *testing.T) {
 		t.Errorf("moving an iota group introduced diagnostics: %v", deltaStrings(report))
 	}
 	for _, key := range []string{"KindCircle", "KindSquare"} {
-		sym, _, ok := resolveSymbol(e, spkg("shapes"), key)
+		sym, ok := resolveSymbol(e, spkg("shapes"), key)
 		if !ok {
 			t.Fatalf("%s lost by group move", key)
 		}
@@ -739,10 +738,10 @@ func TestDeleteWholeIotaGroup(t *testing.T) {
 	if len(report.Delta) != 0 {
 		t.Errorf("deleting an iota group introduced diagnostics: %v", deltaStrings(report))
 	}
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "KindCircle"); ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "KindCircle"); ok {
 		t.Error("KindCircle survived deleting its sibling KindSquare")
 	}
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "KindSquare"); ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "KindSquare"); ok {
 		t.Error("KindSquare still resolvable after delete")
 	}
 	file, _, _ := resolveFile(e, sfile("shapes", "groups.go"))
@@ -761,7 +760,7 @@ func TestEditIotaGroupWholeReplacement(t *testing.T) {
 		t.Errorf("whole-group edit introduced diagnostics: %v", deltaStrings(report))
 	}
 	for _, key := range []string{"KindCircle", "KindSquare", "KindTriangle"} {
-		if _, _, ok := resolveSymbol(e, spkg("shapes"), key); !ok {
+		if _, ok := resolveSymbol(e, spkg("shapes"), key); !ok {
 			t.Errorf("%s missing after whole-group edit", key)
 		}
 	}
@@ -774,10 +773,10 @@ func TestEditIotaGroupPartialSubmissionDropsSiblings(t *testing.T) {
 	mustEdit(t, e, func(tx *Tx) error {
 		return tx.EditSymbol(spkg("shapes"), "KindCircle", "// KindCircle is the round one.\nKindCircle Kind = iota")
 	})
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "KindCircle"); !ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "KindCircle"); !ok {
 		t.Error("KindCircle lost by its own whole-group edit")
 	}
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "KindSquare"); ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "KindSquare"); ok {
 		t.Error("KindSquare survived a replacement that didn't mention it")
 	}
 }
@@ -796,7 +795,7 @@ func TestEditIotaGroupRefusesRenamingTargetedKey(t *testing.T) {
 func TestEditGroupRefusesIntroducingIota(t *testing.T) {
 	e := sandboxStore(t)
 	mustEdit(t, e, func(tx *Tx) error {
-		return tx.CreateSymbol(spkg("shapes"), "consts.go", "const (\n\tFoo = 1\n\tBar = 2\n)")
+		return tx.CreateSymbol(spkgID("shapes"), "consts.go", "const (\n\tFoo = 1\n\tBar = 2\n)")
 	})
 	_, err := e.Edit(context.Background(), func(tx *Tx) error {
 		return tx.EditSymbol(spkg("shapes"), "Foo", "Foo = iota")
@@ -809,10 +808,10 @@ func TestEditGroupRefusesIntroducingIota(t *testing.T) {
 func TestCreatePlainConstMergesIntoExistingGroup(t *testing.T) {
 	e := sandboxStore(t)
 	mustEdit(t, e, func(tx *Tx) error {
-		return tx.CreateSymbol(spkg("shapes"), "consts2.go", "const (\n\tFoo = 1\n\tBar = 2\n)")
+		return tx.CreateSymbol(spkgID("shapes"), "consts2.go", "const (\n\tFoo = 1\n\tBar = 2\n)")
 	})
 	mustEdit(t, e, func(tx *Tx) error {
-		return tx.CreateSymbol(spkg("shapes"), "consts2.go", "const Baz = 3")
+		return tx.CreateSymbol(spkgID("shapes"), "consts2.go", "const Baz = 3")
 	})
 	file, _, _ := resolveFile(e, sfile("shapes", "consts2.go"))
 	src := string(file.Src())
@@ -820,7 +819,7 @@ func TestCreatePlainConstMergesIntoExistingGroup(t *testing.T) {
 		t.Errorf("expected exactly one const group after merge, got source:\n%s", src)
 	}
 	for _, key := range []string{"Foo", "Bar", "Baz"} {
-		if _, _, ok := resolveSymbol(e, spkg("shapes"), key); !ok {
+		if _, ok := resolveSymbol(e, spkg("shapes"), key); !ok {
 			t.Errorf("%s missing after merge", key)
 		}
 	}
@@ -829,10 +828,10 @@ func TestCreatePlainConstMergesIntoExistingGroup(t *testing.T) {
 func TestCreateIotaGroupNeverMergesIntoExistingGroup(t *testing.T) {
 	e := sandboxStore(t)
 	mustEdit(t, e, func(tx *Tx) error {
-		return tx.CreateSymbol(spkg("shapes"), "kinds2.go", "const (\n\tFirstA = iota\n\tSecondA\n)")
+		return tx.CreateSymbol(spkgID("shapes"), "kinds2.go", "const (\n\tFirstA = iota\n\tSecondA\n)")
 	})
 	mustEdit(t, e, func(tx *Tx) error {
-		return tx.CreateSymbol(spkg("shapes"), "kinds2.go", "const (\n\tFirstB = iota\n\tSecondB\n)")
+		return tx.CreateSymbol(spkgID("shapes"), "kinds2.go", "const (\n\tFirstB = iota\n\tSecondB\n)")
 	})
 	file, _, _ := resolveFile(e, sfile("shapes", "kinds2.go"))
 	src := string(file.Src())
@@ -840,7 +839,7 @@ func TestCreateIotaGroupNeverMergesIntoExistingGroup(t *testing.T) {
 		t.Errorf("expected two separate iota groups, got source:\n%s", src)
 	}
 	for _, key := range []string{"FirstA", "SecondA", "FirstB", "SecondB"} {
-		if _, _, ok := resolveSymbol(e, spkg("shapes"), key); !ok {
+		if _, ok := resolveSymbol(e, spkg("shapes"), key); !ok {
 			t.Errorf("%s missing", key)
 		}
 	}
@@ -849,10 +848,10 @@ func TestCreateIotaGroupNeverMergesIntoExistingGroup(t *testing.T) {
 func TestCreateTypedIotaGroupNearItsType(t *testing.T) {
 	e := sandboxStore(t)
 	mustEdit(t, e, func(tx *Tx) error {
-		return tx.CreateSymbol(spkg("shapes"), "status.go", "// Status is a lifecycle state.\ntype Status int")
+		return tx.CreateSymbol(spkgID("shapes"), "status.go", "// Status is a lifecycle state.\ntype Status int")
 	})
 	mustEdit(t, e, func(tx *Tx) error {
-		return tx.CreateSymbol(spkg("shapes"), "status.go",
+		return tx.CreateSymbol(spkgID("shapes"), "status.go",
 			"const (\n\t// Active is running.\n\tActive Status = iota\n\tInactive\n)")
 	})
 	file, _, _ := resolveFile(e, sfile("shapes", "status.go"))
@@ -870,10 +869,10 @@ func TestCreateTypedIotaGroupNearItsType(t *testing.T) {
 func TestCreateUntypedIotaGroupStandardRegion(t *testing.T) {
 	e := sandboxStore(t)
 	mustEdit(t, e, func(tx *Tx) error {
-		return tx.CreateSymbol(spkg("shapes"), "flags.go", "// Flag is a marker type.\ntype Flag int")
+		return tx.CreateSymbol(spkgID("shapes"), "flags.go", "// Flag is a marker type.\ntype Flag int")
 	})
 	mustEdit(t, e, func(tx *Tx) error {
-		return tx.CreateSymbol(spkg("shapes"), "flags.go", "const (\n\tFlagA = 1 << iota\n\tFlagB\n)")
+		return tx.CreateSymbol(spkgID("shapes"), "flags.go", "const (\n\tFlagA = 1 << iota\n\tFlagB\n)")
 	})
 	file, _, _ := resolveFile(e, sfile("shapes", "flags.go"))
 	src := string(file.Src())
@@ -895,10 +894,10 @@ func TestDeleteBlanksSharedMultiValueSpec(t *testing.T) {
 	mustEdit(t, e, func(tx *Tx) error {
 		return tx.DeleteSymbol(spkg("shapes"), "boundX")
 	})
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "boundX"); ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "boundX"); ok {
 		t.Error("boundX still resolvable after delete")
 	}
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "boundY"); !ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "boundY"); !ok {
 		t.Error("boundY destroyed by blanking its sibling boundX")
 	}
 	file, _, _ := resolveFile(e, sfile("shapes", "groups.go"))
@@ -918,7 +917,7 @@ func TestDeleteConvergesToFullRemovalWhenNoRealNameRemains(t *testing.T) {
 	mustEdit(t, e, func(tx *Tx) error {
 		return tx.DeleteSymbol(spkg("shapes"), "boundY")
 	})
-	if _, _, ok := resolveSymbol(e, spkg("shapes"), "boundY"); ok {
+	if _, ok := resolveSymbol(e, spkg("shapes"), "boundY"); ok {
 		t.Error("boundY still resolvable after its spec should have collapsed")
 	}
 	file, _, _ := resolveFile(e, sfile("shapes", "groups.go"))
@@ -986,10 +985,10 @@ func TestMoveSymbolCrossPackageQualifierRewrite(t *testing.T) {
 	if len(report.Delta) != 0 {
 		t.Errorf("cross-package move introduced diagnostics: %v", deltaStrings(report))
 	}
-	if _, _, ok := resolveSymbol(e, spkg("mvdest"), "Perimeter"); !ok {
+	if _, ok := resolveSymbol(e, spkg("mvdest"), "Perimeter"); !ok {
 		t.Error("Perimeter not resolvable in mvdest after the move")
 	}
-	if _, _, ok := resolveSymbol(e, spkg("mvsrc"), "Perimeter"); ok {
+	if _, ok := resolveSymbol(e, spkg("mvsrc"), "Perimeter"); ok {
 		t.Error("Perimeter still resolvable in mvsrc after the move")
 	}
 	srcFile, _, _ := resolveFile(e, sfile("mvsrc", "mvsrc.go"))
@@ -1013,7 +1012,7 @@ func TestMoveSymbolQualifierDropsAtDestination(t *testing.T) {
 	if len(report.Delta) != 0 {
 		t.Errorf("cross-package move introduced diagnostics: %v", deltaStrings(report))
 	}
-	if _, _, ok := resolveSymbol(e, spkg("mvbeta"), "Solo"); !ok {
+	if _, ok := resolveSymbol(e, spkg("mvbeta"), "Solo"); !ok {
 		t.Error("Solo not resolvable in mvbeta after the move")
 	}
 	file, _, _ := resolveFile(e, sfile("mvbeta", "mvbeta.go"))
@@ -1083,7 +1082,7 @@ func TestMoveFileCrossPackageSucceedsWhenSafe(t *testing.T) {
 	if len(report.Delta) != 0 {
 		t.Errorf("cross-package file move introduced diagnostics: %v", deltaStrings(report))
 	}
-	if _, _, ok := resolveSymbol(e, spkg("mvdest"), "StandaloneFunc"); !ok {
+	if _, ok := resolveSymbol(e, spkg("mvdest"), "StandaloneFunc"); !ok {
 		t.Error("StandaloneFunc not resolvable in mvdest after the file move")
 	}
 	// MoveFile now rewrites external qualifiers too: use.go's pre-existing
@@ -1214,10 +1213,10 @@ func TestMoveSymbolGroupMovesTypeAndMethodsAcrossFiles(t *testing.T) {
 		t.Fatalf("MoveSymbolGroup: %v", err)
 	}
 	for _, key := range []string{"Box", "Box.M", "Box.AreaOfBox"} {
-		if _, _, ok := resolveSymbol(e, spkg("mvsrc"), key); ok {
+		if _, ok := resolveSymbol(e, spkg("mvsrc"), key); ok {
 			t.Errorf("%q should no longer exist in mvsrc", key)
 		}
-		if _, _, ok := resolveSymbol(e, spkg("mvdest"), key); !ok {
+		if _, ok := resolveSymbol(e, spkg("mvdest"), key); !ok {
 			t.Errorf("%q missing from mvdest after MoveSymbolGroup", key)
 		}
 	}

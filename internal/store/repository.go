@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/pedropaccola/gomcp/internal/address"
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
@@ -16,7 +15,7 @@ import (
 // clone, so nothing appears flushed even if some files already reached
 // disk — re-flushing recovers, at the cost of re-writing what already
 // landed.
-func (e *Store) Flush() (written, removed []address.FilePath, err error) {
+func (e *Store) Flush() (written, removed []workspace.FilePath, err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -50,7 +49,7 @@ func (e *Store) Flush() (written, removed []address.FilePath, err error) {
 // change: the disk-facing inverse of Flush. It reports the files whose
 // in-memory state was lost — dirty files and pending removals. An error
 // means the previous state is untouched.
-func (e *Store) Reload(ctx context.Context) ([]address.FilePath, error) {
+func (e *Store) Reload(ctx context.Context) ([]workspace.FilePath, error) {
 	fset, module, units, err := e.Load(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -59,7 +58,7 @@ func (e *Store) Reload(ctx context.Context) ([]address.FilePath, error) {
 	defer e.mu.Unlock()
 
 	orig := e.ws
-	var discarded []address.FilePath
+	var discarded []workspace.FilePath
 	for _, file := range orig.Files() {
 		if file.IsDirty() {
 			discarded = append(discarded, file.Path)

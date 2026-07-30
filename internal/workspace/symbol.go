@@ -3,8 +3,6 @@ package workspace
 import (
 	"go/ast"
 	"go/token"
-
-	"github.com/pedropaccola/gomcp/internal/address"
 )
 
 // SymbolKind classifies a top-level declaration.
@@ -35,7 +33,7 @@ func (k SymbolKind) String() string {
 // only through the Decl()/Spec() accessors, never by field access.
 type Symbol struct {
 	Name string
-	File address.FilePath
+	File FilePath
 	Kind SymbolKind
 	Recv string   // receiver type name; set only for KindMethod
 	decl ast.Decl // the top-level declaration: the splice point for mutations
@@ -89,7 +87,7 @@ func DocOf(node ast.Node) *ast.CommentGroup {
 // IndexAST fills symbols with astFile's top-level declarations, attributed
 // to path, and returns its init functions — the one indexer, behind
 // RebuildIndex and usable on bare ASTs that have no model File.
-func IndexAST(path address.FilePath, astFile *ast.File, symbols map[string]*Symbol) (inits []*ast.FuncDecl) {
+func IndexAST(path FilePath, astFile *ast.File, symbols map[string]*Symbol) (inits []*ast.FuncDecl) {
 	for _, decl := range astFile.Decls {
 		switch node := decl.(type) {
 		case *ast.FuncDecl:

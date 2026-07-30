@@ -3,8 +3,6 @@ package workspace
 import (
 	"go/ast"
 	"go/token"
-
-	"github.com/pedropaccola/gomcp/internal/address"
 )
 
 // declRegion places an existing declaration in the file's canonical region
@@ -132,7 +130,7 @@ func findMergeableGroup(astFile *ast.File, tok token.Token) *ast.GenDecl {
 }
 
 // resolveFile finds path within pkg's production or external-test half.
-func (w *Workspace) resolveFile(pkg address.PkgPath, path address.FilePath) (*File, *Package, bool) {
+func (w *Workspace) resolveFile(pkg PackagePath, path FilePath) (*File, *Package, bool) {
 	unit, ok := w.Unit(pkg)
 	if !ok {
 		return nil, nil, false
@@ -152,7 +150,7 @@ func (w *Workspace) resolveFile(pkg address.PkgPath, path address.FilePath) (*Fi
 // receiver group isn't in this file falls to the bottom. Aggregate-owned
 // placement analysis, resolved fresh from pkg/fileName here rather than
 // accepted as a *File pointer a caller might already be holding.
-func (w *Workspace) InsertOffset(pkg address.PkgPath, fileName address.FilePath, kind SymbolKind, recv string) (int, bool) {
+func (w *Workspace) InsertOffset(pkg PackagePath, fileName FilePath, kind SymbolKind, recv string) (int, bool) {
 	file, owner, ok := w.resolveFile(pkg, fileName)
 	if !ok {
 		return 0, false
@@ -184,7 +182,7 @@ func (w *Workspace) InsertOffset(pkg address.PkgPath, fileName address.FilePath,
 // declared there — the same "cluster with your type" placement
 // declPrecedes already gives methods, extended to a typed iota group
 // anchored to that type instead of a receiver.
-func (w *Workspace) TypeDeclOffset(pkg address.PkgPath, fileName address.FilePath, typeName string) (int, bool) {
+func (w *Workspace) TypeDeclOffset(pkg PackagePath, fileName FilePath, typeName string) (int, bool) {
 	file, owner, ok := w.resolveFile(pkg, fileName)
 	if !ok {
 		return 0, false
@@ -207,7 +205,7 @@ func (w *Workspace) TypeDeclOffset(pkg address.PkgPath, fileName address.FilePat
 // ok=false when there is no such group to merge a new plain const/var
 // into — keeping at most one such group per file rather than growing a
 // new one each time.
-func (w *Workspace) MergeableGroupInsertOffset(pkg address.PkgPath, fileName address.FilePath, tok token.Token) (int, bool) {
+func (w *Workspace) MergeableGroupInsertOffset(pkg PackagePath, fileName FilePath, tok token.Token) (int, bool) {
 	file, owner, ok := w.resolveFile(pkg, fileName)
 	if !ok {
 		return 0, false

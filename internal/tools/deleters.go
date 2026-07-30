@@ -58,7 +58,7 @@ func deleteSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeleteSy
 				if err != nil {
 					return batchErr("deletes", i, n, err)
 				}
-				if err := tx.DeleteSymbol(pkg, entry.SymbolKey); err != nil {
+				if err := tx.DeleteSymbol(pkg.Base(), entry.SymbolKey); err != nil {
 					return batchErr("deletes", i, n, err)
 				}
 			}
@@ -79,7 +79,7 @@ func deleteFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeleteFile
 				if err != nil {
 					return batchErr("deletes", i, n, err)
 				}
-				if err := tx.DeleteFile(pkg, entry.FileName); err != nil {
+				if err := tx.DeleteFile(pkg.Base(), entry.FileName); err != nil {
 					return batchErr("deletes", i, n, err)
 				}
 			}
@@ -100,7 +100,7 @@ func deletePackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeleteP
 				if err != nil {
 					return batchErr("deletes", i, n, err)
 				}
-				if err := tx.DeletePackage(pkg); err != nil {
+				if err := tx.DeletePackage(pkg.Base()); err != nil {
 					return batchErr("deletes", i, n, err)
 				}
 			}
