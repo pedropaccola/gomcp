@@ -67,6 +67,27 @@ func (s *Symbol) Decl() ast.Decl { return s.decl }
 // otherwise.
 func (s *Symbol) Spec() ast.Spec { return s.spec }
 
+// DefiningIdent returns the identifier that declares s.
+// Exported so store's rename verb shares this instead of keeping its
+// own copy — a pure method over Symbol's own already-exported Decl()/
+// Spec(), no workspace-internal state involved.
+func (s *Symbol) DefiningIdent() *ast.Ident {
+	if fn, ok := s.Decl().(*ast.FuncDecl); ok {
+		return fn.Name
+	}
+	switch spec := s.Spec().(type) {
+	case *ast.TypeSpec:
+		return spec.Name
+	case *ast.ValueSpec:
+		for _, id := range spec.Names {
+			if id.Name == s.Name {
+				return id
+			}
+		}
+	}
+	return nil
+}
+
 // DocOf returns the doc comment attached to a declaration or spec, nil when
 // there is none. The single authority on where a node's documentation lives —
 // extraction and mutation splicing must agree on it.

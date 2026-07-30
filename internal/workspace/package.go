@@ -1,13 +1,23 @@
 package workspace
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
 	"maps"
+	"path"
 	"slices"
 	"strings"
 )
+
+const (
+	KindProd PackageKind = iota
+	KindXTest
+	KindExternal
+)
+
+var packageKindNames = [...]string{"prod", "xtest", "external"}
 
 // Package is one compiled package of the model: files, the derived symbol
 // index, diagnostics, and the type checker's output. Files, the index, and
@@ -176,4 +186,177 @@ func (p *Package) Relocated(newPkg PackagePath, renameName bool) *Package {
 		moved.Name = newPkg.Base() + strings.TrimPrefix(p.Name, p.ID.Base().Base())
 	}
 	return moved
+}
+
+// fileContaining finds which of p's files owns pos — positions never
+// overlap across files in a shared FileSet, so a range check against
+// each file's own AST span is sufficient, no path translation needed.
+func (p *Package) fileContaining(pos token.Pos) (*File, bool) {
+	for _, f := range p.Files() {
+		if f.Ast().Pos() <= pos && pos < f.Ast().End() {
+			return f, true
+		}
+	}
+	return nil, false
+}
+
+// objectOf resolves sym to its types.Object via p's Defs map; nil when
+// type information is unavailable.
+func (p *Package) objectOf(sym *Symbol) types.Object {
+	if p.TypesInfo() == nil {
+		return nil
+	}
+	ident := sym.DefiningIdent()
+	if ident == nil {
+		return nil
+	}
+	return p.TypesInfo().Defs[ident]
+}
+
+// symbolAt finds p's top-level declaration enclosing pos. No
+// filesystem-path round trip needed, since every caller here already has
+// p in hand from the loop that found pos in the first place —
+// go/token positions never overlap across files in a shared FileSet, so
+// no per-file filter is needed for correctness. In grouped decls it
+// prefers the symbol whose own spec contains the position.
+func (p *Package) symbolAt(pos token.Pos) (*Symbol, bool) {
+	var groupHit *Symbol
+	for _, sym := range p.Symbols() {
+		start := sym.Decl().Pos()
+		if doc := DocOf(sym.Decl()); doc != nil {
+			start = doc.Pos()
+		}
+		if pos < start || pos >= sym.Decl().End() {
+			continue
+		}
+		if sym.Spec() == nil {
+			return sym, true
+		}
+		if pos >= sym.Spec().Pos() && pos < sym.Spec().End() {
+			return sym, true
+		}
+		if groupHit == nil {
+			groupHit = sym
+		}
+	}
+	if groupHit != nil {
+		return groupHit, true
+	}
+	return nil, false
+}
+
+// PackagePath is a package's canonical import path — always unsuffixed,
+// by construction: nothing produces a PackagePath carrying go/packages'
+// own "_test" convention for an external-test half. This is what Unit
+// is keyed by, what Workspace's module root is, and the "path"
+// component sealed inside PackageID — a Unit is inherently kind-agnostic
+// (it bundles both a Prod and an XTest Package at one directory), so its
+// own key can never meaningfully carry a kind.
+type PackagePath string
+
+// Base is p's bare final component — the package's own directory name,
+// stripped of everything before it (including the module prefix, since
+// that's just another leading component). path.Base, not filepath.Base:
+// an address's separator is always "/", regardless of the host OS.
+func (p PackagePath) Base() string {
+	return path.Base(string(p))
+}
+
+// File composes a file's FilePath from an already-known-legitimate bare
+// name inside p — trusted, no validation, always succeeds. Every
+// FilePath is built from a canonical PackagePath alone: a file's own
+// address never carries the XTest distinction, since internal_test.go
+// and external_test.go can live in the identical directory, addressed
+// the same way — only the file's own package clause says which half
+// owns it.
+func (p PackagePath) File(name string) FilePath {
+	return FilePath(p.String() + "/" + name)
+}
+
+// Join composes a subpackage's PackagePath from an already-known-legitimate
+// workspace-relative directory — trusted, no validation, always
+// succeeds. For untrusted agent input, use NewPackageID.
+func (p PackagePath) Join(dir string) PackagePath {
+	if dir == "" || dir == "." {
+		return p
+	}
+	return PackagePath(p.String() + "/" + dir)
+}
+
+func (p PackagePath) String() string { return string(p) }
+
+// PackageID names one specific package variant — Prod, XTest, or
+// External — never constructible in a state where its own path and kind
+// could disagree, since NewPackageID (untrusted, agent-supplied text)
+// and newPackageID (trusted, already-known-good pieces) are the only
+// doors. This is the type that replaces a bare address everywhere a
+// mismatched-suffix bug was possible: Package.ID, and every store/tools
+// signature that names one resolved-or-being-resolved package.
+type PackageID struct {
+	path PackagePath
+	kind PackageKind
+}
+
+// Base is id's canonical path, kind stripped — for Unit lookups and file
+// construction, which are inherently kind-agnostic.
+func (id PackageID) Base() PackagePath { return id.path }
+
+// Kind reports whether id names a Prod, XTest, or External package.
+func (id PackageID) Kind() PackageKind { return id.kind }
+
+// String recomposes id's full spelling — go/packages' own "_test"
+// suffix convention on an XTest half, the bare path otherwise. The
+// external contract every tool's JSON output already uses.
+func (id PackageID) String() string {
+	if id.kind == KindXTest {
+		return string(id.path) + "_test"
+	}
+	return string(id.path)
+}
+
+// PackageKind classifies what a package is relative to the workspace:
+// its own production or external-test half, or a read-only dependency
+// from the module cache. Mutually exclusive by construction — closes the
+// illegal state IsXTest and External as two independent bools allowed
+// (both true simultaneously), even though no code path ever produced it.
+type PackageKind int
+
+// String returns k's lowercase name.
+func (k PackageKind) String() string {
+	return packageKindNames[k]
+}
+
+// NewPackageID narrows addr, an untrusted agent-supplied package
+// address, against module: module-prefixed addresses pass through, bare
+// workspace directories gain the prefix, and go/packages' own "_test"
+// suffix convention for an external-test half is split off into Kind
+// here, once, so path and kind can never independently drift apart
+// afterward. File names are refused — packages are directories, always
+// spelled alone.
+func NewPackageID(module PackagePath, addr string) (PackageID, error) {
+	rel, ok := cleanRelative(module, addr)
+	if !ok {
+		return PackageID{}, fmt.Errorf("invalid package path %q", addr)
+	}
+	if strings.HasSuffix(rel, ".go") {
+		return PackageID{}, fmt.Errorf("%q names a file: a package address must name a directory alone", addr)
+	}
+	full := string(module)
+	if rel != "." {
+		full = string(module) + "/" + rel
+	}
+	kind := KindProd
+	if trimmed, isXTest := strings.CutSuffix(full, "_test"); isXTest {
+		full, kind = trimmed, KindXTest
+	}
+	return PackageID{path: PackagePath(full), kind: kind}, nil
+}
+
+// newPackageID builds an already-validated identity directly from a
+// canonical path and kind — the trusted door used only by workspace's
+// own construction paths (NewPackage, disk's ingestion), which already
+// know both pieces agree. Narrowing untrusted agent text belongs to
+// NewPackageID alone.
+func newPackageID(path PackagePath, kind PackageKind) PackageID {
+	return PackageID{path: path, kind: kind}
 }
