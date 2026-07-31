@@ -1,10 +1,9 @@
 // Package storefixture bootstraps the testdata/sandbox module through a
-// real Engine for tests that need it. Split out from internal/testutil
-// because Engine imports gate, so a package that reaches Engine can never
-// be imported by gate's own (internal) test files without an import cycle
-// — engine keeps its own local copy of this logic for exactly that reason;
-// this package exists for tools, the one consumer that can safely reach
-// through Engine without looping back.
+// real store.Store for tests that need it. Split out from internal/testutil
+// because this package imports store, so store's own (internal) test files
+// can't import it without a cycle — store keeps its own local copy of this
+// logic for exactly that reason; this package exists for tools, the one
+// consumer that can safely import store without looping back.
 package storefixture
 
 import (

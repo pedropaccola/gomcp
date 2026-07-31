@@ -2,10 +2,8 @@
 // other door: Loader owns loading a module (or a dependency) from disk
 // plus an in-memory overlay into workspace.Package values, and writing
 // workspace bytes back to disk. It holds no lock and no workspace state
-// of its own — RootDir and Logf only — so store.Store calls into it while
-// store's own lock is held, the same way store calls into workspace's
-// primitives; nothing about moving this code here changes when the lock
-// is held, only where the code that runs while holding it lives.
+// of its own — just RootDir and Logf — so a caller is free to hold its own
+// lock across a call into it.
 package disk
 
 import (
@@ -38,11 +36,10 @@ func (l *Loader) Load(ctx context.Context, overlay map[string][]byte) (*token.Fi
 // LoadInto runs the full pipeline — go/packages load, variant selection,
 // package building — against disk plus an optional overlay of in-memory
 // contents, restricted to patterns and appending into fset. fset may
-// already hold files carried forward by a dirty-scoped recheck (Recheck
-// v2, Store.recheckScopedLocked): packages.Load always appends new
-// entries via fset.Base(), which is past the end of whatever's already
-// registered, so carried-forward files and freshly parsed ones never
-// collide.
+// already hold entries from a previous call: packages.Load always
+// appends new entries via fset.Base(), which is past the end of
+// whatever's already registered, so existing and freshly parsed entries
+// never collide.
 func (l *Loader) LoadInto(ctx context.Context, fset *token.FileSet, overlay map[string][]byte, patterns ...string) (*token.FileSet, workspace.PackagePath, map[workspace.PackagePath]*workspace.Unit, error) {
 	loadStart := time.Now()
 	srcPkgs, err := packages.Load(&packages.Config{
@@ -214,9 +211,8 @@ func (l *Loader) ingestErrors(pkg *workspace.Package, canonicalPkg workspace.Pac
 	}
 }
 
-// FetchExternal is LoadExternal's lock-free slow path: the actual
-// go/packages.Load and type-check against a specific FileSet snapshot,
-// captured by the caller before releasing the store's lock.
+// FetchExternal loads and type-checks a single dependency package
+// against fset, holding no lock of its own.
 func (l *Loader) FetchExternal(ctx context.Context, pkg workspace.PackagePath, fset *token.FileSet) (*workspace.Package, error) {
 	srcPkgs, err := packages.Load(&packages.Config{
 		Mode:    packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes,

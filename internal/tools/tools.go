@@ -1,6 +1,6 @@
-// Package tools is the presentation layer: it composes engine lookups into
+// Package tools is the presentation layer: it composes store lookups into
 // the MCP tools exposed to the agent and owns every decision about what gets
-// printed. The engine returns data; this package returns representations.
+// printed. The store returns data; this package returns representations.
 //
 // This file declares the tool surface — registration and I/O shapes. Read
 // handlers live one semantic category per file — enumerators.go, describers.go,
