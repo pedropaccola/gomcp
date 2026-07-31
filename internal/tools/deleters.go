@@ -45,13 +45,13 @@ type DeleteSymbolInput struct {
 	Deletes []DeleteSymbolEntry `json:"deletes"`
 }
 
-func deleteSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeleteSymbolInput, WriteOutput] {
+func deleteSymbol(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeleteSymbolInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteSymbolInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Deletes) == 0 {
 			return nil, WriteOutput{}, errEmptyBatch("deletes")
 		}
 		n := len(in.Deletes)
-		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
+		return runEdit(ctx, st, cfg, func(tx *store.Tx) error {
 			for i, entry := range in.Deletes {
 				pkg, err := writeWorkspacePkg(tx.View, entry.PkgPath)
 				if err != nil {
@@ -66,13 +66,13 @@ func deleteSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeleteSy
 	}
 }
 
-func deleteFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeleteFileInput, WriteOutput] {
+func deleteFile(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeleteFileInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteFileInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Deletes) == 0 {
 			return nil, WriteOutput{}, errEmptyBatch("deletes")
 		}
 		n := len(in.Deletes)
-		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
+		return runEdit(ctx, st, cfg, func(tx *store.Tx) error {
 			for i, entry := range in.Deletes {
 				pkg, err := writeWorkspacePkg(tx.View, entry.PkgPath)
 				if err != nil {
@@ -87,13 +87,13 @@ func deleteFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeleteFile
 	}
 }
 
-func deletePackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeletePackageInput, WriteOutput] {
+func deletePackage(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeletePackageInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeletePackageInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Deletes) == 0 {
 			return nil, WriteOutput{}, errEmptyBatch("deletes")
 		}
 		n := len(in.Deletes)
-		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
+		return runEdit(ctx, st, cfg, func(tx *store.Tx) error {
 			for i, entry := range in.Deletes {
 				pkg, err := writeWorkspacePkg(tx.View, entry.PkgPath)
 				if err != nil {

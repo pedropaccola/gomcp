@@ -82,7 +82,7 @@ type DescribePackageResult struct {
 	Files []string `json:"files,omitempty"`
 }
 
-func describePackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DescribePackageInput, DescribePackageOutput] {
+func describePackage(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DescribePackageInput, DescribePackageOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DescribePackageInput) (*mcp.CallToolResult, DescribePackageOutput, error) {
 		if len(in.Describes) == 0 {
 			return nil, DescribePackageOutput{}, errEmptyBatch("describes")
@@ -90,7 +90,7 @@ func describePackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[Descr
 		n := len(in.Describes)
 		out := DescribePackageOutput{Results: make([]DescribePackageResult, n)}
 		for i, entry := range in.Describes {
-			err := readPackage(ctx, eng, entry.PkgPath, func(v *store.View, pkg workspace.PackageID) error {
+			err := readPackage(ctx, st, entry.PkgPath, func(v *store.View, pkg workspace.PackageID) error {
 				res := &out.Results[i]
 				if doc, _ := v.PackageDoc(pkg); doc != "" {
 					res.Doc = new(string)
@@ -111,7 +111,7 @@ func describePackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[Descr
 	}
 }
 
-func describeFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DescribeFileInput, DescribeFileOutput] {
+func describeFile(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DescribeFileInput, DescribeFileOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DescribeFileInput) (*mcp.CallToolResult, DescribeFileOutput, error) {
 		if len(in.Describes) == 0 {
 			return nil, DescribeFileOutput{}, errEmptyBatch("describes")
@@ -119,7 +119,7 @@ func describeFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[Describe
 		n := len(in.Describes)
 		out := DescribeFileOutput{Results: make([]DescribeFileResult, n)}
 		for i, entry := range in.Describes {
-			err := readFile(ctx, eng, entry.PkgPath, entry.FileName, func(v *store.View, fp workspace.FilePath, pkg workspace.PackageID) error {
+			err := readFile(ctx, st, entry.PkgPath, entry.FileName, func(v *store.View, fp workspace.FilePath, pkg workspace.PackageID) error {
 				res := &out.Results[i]
 				if doc, ok := v.FileDoc(fp); ok && doc != "" {
 					res.Doc = new(string)
@@ -135,7 +135,7 @@ func describeFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[Describe
 	}
 }
 
-func describeSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DescribeSymbolInput, DescribeSymbolOutput] {
+func describeSymbol(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DescribeSymbolInput, DescribeSymbolOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DescribeSymbolInput) (*mcp.CallToolResult, DescribeSymbolOutput, error) {
 		if len(in.Describes) == 0 {
 			return nil, DescribeSymbolOutput{}, errEmptyBatch("describes")
@@ -143,7 +143,7 @@ func describeSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[Descri
 		n := len(in.Describes)
 		out := DescribeSymbolOutput{Results: make([]DescribeSymbolResult, n)}
 		for i, entry := range in.Describes {
-			err := readSymbol(ctx, eng, entry.PkgPath, entry.SymbolKey, func(v *store.View, sym store.Symbol, owner workspace.PackageID) error {
+			err := readSymbol(ctx, st, entry.PkgPath, entry.SymbolKey, func(v *store.View, sym store.Symbol, owner workspace.PackageID) error {
 				src, ok := v.DeclSource(owner.Base(), sym.Key)
 				if !ok {
 					return fmt.Errorf("source extraction failed for %q", entry.SymbolKey)

@@ -31,9 +31,9 @@ type MoveSymbolInput struct {
 	NewSymbolKey *string  `json:"new_symbol_key,omitempty"`
 }
 
-func moveSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[MoveSymbolInput, WriteOutput] {
+func moveSymbol(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[MoveSymbolInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in MoveSymbolInput) (*mcp.CallToolResult, WriteOutput, error) {
-		_, out, err := runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
+		_, out, err := runEdit(ctx, st, cfg, func(tx *store.Tx) error {
 			pkg, err := writeWorkspacePkg(tx.View, in.PkgPath)
 			if err != nil {
 				return err
@@ -63,14 +63,14 @@ func moveSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[MoveSymbol
 		if err != nil {
 			return nil, out, err
 		}
-		out.Files = pruneVacatedPackages(ctx, eng, out.Files)
+		out.Files = pruneVacatedPackages(ctx, st, out.Files)
 		return nil, out, nil
 	}
 }
 
-func moveFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[MoveFileInput, WriteOutput] {
+func moveFile(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[MoveFileInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in MoveFileInput) (*mcp.CallToolResult, WriteOutput, error) {
-		_, out, err := runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
+		_, out, err := runEdit(ctx, st, cfg, func(tx *store.Tx) error {
 			pkg, err := writeWorkspacePkg(tx.View, in.PkgPath)
 			if err != nil {
 				return err
@@ -87,14 +87,14 @@ func moveFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[MoveFileInpu
 		if err != nil {
 			return nil, out, err
 		}
-		out.Files = pruneVacatedPackages(ctx, eng, out.Files)
+		out.Files = pruneVacatedPackages(ctx, st, out.Files)
 		return nil, out, nil
 	}
 }
 
-func movePackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[MovePackageInput, WriteOutput] {
+func movePackage(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[MovePackageInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in MovePackageInput) (*mcp.CallToolResult, WriteOutput, error) {
-		_, out, err := runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
+		_, out, err := runEdit(ctx, st, cfg, func(tx *store.Tx) error {
 			pkg, err := writeWorkspacePkg(tx.View, in.PkgPath)
 			if err != nil {
 				return err
@@ -108,7 +108,7 @@ func movePackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[MovePacka
 		if err != nil {
 			return nil, out, err
 		}
-		out.Files = pruneVacatedPackages(ctx, eng, out.Files)
+		out.Files = pruneVacatedPackages(ctx, st, out.Files)
 		return nil, out, nil
 	}
 }
@@ -118,11 +118,11 @@ func movePackage(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[MovePacka
 // whose old address is now fully empty, not merely modified, so listing
 // it beside the destination would read as "still lives here" when the
 // package is actually gone.
-func pruneVacatedPackages(ctx context.Context, eng *store.Store, files map[string][]string) map[string][]string {
+func pruneVacatedPackages(ctx context.Context, st *store.Store, files map[string][]string) map[string][]string {
 	if len(files) == 0 {
 		return files
 	}
-	eng.Read(ctx, func(v *store.View) error {
+	st.Read(ctx, func(v *store.View) error {
 		units := v.UnitKeys()
 		for addr := range files {
 			if !slices.Contains(units, workspace.PackagePath(addr)) {

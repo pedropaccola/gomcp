@@ -74,7 +74,7 @@ func main() {
 		logf = log.Printf
 	}
 
-	eng := store.NewStore(absCwd, logf)
+	st := store.NewStore(absCwd, logf)
 
 	server := mcp.NewServer(
 		&mcp.Implementation{
@@ -85,14 +85,14 @@ func main() {
 		&mcp.ServerOptions{
 			Instructions: Instructions,
 			InitializedHandler: func(ctx context.Context, _ *mcp.InitializedRequest) {
-				if err := eng.Bootstrap(ctx); err != nil {
+				if err := st.Bootstrap(ctx); err != nil {
 					log.Fatalf("[Fatal] Failed to bootstrap: %v", err)
 				}
 			},
 		},
 	)
 
-	tools.Register(server, eng, *flagDiagLimit)
+	tools.Register(server, st, *flagDiagLimit)
 
 	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {
 		log.Fatalf("[Fatal] Server execution stopped: %v", err)

@@ -26,9 +26,9 @@ type WriteOutput struct {
 
 // runEdit is the composite every write handler flows through: one
 // transaction, echoed as files changed plus the diagnostics delta.
-func runEdit(ctx context.Context, eng *store.Store, cfg *toolConfig, fn func(*store.Tx) error) (*mcp.CallToolResult, WriteOutput, error) {
+func runEdit(ctx context.Context, st *store.Store, cfg *toolConfig, fn func(*store.Tx) error) (*mcp.CallToolResult, WriteOutput, error) {
 	var out WriteOutput
-	report, err := eng.Edit(ctx, fn)
+	report, err := st.Edit(ctx, fn)
 	if err != nil {
 		return nil, out, err
 	}
@@ -49,7 +49,7 @@ func runEdit(ctx context.Context, eng *store.Store, cfg *toolConfig, fn func(*st
 
 // writeWorkspacePkg validates and canonicalizes a package address for the
 // mutation handlers — the write-side check: dependencies are refused, the
-// workspace is the only mutable world. Takes a *store.View (never eng
+// workspace is the only mutable world. Takes a *store.View (never
 // *store.Store directly) so it's safe to call from inside a Read/Edit
 // closure too — View never acquires the store lock itself. Returns the
 // full kind-aware identity: CreateFile/CreateSymbol need it as-is, every

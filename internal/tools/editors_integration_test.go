@@ -8,8 +8,8 @@ import (
 )
 
 func TestEditFileBatch(t *testing.T) {
-	eng := sandboxStore(t)
-	_, out, err := editFile(eng, testCfg())(context.Background(), nil, EditFileInput{
+	st := sandboxStore(t)
+	_, out, err := editFile(st, testCfg())(context.Background(), nil, EditFileInput{
 		Edits: []EditFileEntry{
 			{PkgPath: "shapes", FileName: "shapes.go", Doc: new("Updated shapes doc.")},
 			{PkgPath: "use", FileName: "use.go", Doc: new("Updated use doc.")},
@@ -25,8 +25,8 @@ func TestEditFileBatch(t *testing.T) {
 }
 
 func TestEditFileBatchRefusesDuplicateTarget(t *testing.T) {
-	eng := sandboxStore(t)
-	_, _, err := editFile(eng, testCfg())(context.Background(), nil, EditFileInput{
+	st := sandboxStore(t)
+	_, _, err := editFile(st, testCfg())(context.Background(), nil, EditFileInput{
 		Edits: []EditFileEntry{
 			{PkgPath: "shapes", FileName: "shapes.go", Doc: new("First.")},
 			{PkgPath: "shapes", FileName: "shapes.go", Doc: new("Second.")},
@@ -38,8 +38,8 @@ func TestEditFileBatchRefusesDuplicateTarget(t *testing.T) {
 }
 
 func TestEditSymbolBatchAbortsWhollyOnFailure(t *testing.T) {
-	eng := sandboxStore(t)
-	_, _, err := editSymbol(eng, testCfg())(context.Background(), nil, EditSymbolInput{
+	st := sandboxStore(t)
+	_, _, err := editSymbol(st, testCfg())(context.Background(), nil, EditSymbolInput{
 		Edits: []EditSymbolEntry{
 			{PkgPath: "shapes", SymbolKey: "NotShape", Source: "type NotShape struct{ X int }"},
 			{PkgPath: "shapes", SymbolKey: "Missing", Source: "type Missing struct{}"},
@@ -48,7 +48,7 @@ func TestEditSymbolBatchAbortsWhollyOnFailure(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "edits[1]") {
 		t.Fatalf("expected edits[1] to fail on the missing symbol, got %v", err)
 	}
-	_, out, derr := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
+	_, out, derr := describeSymbol(st, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		Describes: []DescribeSymbolEntry{{PkgPath: "shapes", SymbolKey: "NotShape"}},
 	})
 	if derr != nil || strings.Contains(out.Results[0].Source, "X int") {
@@ -57,8 +57,8 @@ func TestEditSymbolBatchAbortsWhollyOnFailure(t *testing.T) {
 }
 
 func TestEditSymbolBatchRefusesDuplicateTarget(t *testing.T) {
-	eng := sandboxStore(t)
-	_, _, err := editSymbol(eng, testCfg())(context.Background(), nil, EditSymbolInput{
+	st := sandboxStore(t)
+	_, _, err := editSymbol(st, testCfg())(context.Background(), nil, EditSymbolInput{
 		Edits: []EditSymbolEntry{
 			{PkgPath: "shapes", SymbolKey: "NotShape", Source: "type NotShape struct{ X int }"},
 			{PkgPath: "shapes", SymbolKey: "NotShape", Source: "type NotShape struct{ Y int }"},
@@ -67,7 +67,7 @@ func TestEditSymbolBatchRefusesDuplicateTarget(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "duplicate target") {
 		t.Fatalf("expected a duplicate-target refusal, got %v", err)
 	}
-	_, out, derr := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
+	_, out, derr := describeSymbol(st, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		Describes: []DescribeSymbolEntry{{PkgPath: "shapes", SymbolKey: "NotShape"}},
 	})
 	if derr != nil || strings.Contains(out.Results[0].Source, "X int") || strings.Contains(out.Results[0].Source, "Y int") {
@@ -76,15 +76,15 @@ func TestEditSymbolBatchRefusesDuplicateTarget(t *testing.T) {
 }
 
 func TestEditSymbolBatchRefusesEmpty(t *testing.T) {
-	eng := sandboxStore(t)
-	if _, _, err := editSymbol(eng, testCfg())(context.Background(), nil, EditSymbolInput{}); err == nil {
+	st := sandboxStore(t)
+	if _, _, err := editSymbol(st, testCfg())(context.Background(), nil, EditSymbolInput{}); err == nil {
 		t.Error("an empty batch must be refused")
 	}
 }
 
 func TestEditSymbolMultiEntry(t *testing.T) {
-	eng := sandboxStore(t)
-	_, out, err := editSymbol(eng, testCfg())(context.Background(), nil, EditSymbolInput{
+	st := sandboxStore(t)
+	_, out, err := editSymbol(st, testCfg())(context.Background(), nil, EditSymbolInput{
 		Edits: []EditSymbolEntry{
 			{PkgPath: "shapes", SymbolKey: "NotShape", Source: "type NotShape struct{ X int }"},
 			{PkgPath: "shapes", SymbolKey: "DefaultScale", Source: "// DefaultScale stretches everything.\nDefaultScale = 2.0"},
@@ -96,13 +96,13 @@ func TestEditSymbolMultiEntry(t *testing.T) {
 	if out.IntroducedDiagnostics != nil {
 		t.Errorf("batch introduced diagnostics: %+v", out)
 	}
-	_, ns, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
+	_, ns, err := describeSymbol(st, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		Describes: []DescribeSymbolEntry{{PkgPath: "shapes", SymbolKey: "NotShape"}},
 	})
 	if err != nil || !strings.Contains(ns.Results[0].Source, "X int") {
 		t.Errorf("NotShape not updated: %v %q", err, ns.Results[0].Source)
 	}
-	_, ds, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
+	_, ds, err := describeSymbol(st, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		Describes: []DescribeSymbolEntry{{PkgPath: "shapes", SymbolKey: "DefaultScale"}},
 	})
 	if err != nil || !strings.Contains(ds.Results[0].Source, "2.0") {
@@ -111,9 +111,9 @@ func TestEditSymbolMultiEntry(t *testing.T) {
 }
 
 func TestMutationTools(t *testing.T) {
-	eng := sandboxStore(t)
+	st := sandboxStore(t)
 
-	_, created, err := createSymbol(eng, testCfg())(context.Background(), nil, CreateSymbolInput{
+	_, created, err := createSymbol(st, testCfg())(context.Background(), nil, CreateSymbolInput{
 		Creates: []CreateSymbolEntry{{
 			PkgPath: "shapes", FileName: "extra.go",
 			Source: "func Twice(x float64) float64 { return 2 * x }",
@@ -126,7 +126,7 @@ func TestMutationTools(t *testing.T) {
 		t.Errorf("create echo wrong: %+v", created)
 	}
 
-	_, edited, err := editSymbol(eng, testCfg())(context.Background(), nil, EditSymbolInput{
+	_, edited, err := editSymbol(st, testCfg())(context.Background(), nil, EditSymbolInput{
 		Edits: []EditSymbolEntry{{
 			PkgPath: "shapes", SymbolKey: "Circle",
 			Source: "type Circle struct{ Radius float64 }",
@@ -141,7 +141,7 @@ func TestMutationTools(t *testing.T) {
 		t.Errorf("edit echo missing the blast radius in use/use.go: %+v", edited)
 	}
 
-	_, healed, err := editSymbol(eng, testCfg())(context.Background(), nil, EditSymbolInput{
+	_, healed, err := editSymbol(st, testCfg())(context.Background(), nil, EditSymbolInput{
 		Edits: []EditSymbolEntry{{
 			PkgPath: "shapes", SymbolKey: "Circle",
 			Source: "type Circle struct{ R float64 }",
@@ -154,7 +154,7 @@ func TestMutationTools(t *testing.T) {
 		t.Errorf("healing echo must report resolved and nothing introduced: %+v", healed)
 	}
 
-	if _, _, err := editSymbol(eng, testCfg())(context.Background(), nil, EditSymbolInput{
+	if _, _, err := editSymbol(st, testCfg())(context.Background(), nil, EditSymbolInput{
 		Edits: []EditSymbolEntry{{PkgPath: "shapes", SymbolKey: "Nope", Source: "func Nope() {}"}},
 	}); err == nil {
 		t.Error("editing a missing symbol must error")

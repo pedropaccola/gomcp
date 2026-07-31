@@ -14,12 +14,12 @@ import (
 // loads never happen under Read. An external dependency address has no
 // "relative to the workspace" interpretation, so it's looked up raw,
 // never run through NewPackageID's module-prefixing.
-func readPackage(ctx context.Context, eng *store.Store, addr string, fn func(*store.View, workspace.PackageID) error) error {
+func readPackage(ctx context.Context, st *store.Store, addr string, fn func(*store.View, workspace.PackageID) error) error {
 	ext := workspace.PackagePath(addr)
 	var extOK bool
 	attempt := func() (bool, error) {
 		found := false
-		err := eng.Read(ctx, func(v *store.View) error {
+		err := st.Read(ctx, func(v *store.View) error {
 			canon, err := workspace.NewPackageID(v.Module(), addr)
 			if err != nil {
 				return err
@@ -45,7 +45,7 @@ func readPackage(ctx context.Context, eng *store.Store, addr string, fn func(*st
 	if !extOK {
 		return fmt.Errorf("no package at %q: call list_packages for valid addresses", addr)
 	}
-	if err := eng.LoadExternal(ctx, ext); err != nil {
+	if err := st.LoadExternal(ctx, ext); err != nil {
 		return fmt.Errorf("no workspace package at %q, and %v", addr, err)
 	}
 	if found, err := attempt(); err != nil || found {
@@ -56,8 +56,8 @@ func readPackage(ctx context.Context, eng *store.Store, addr string, fn func(*st
 
 // readSymbol is readPackage plus symbol resolution: View.Symbol already
 // falls through workspace units into the external cache.
-func readSymbol(ctx context.Context, eng *store.Store, addr, key string, fn func(*store.View, store.Symbol, workspace.PackageID) error) error {
-	return readPackage(ctx, eng, addr, func(v *store.View, pkg workspace.PackageID) error {
+func readSymbol(ctx context.Context, st *store.Store, addr, key string, fn func(*store.View, store.Symbol, workspace.PackageID) error) error {
+	return readPackage(ctx, st, addr, func(v *store.View, pkg workspace.PackageID) error {
 		sym, ok := v.Symbol(pkg.Base(), key)
 		if !ok {
 			return fmt.Errorf("%s: call list_symbols for valid keys", workspace.NoSymbolError(key, addr))
@@ -79,8 +79,8 @@ func methodSignatures(v *store.View, pkg workspace.PackageID, typeName string) [
 }
 
 // readFile is readPackage plus file resolution.
-func readFile(ctx context.Context, eng *store.Store, addr, fileName string, fn func(*store.View, workspace.FilePath, workspace.PackageID) error) error {
-	return readPackage(ctx, eng, addr, func(v *store.View, pkg workspace.PackageID) error {
+func readFile(ctx context.Context, st *store.Store, addr, fileName string, fn func(*store.View, workspace.FilePath, workspace.PackageID) error) error {
+	return readPackage(ctx, st, addr, func(v *store.View, pkg workspace.PackageID) error {
 		fp, err := v.ResolveFile(pkg, fileName)
 		if err != nil {
 			return err

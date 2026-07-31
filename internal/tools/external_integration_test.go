@@ -7,9 +7,9 @@ import (
 )
 
 func TestExternalReadToolsAndRefusals(t *testing.T) {
-	eng := sandboxStore(t)
+	st := sandboxStore(t)
 
-	_, out, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
+	_, out, err := describeSymbol(st, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		Describes: []DescribeSymbolEntry{{PkgPath: "io", SymbolKey: "Reader"}},
 	})
 	if err != nil {
@@ -20,7 +20,7 @@ func TestExternalReadToolsAndRefusals(t *testing.T) {
 		t.Errorf("describe_symbol(io.Reader) wrong: file=%s", typ.File)
 	}
 
-	_, syms, err := listSymbols(eng, testCfg())(context.Background(), nil, ListSymbolsInput{PkgPath: "io"})
+	_, syms, err := listSymbols(st, testCfg())(context.Background(), nil, ListSymbolsInput{PkgPath: "io"})
 	if err != nil {
 		t.Fatalf("list_symbols(io): %v", err)
 	}
@@ -38,21 +38,21 @@ func TestExternalReadToolsAndRefusals(t *testing.T) {
 	}
 
 	// The workspace is the only mutable world.
-	if _, _, err := createSymbol(eng, testCfg())(context.Background(), nil, CreateSymbolInput{
+	if _, _, err := createSymbol(st, testCfg())(context.Background(), nil, CreateSymbolInput{
 		Creates: []CreateSymbolEntry{{PkgPath: "io", FileName: "extra.go", Source: "func Nope() {}"}},
 	}); err == nil || !strings.Contains(err.Error(), "is a dependency") {
 		t.Errorf("mutating a dependency must refuse, got %v", err)
 	}
 
 	// Semantic finders stay in the workspace.
-	if _, _, err := searchReferences(eng)(context.Background(), nil, SearchReferencesInput{
+	if _, _, err := searchReferences(st)(context.Background(), nil, SearchReferencesInput{
 		PkgPath: "io", SymbolKey: "Reader",
 	}); err == nil || !strings.Contains(err.Error(), "workspace") {
 		t.Errorf("semantic search on a dependency must steer, got %v", err)
 	}
 
 	// A workspace typo still errors after the failed dependency attempt.
-	if _, _, err := listFiles(eng, testCfg())(context.Background(), nil, ListFilesInput{PkgPath: "shaeps"}); err == nil {
+	if _, _, err := listFiles(st, testCfg())(context.Background(), nil, ListFilesInput{PkgPath: "shaeps"}); err == nil {
 		t.Error("typo'd address must error")
 	}
 }

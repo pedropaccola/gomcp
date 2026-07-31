@@ -37,13 +37,13 @@ type EditSymbolInput struct {
 	Edits []EditSymbolEntry `json:"edits"`
 }
 
-func editFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[EditFileInput, WriteOutput] {
+func editFile(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[EditFileInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in EditFileInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Edits) == 0 {
 			return nil, WriteOutput{}, errEmptyBatch("edits")
 		}
 		n := len(in.Edits)
-		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
+		return runEdit(ctx, st, cfg, func(tx *store.Tx) error {
 			pkgs, err := resolveBatchTargets(tx.View, n, "edits", "file", func(i int) (string, string) {
 				return in.Edits[i].PkgPath, in.Edits[i].FileName
 			})
@@ -60,13 +60,13 @@ func editFile(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[EditFileInpu
 	}
 }
 
-func editSymbol(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[EditSymbolInput, WriteOutput] {
+func editSymbol(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[EditSymbolInput, WriteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in EditSymbolInput) (*mcp.CallToolResult, WriteOutput, error) {
 		if len(in.Edits) == 0 {
 			return nil, WriteOutput{}, errEmptyBatch("edits")
 		}
 		n := len(in.Edits)
-		return runEdit(ctx, eng, cfg, func(tx *store.Tx) error {
+		return runEdit(ctx, st, cfg, func(tx *store.Tx) error {
 			pkgs, err := resolveBatchTargets(tx.View, n, "edits", "symbol", func(i int) (string, string) {
 				return in.Edits[i].PkgPath, in.Edits[i].SymbolKey
 			})

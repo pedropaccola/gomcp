@@ -8,8 +8,8 @@ import (
 )
 
 func TestListPackages(t *testing.T) {
-	eng := sandboxStore(t)
-	_, out, err := listPackages(eng, testCfg())(context.Background(), nil, ListPackagesInput{})
+	st := sandboxStore(t)
+	_, out, err := listPackages(st, testCfg())(context.Background(), nil, ListPackagesInput{})
 	if err != nil {
 		t.Fatalf("list_packages: %v", err)
 	}
@@ -28,9 +28,9 @@ func TestListPackages(t *testing.T) {
 }
 
 func TestListSymbolsAndFiles(t *testing.T) {
-	eng := sandboxStore(t)
+	st := sandboxStore(t)
 
-	_, files, err := listFiles(eng, testCfg())(context.Background(), nil, ListFilesInput{PkgPath: "shapes"})
+	_, files, err := listFiles(st, testCfg())(context.Background(), nil, ListFilesInput{PkgPath: "shapes"})
 	if err != nil {
 		t.Fatalf("list_files: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestListSymbolsAndFiles(t *testing.T) {
 		t.Errorf("list_files missing groups.go: %v", files.Files)
 	}
 
-	_, syms, err := listSymbols(eng, testCfg())(context.Background(), nil, ListSymbolsInput{
+	_, syms, err := listSymbols(st, testCfg())(context.Background(), nil, ListSymbolsInput{
 		PkgPath:  "shapes",
 		FileName: new("groups.go"),
 	})
@@ -58,7 +58,7 @@ func TestListSymbolsAndFiles(t *testing.T) {
 		t.Errorf("KindCircle entry wrong: %+v", kindCircle)
 	}
 
-	if _, _, err := listSymbols(eng, testCfg())(context.Background(), nil, ListSymbolsInput{PkgPath: "no/such/pkg"}); err == nil {
+	if _, _, err := listSymbols(st, testCfg())(context.Background(), nil, ListSymbolsInput{PkgPath: "no/such/pkg"}); err == nil {
 		t.Error("list_symbols on a missing package must error")
 	}
 }

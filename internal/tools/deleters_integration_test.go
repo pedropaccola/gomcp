@@ -8,8 +8,8 @@ import (
 )
 
 func TestDeleteFileBatchAbortsWhollyOnFailure(t *testing.T) {
-	eng := sandboxStore(t)
-	_, _, err := deleteFile(eng, testCfg())(context.Background(), nil, DeleteFileInput{
+	st := sandboxStore(t)
+	_, _, err := deleteFile(st, testCfg())(context.Background(), nil, DeleteFileInput{
 		Deletes: []DeleteFileEntry{
 			{PkgPath: "shapes", FileName: "shapes.go"},
 			{PkgPath: "shapes", FileName: "notgo"},
@@ -21,7 +21,7 @@ func TestDeleteFileBatchAbortsWhollyOnFailure(t *testing.T) {
 	if !strings.Contains(err.Error(), "deletes[1]") {
 		t.Errorf("error must name the failing entry, got %v", err)
 	}
-	_, out, err := listFiles(eng, testCfg())(context.Background(), nil, ListFilesInput{PkgPath: "shapes"})
+	_, out, err := listFiles(st, testCfg())(context.Background(), nil, ListFilesInput{PkgPath: "shapes"})
 	if err != nil {
 		t.Fatalf("list_files: %v", err)
 	}
@@ -34,8 +34,8 @@ func TestDeleteSymbolBatchDuplicateIsHarmless(t *testing.T) {
 	// KindSquare's delete already collapses the whole iota group, taking
 	// KindCircle with it; a later entry naming KindCircle must not abort
 	// the batch just because the first entry already satisfied it.
-	eng := sandboxStore(t)
-	_, out, err := deleteSymbol(eng, testCfg())(context.Background(), nil, DeleteSymbolInput{
+	st := sandboxStore(t)
+	_, out, err := deleteSymbol(st, testCfg())(context.Background(), nil, DeleteSymbolInput{
 		Deletes: []DeleteSymbolEntry{
 			{PkgPath: "shapes", SymbolKey: "KindSquare"},
 			{PkgPath: "shapes", SymbolKey: "KindCircle"},
@@ -50,9 +50,9 @@ func TestDeleteSymbolBatchDuplicateIsHarmless(t *testing.T) {
 }
 
 func TestDeleteTools(t *testing.T) {
-	eng := sandboxStore(t)
+	st := sandboxStore(t)
 
-	_, out, err := deleteSymbol(eng, testCfg())(context.Background(), nil, DeleteSymbolInput{
+	_, out, err := deleteSymbol(st, testCfg())(context.Background(), nil, DeleteSymbolInput{
 		Deletes: []DeleteSymbolEntry{{PkgPath: "shapes", SymbolKey: "Circle"}},
 	})
 	if err != nil {
@@ -62,7 +62,7 @@ func TestDeleteTools(t *testing.T) {
 		t.Errorf("delete echo missing the touched file: %+v", out)
 	}
 
-	_, noop, err := deleteSymbol(eng, testCfg())(context.Background(), nil, DeleteSymbolInput{
+	_, noop, err := deleteSymbol(st, testCfg())(context.Background(), nil, DeleteSymbolInput{
 		Deletes: []DeleteSymbolEntry{{PkgPath: "shapes", SymbolKey: "Circle"}},
 	})
 	if err != nil {
@@ -72,7 +72,7 @@ func TestDeleteTools(t *testing.T) {
 		t.Errorf("deleting an already-gone symbol must be a noop, got %+v", noop)
 	}
 
-	_, fileNoop, err := deleteFile(eng, testCfg())(context.Background(), nil, DeleteFileInput{
+	_, fileNoop, err := deleteFile(st, testCfg())(context.Background(), nil, DeleteFileInput{
 		Deletes: []DeleteFileEntry{{PkgPath: "shapes", FileName: "nosuch.go"}},
 	})
 	if err != nil {
@@ -82,7 +82,7 @@ func TestDeleteTools(t *testing.T) {
 		t.Errorf("deleting a nonexistent file must be a noop, got %+v", fileNoop)
 	}
 
-	_, pkgNoop, err := deletePackage(eng, testCfg())(context.Background(), nil, DeletePackageInput{
+	_, pkgNoop, err := deletePackage(st, testCfg())(context.Background(), nil, DeletePackageInput{
 		Deletes: []DeletePackageEntry{{PkgPath: "nosuchpkg"}},
 	})
 	if err != nil {

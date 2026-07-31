@@ -63,7 +63,7 @@ func mutates(title string, destructive bool) *mcp.ToolAnnotations {
 // files, symbols) and every mutation echo; negative values fall back to
 // the default (20). diagnostics_workspace itself is never capped — it's
 // always the complete-inventory fallback.
-func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
+func Register(server *mcp.Server, st *store.Store, diagLimit int) {
 	cfg := newToolConfig(diagLimit)
 
 	// Enumerators
@@ -73,14 +73,14 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 		Description: "List every Go package in the workspace by import path — the package " +
 			"address every other tool expects (workspace-relative directories are accepted " +
 			"too).",
-	}, listPackages(eng, cfg))
+	}, listPackages(st, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_files",
 		Annotations: reads("List Files"),
 		Description: "List the Go files of one package by bare name — combined with the " +
 			"package they form the file address every other tool expects." + depNote,
-	}, listFiles(eng, cfg))
+	}, listFiles(st, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_symbols",
@@ -89,13 +89,13 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"summary (the signature for funcs and methods, the declaration line for types, " +
 			"vars, and consts). Methods are keyed \"Type.Name\". Pass file_name to restrict to " +
 			"one file." + depNote,
-	}, listSymbols(eng, cfg))
+	}, listSymbols(st, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_methods",
 		Annotations: reads("List Methods"),
 		Description: "List the method signatures declared on one type." + keyNote + depNote,
-	}, listMethods(eng, cfg))
+	}, listMethods(st, cfg))
 
 	// Describers
 	mcp.AddTool(server, &mcp.Tool{
@@ -107,7 +107,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"whole call fails and the error names which entry failed — batch entries that are " +
 			"independent and already known-good; call once per entry instead if you want " +
 			"feedback between steps." + depNote,
-	}, describePackage(eng, cfg))
+	}, describePackage(st, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "describe_files",
@@ -117,7 +117,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"resolved in order. If any entry fails, the whole call fails and the error names " +
 			"which entry failed — batch entries that are independent and already known-good; " +
 			"call once per entry instead if you want feedback between steps." + depNote,
-	}, describeFile(eng, cfg))
+	}, describeFile(st, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "describe_symbols",
@@ -128,7 +128,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"any entry fails, the whole call fails and the error names which entry failed — " +
 			"batch entries that are independent and already known-good; call once per entry " +
 			"instead if you want feedback between steps." + keyNote + depNote,
-	}, describeSymbol(eng, cfg))
+	}, describeSymbol(st, cfg))
 
 	// Finders
 	mcp.AddTool(server, &mcp.Tool{
@@ -136,7 +136,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 		Annotations: reads("Search Declarations Like"),
 		Description: "Find top-level declarations across the whole workspace whose key " +
 			"contains the given name, case-insensitively. Methods match as \"Type.Name\".",
-	}, searchDeclarationsLike(eng))
+	}, searchDeclarationsLike(st))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search_source",
@@ -145,7 +145,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"text matches a Go regular expression — bodies, doc comments, and string " +
 			"literals included. The general-purpose finder when no name is known. " +
 			"Text outside declarations (imports, package clauses) is not searched.",
-	}, searchSource(eng))
+	}, searchSource(st))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search_implementors",
@@ -154,7 +154,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"given interface, checked with full type information — embedded and promoted " +
 			"methods included. The target must be a non-empty workspace interface; " +
 			"dependencies are outside the search universe." + keyNote,
-	}, searchImplementors(eng))
+	}, searchImplementors(st))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search_references",
@@ -163,7 +163,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"given symbol, resolved with full type information. Results are declaration " +
 			"addresses, not line positions; the definition itself and self-references " +
 			"are excluded. The target must be a workspace symbol." + keyNote,
-	}, searchReferences(eng))
+	}, searchReferences(st))
 
 	// Diagnostics
 	mcp.AddTool(server, &mcp.Tool{
@@ -171,7 +171,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 		Annotations: reads("Workspace Diagnostics"),
 		Description: "Report every compiler and loader problem in the workspace: parse, load, " +
 			"and type errors, each positioned as file:line:col.",
-	}, diagnostics(eng))
+	}, diagnostics(st))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "diagnostics_packages",
@@ -180,17 +180,17 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"in order. If any entry fails, the whole call fails and the error names which " +
 			"entry failed — batch entries that are independent and already known-good; call " +
 			"once per entry instead if you want feedback between steps." + depNote,
-	}, diagnosticsPackages(eng, cfg))
+	}, diagnosticsPackages(st, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "diagnostics_files",
 		Annotations: reads("File Diagnostics"),
 		Description: "Report one or more files' diagnostics — narrower than " +
 			"diagnostics_packages, file- and declaration-scoped problems only — in one round " +
-			"trip, resolved in order. If any entry fails, the whole call fails and the error " +
+			"trip, resolved in order. If any entry fails, the whole batch is discarded and the error " +
 			"names which entry failed — batch entries that are independent and already " +
 			"known-good; call once per entry instead if you want feedback between steps." + depNote,
-	}, diagnosticsFiles(eng, cfg))
+	}, diagnosticsFiles(st, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "diagnostics_symbols",
@@ -202,7 +202,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"the error names which entry failed — batch entries that are independent and " +
 			"already known-good; call once per entry instead if you want feedback between " +
 			"steps." + keyNote,
-	}, diagnosticsSymbols(eng, cfg))
+	}, diagnosticsSymbols(st, cfg))
 
 	// Creators
 	mcp.AddTool(server, &mcp.Tool{
@@ -215,7 +215,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"batch is discarded and the error names which entry failed — batch entries that " +
 			"are independent and already known-good; call once per entry instead if you want " +
 			"diagnostics feedback between steps." + echoNote,
-	}, createPackage(eng, cfg))
+	}, createPackage(st, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_files",
@@ -226,7 +226,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"batch is discarded and the error names which entry failed — batch entries that " +
 			"are independent and already known-good; call once per entry instead if you want " +
 			"diagnostics feedback between steps." + echoNote,
-	}, createFile(eng, cfg))
+	}, createFile(st, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_symbols",
@@ -244,7 +244,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"the whole batch is discarded and the error names which entry failed — batch " +
 			"entries that are independent and already known-good; call once per entry instead " +
 			"if you want diagnostics feedback between steps." + echoNote,
-	}, createSymbol(eng, cfg))
+	}, createSymbol(st, cfg))
 
 	// Editors
 	mcp.AddTool(server, &mcp.Tool{
@@ -266,7 +266,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"the whole batch is discarded and the error names which entry failed — batch " +
 			"entries that are independent and already known-good; call once per entry instead " +
 			"if you want diagnostics feedback between steps." + keyNote + echoNote,
-	}, editSymbol(eng, cfg))
+	}, editSymbol(st, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "edit_files",
@@ -279,7 +279,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"any entry fails, the whole batch is discarded and the error names which entry " +
 			"failed — batch entries that are independent and already known-good; call once " +
 			"per entry instead if you want diagnostics feedback between steps." + echoNote,
-	}, editFile(eng, cfg))
+	}, editFile(st, cfg))
 
 	// Deleters
 	mcp.AddTool(server, &mcp.Tool{
@@ -301,7 +301,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"error names which entry failed — batch entries that are independent and already " +
 			"known-good; call once per entry instead if you want diagnostics feedback between " +
 			"steps." + keyNote + echoNote,
-	}, deleteSymbol(eng, cfg))
+	}, deleteSymbol(st, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_files",
@@ -311,7 +311,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"that's already gone is a noop, not an error, so a duplicate target across " +
 			"entries is harmless. If any entry fails for a reason other than absence, the " +
 			"whole batch is discarded and the error names which entry failed." + echoNote,
-	}, deleteFile(eng, cfg))
+	}, deleteFile(st, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_packages",
@@ -321,7 +321,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"is a noop, not an error, so a duplicate target across entries is harmless. If any " +
 			"entry fails for a reason other than absence, the whole batch is discarded and the " +
 			"error names which entry failed." + echoNote,
-	}, deletePackage(eng, cfg))
+	}, deletePackage(st, cfg))
 
 	// Refactorings
 	mcp.AddTool(server, &mcp.Tool{
@@ -362,7 +362,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"position — but relocating it relocates its *whole* group together, in order, " +
 			"even if only one member's key was given, since extracting just one member alone " +
 			"would break the positions of the rest. Never crosses the test build boundary." + keyNote + echoNote,
-	}, moveSymbol(eng, cfg))
+	}, moveSymbol(st, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "refactor_move_file",
@@ -380,7 +380,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"external callers of the file's exported declarations are requalified exactly as " +
 			"refactor_move_symbol does, and the file's own references to exported siblings staying " +
 			"behind gain the original package's qualifier." + echoNote,
-	}, moveFile(eng, cfg))
+	}, moveFile(st, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "refactor_move_package",
@@ -389,7 +389,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"When the package name matches the old directory base, the name and every " +
 			"unaliased qualifier are renamed too — as is each file's own leading " +
 			"\"Package oldname\" doc-comment opening, when it has one." + echoNote,
-	}, movePackage(eng, cfg))
+	}, movePackage(st, cfg))
 
 	// Disk
 	mcp.AddTool(server, &mcp.Tool{
@@ -397,7 +397,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 		Annotations: mutates("Flush to Disk", true),
 		Description: "Write every in-memory edit to disk: dirty files are written, deleted and " +
 			"renamed-away paths are unlinked. Until flush, the filesystem is untouched.",
-	}, flush(eng))
+	}, flush(st))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "disk_reload",
@@ -406,7 +406,7 @@ func Register(server *mcp.Server, eng *store.Store, diagLimit int) {
 			"edit and pending deletion — the inverse of flush. The echo reports what was " +
 			"discarded, grouped by package, plus the fresh workspace diagnostics. Use after " +
 			"the filesystem changed behind the server.",
-	}, reload(eng, cfg))
+	}, reload(st, cfg))
 }
 
 const echoNote = " Returns the files changed, the diagnostics the edit introduced (its blast-" +

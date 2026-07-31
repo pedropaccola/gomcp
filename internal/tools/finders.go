@@ -39,10 +39,10 @@ type SearchSourceInput struct {
 	Regexp string `json:"regexp"`
 }
 
-func searchDeclarationsLike(eng *store.Store) mcp.ToolHandlerFor[SearchLikeInput, SearchOutput] {
+func searchDeclarationsLike(st *store.Store) mcp.ToolHandlerFor[SearchLikeInput, SearchOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in SearchLikeInput) (*mcp.CallToolResult, SearchOutput, error) {
 		var out SearchOutput
-		err := eng.Read(ctx, func(v *store.View) error {
+		err := st.Read(ctx, func(v *store.View) error {
 			out.Matches = newMatchEntries(v.SymbolsLike(in.Name))
 			return nil
 		})
@@ -50,14 +50,14 @@ func searchDeclarationsLike(eng *store.Store) mcp.ToolHandlerFor[SearchLikeInput
 	}
 }
 
-func searchSource(eng *store.Store) mcp.ToolHandlerFor[SearchSourceInput, SearchOutput] {
+func searchSource(st *store.Store) mcp.ToolHandlerFor[SearchSourceInput, SearchOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in SearchSourceInput) (*mcp.CallToolResult, SearchOutput, error) {
 		var out SearchOutput
 		re, err := regexp.Compile(in.Regexp)
 		if err != nil {
 			return nil, out, fmt.Errorf("invalid regular expression: %w", err)
 		}
-		err = eng.Read(ctx, func(v *store.View) error {
+		err = st.Read(ctx, func(v *store.View) error {
 			out.Matches = newMatchEntries(v.SymbolsRegexp(re))
 			return nil
 		})
@@ -65,11 +65,11 @@ func searchSource(eng *store.Store) mcp.ToolHandlerFor[SearchSourceInput, Search
 	}
 }
 
-func searchImplementors(eng *store.Store) mcp.ToolHandlerFor[SearchImplementorsInput, SearchOutput] {
+func searchImplementors(st *store.Store) mcp.ToolHandlerFor[SearchImplementorsInput, SearchOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in SearchImplementorsInput) (*mcp.CallToolResult, SearchOutput, error) {
 		var out SearchOutput
 		search := func() error {
-			return eng.Read(ctx, func(v *store.View) error {
+			return st.Read(ctx, func(v *store.View) error {
 				pkg, err := workspace.NewPackageID(v.Module(), in.PkgPath)
 				if err != nil {
 					return err
@@ -91,7 +91,7 @@ func searchImplementors(eng *store.Store) mcp.ToolHandlerFor[SearchImplementorsI
 		// safely — force the one full recheck this needs and retry, rather
 		// than pay it on every edit for every other read.
 		if errors.Is(err, store.ErrNarrowlyChecked) {
-			if fullErr := eng.EnsureFullyChecked(ctx); fullErr != nil {
+			if fullErr := st.EnsureFullyChecked(ctx); fullErr != nil {
 				return nil, out, fullErr
 			}
 			err = search()
@@ -100,10 +100,10 @@ func searchImplementors(eng *store.Store) mcp.ToolHandlerFor[SearchImplementorsI
 	}
 }
 
-func searchReferences(eng *store.Store) mcp.ToolHandlerFor[SearchReferencesInput, SearchOutput] {
+func searchReferences(st *store.Store) mcp.ToolHandlerFor[SearchReferencesInput, SearchOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in SearchReferencesInput) (*mcp.CallToolResult, SearchOutput, error) {
 		var out SearchOutput
-		err := eng.Read(ctx, func(v *store.View) error {
+		err := st.Read(ctx, func(v *store.View) error {
 			sym, err := resolveAnySymbol(v, in.PkgPath, in.SymbolKey)
 			if err != nil {
 				return err

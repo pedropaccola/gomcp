@@ -66,10 +66,10 @@ type DiagnosticsSymbolsOutput struct {
 	Results []DiagnosticsTruncated `json:"results"`
 }
 
-func diagnostics(eng *store.Store) mcp.ToolHandlerFor[DiagnosticsInput, DiagnosticsOutput] {
+func diagnostics(st *store.Store) mcp.ToolHandlerFor[DiagnosticsInput, DiagnosticsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, _ DiagnosticsInput) (*mcp.CallToolResult, DiagnosticsOutput, error) {
 		var out DiagnosticsOutput
-		err := eng.Read(ctx, func(v *store.View) error {
+		err := st.Read(ctx, func(v *store.View) error {
 			diags := v.AllDiagnostics()
 			out.Diagnostics = make([]DiagnosticEntry, len(diags))
 			for i, diag := range diags {
@@ -81,7 +81,7 @@ func diagnostics(eng *store.Store) mcp.ToolHandlerFor[DiagnosticsInput, Diagnost
 	}
 }
 
-func diagnosticsPackages(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DiagnosticsPackagesInput, DiagnosticsPackagesOutput] {
+func diagnosticsPackages(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DiagnosticsPackagesInput, DiagnosticsPackagesOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DiagnosticsPackagesInput) (*mcp.CallToolResult, DiagnosticsPackagesOutput, error) {
 		if len(in.Diagnoses) == 0 {
 			return nil, DiagnosticsPackagesOutput{}, errEmptyBatch("diagnoses")
@@ -89,7 +89,7 @@ func diagnosticsPackages(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[D
 		n := len(in.Diagnoses)
 		out := DiagnosticsPackagesOutput{Results: make([]DiagnosticsTruncated, n)}
 		for i, entry := range in.Diagnoses {
-			err := readPackage(ctx, eng, entry.PkgPath, func(v *store.View, pkg workspace.PackageID) error {
+			err := readPackage(ctx, st, entry.PkgPath, func(v *store.View, pkg workspace.PackageID) error {
 				out.Results[i] = newDiagnosticsTruncated(v.Diagnostics(pkg.Base()), cfg.diagLimit)
 				return nil
 			})
@@ -101,7 +101,7 @@ func diagnosticsPackages(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[D
 	}
 }
 
-func diagnosticsFiles(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DiagnosticsFilesInput, DiagnosticsFilesOutput] {
+func diagnosticsFiles(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DiagnosticsFilesInput, DiagnosticsFilesOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DiagnosticsFilesInput) (*mcp.CallToolResult, DiagnosticsFilesOutput, error) {
 		if len(in.Diagnoses) == 0 {
 			return nil, DiagnosticsFilesOutput{}, errEmptyBatch("diagnoses")
@@ -109,7 +109,7 @@ func diagnosticsFiles(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[Diag
 		n := len(in.Diagnoses)
 		out := DiagnosticsFilesOutput{Results: make([]DiagnosticsTruncated, n)}
 		for i, entry := range in.Diagnoses {
-			err := readFile(ctx, eng, entry.PkgPath, entry.FileName, func(v *store.View, fp workspace.FilePath, pkg workspace.PackageID) error {
+			err := readFile(ctx, st, entry.PkgPath, entry.FileName, func(v *store.View, fp workspace.FilePath, pkg workspace.PackageID) error {
 				out.Results[i] = newDiagnosticsTruncated(v.FileDiagnostics(pkg.Base(), fp), cfg.diagLimit)
 				return nil
 			})
@@ -121,7 +121,7 @@ func diagnosticsFiles(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[Diag
 	}
 }
 
-func diagnosticsSymbols(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DiagnosticsSymbolsInput, DiagnosticsSymbolsOutput] {
+func diagnosticsSymbols(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DiagnosticsSymbolsInput, DiagnosticsSymbolsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DiagnosticsSymbolsInput) (*mcp.CallToolResult, DiagnosticsSymbolsOutput, error) {
 		if len(in.Diagnoses) == 0 {
 			return nil, DiagnosticsSymbolsOutput{}, errEmptyBatch("diagnoses")
@@ -129,7 +129,7 @@ func diagnosticsSymbols(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[Di
 		n := len(in.Diagnoses)
 		out := DiagnosticsSymbolsOutput{Results: make([]DiagnosticsTruncated, n)}
 		for i, entry := range in.Diagnoses {
-			err := readSymbol(ctx, eng, entry.PkgPath, entry.SymbolKey, func(v *store.View, sym store.Symbol, owner workspace.PackageID) error {
+			err := readSymbol(ctx, st, entry.PkgPath, entry.SymbolKey, func(v *store.View, sym store.Symbol, owner workspace.PackageID) error {
 				out.Results[i] = newDiagnosticsTruncated(v.SymbolDiagnostics(owner.Base(), sym.Key), cfg.diagLimit)
 				return nil
 			})

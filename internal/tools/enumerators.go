@@ -47,10 +47,10 @@ type SymbolEntry struct {
 	Summary   string `json:"summary"`
 }
 
-func listPackages(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListPackagesInput, ListPackagesOutput] {
+func listPackages(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListPackagesInput, ListPackagesOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, _ ListPackagesInput) (*mcp.CallToolResult, ListPackagesOutput, error) {
 		var out ListPackagesOutput
-		err := eng.Read(ctx, func(v *store.View) error {
+		err := st.Read(ctx, func(v *store.View) error {
 			dirs := v.UnitKeys()
 			out.Packages = make([]string, len(dirs))
 			for i, dir := range dirs {
@@ -62,10 +62,10 @@ func listPackages(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListPack
 	}
 }
 
-func listFiles(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListFilesInput, ListFilesOutput] {
+func listFiles(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListFilesInput, ListFilesOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListFilesInput) (*mcp.CallToolResult, ListFilesOutput, error) {
 		var out ListFilesOutput
-		err := readPackage(ctx, eng, in.PkgPath, func(v *store.View, pkg workspace.PackageID) error {
+		err := readPackage(ctx, st, in.PkgPath, func(v *store.View, pkg workspace.PackageID) error {
 			files, _ := v.PackageFiles(pkg)
 			out.Files = make([]string, 0, len(files))
 			for _, f := range files {
@@ -77,10 +77,10 @@ func listFiles(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListFilesIn
 	}
 }
 
-func listSymbols(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListSymbolsInput, ListSymbolsOutput] {
+func listSymbols(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListSymbolsInput, ListSymbolsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListSymbolsInput) (*mcp.CallToolResult, ListSymbolsOutput, error) {
 		var out ListSymbolsOutput
-		err := readPackage(ctx, eng, in.PkgPath, func(v *store.View, pkg workspace.PackageID) error {
+		err := readPackage(ctx, st, in.PkgPath, func(v *store.View, pkg workspace.PackageID) error {
 			var targetFile workspace.FilePath
 			if fileName := optStr(in.FileName); fileName != "" {
 				fp, err := v.ResolveFile(pkg, fileName)
@@ -107,10 +107,10 @@ func listSymbols(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListSymbo
 	}
 }
 
-func listMethods(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListMethodsInput, ListMethodsOutput] {
+func listMethods(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListMethodsInput, ListMethodsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListMethodsInput) (*mcp.CallToolResult, ListMethodsOutput, error) {
 		var out ListMethodsOutput
-		err := readPackage(ctx, eng, in.PkgPath, func(v *store.View, pkg workspace.PackageID) error {
+		err := readPackage(ctx, st, in.PkgPath, func(v *store.View, pkg workspace.PackageID) error {
 			out.Methods = methodSignatures(v, pkg, in.SymbolKey)
 			return nil
 		})

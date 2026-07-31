@@ -8,8 +8,8 @@ import (
 )
 
 func TestDescribeFileBatch(t *testing.T) {
-	eng := sandboxStore(t)
-	_, out, err := describeFile(eng, testCfg())(context.Background(), nil, DescribeFileInput{
+	st := sandboxStore(t)
+	_, out, err := describeFile(st, testCfg())(context.Background(), nil, DescribeFileInput{
 		Describes: []DescribeFileEntry{
 			{PkgPath: "shapes", FileName: "shapes.go"},
 			{PkgPath: "shapes", FileName: "groups.go"},
@@ -25,7 +25,7 @@ func TestDescribeFileBatch(t *testing.T) {
 		t.Errorf("Results[0].Doc = %v", out.Results[0].Doc)
 	}
 
-	if _, _, err := describeFile(eng, testCfg())(context.Background(), nil, DescribeFileInput{
+	if _, _, err := describeFile(st, testCfg())(context.Background(), nil, DescribeFileInput{
 		Describes: []DescribeFileEntry{
 			{PkgPath: "shapes", FileName: "shapes.go"},
 			{PkgPath: "shapes", FileName: "nope.go"},
@@ -36,8 +36,8 @@ func TestDescribeFileBatch(t *testing.T) {
 }
 
 func TestDescribePackageBatch(t *testing.T) {
-	eng := sandboxStore(t)
-	_, out, err := describePackage(eng, testCfg())(context.Background(), nil, DescribePackageInput{
+	st := sandboxStore(t)
+	_, out, err := describePackage(st, testCfg())(context.Background(), nil, DescribePackageInput{
 		Describes: []DescribePackageEntry{
 			{PkgPath: "shapes"},
 			{PkgPath: "use"},
@@ -53,7 +53,7 @@ func TestDescribePackageBatch(t *testing.T) {
 		t.Errorf("Results[0].Files missing shapes.go: %v", out.Results[0].Files)
 	}
 
-	if _, _, err := describePackage(eng, testCfg())(context.Background(), nil, DescribePackageInput{
+	if _, _, err := describePackage(st, testCfg())(context.Background(), nil, DescribePackageInput{
 		Describes: []DescribePackageEntry{
 			{PkgPath: "shapes"},
 			{PkgPath: "nope"},
@@ -64,8 +64,8 @@ func TestDescribePackageBatch(t *testing.T) {
 }
 
 func TestDescribeSymbolBatch(t *testing.T) {
-	eng := sandboxStore(t)
-	_, out, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
+	st := sandboxStore(t)
+	_, out, err := describeSymbol(st, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		Describes: []DescribeSymbolEntry{
 			{PkgPath: "shapes", SymbolKey: "Circle"},
 			{PkgPath: "shapes", SymbolKey: "Square"},
@@ -84,7 +84,7 @@ func TestDescribeSymbolBatch(t *testing.T) {
 		t.Errorf("Results[1] wrong: %q", out.Results[1].Source)
 	}
 
-	if _, _, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
+	if _, _, err := describeSymbol(st, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		Describes: []DescribeSymbolEntry{
 			{PkgPath: "shapes", SymbolKey: "Circle"},
 			{PkgPath: "shapes", SymbolKey: "Nope"},
@@ -95,9 +95,9 @@ func TestDescribeSymbolBatch(t *testing.T) {
 }
 
 func TestDescribeSymbolEveryKind(t *testing.T) {
-	eng := sandboxStore(t)
+	st := sandboxStore(t)
 
-	_, out, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
+	_, out, err := describeSymbol(st, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		Describes: []DescribeSymbolEntry{{PkgPath: "shapes", SymbolKey: "Circle"}},
 	})
 	if err != nil {
@@ -113,7 +113,7 @@ func TestDescribeSymbolEveryKind(t *testing.T) {
 		t.Errorf("describe_symbol(Circle) missing Area: %v", typ.Methods)
 	}
 
-	_, out, err = describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
+	_, out, err = describeSymbol(st, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		Describes: []DescribeSymbolEntry{{PkgPath: "use", SymbolKey: "NewCircle"}},
 	})
 	if err != nil {
@@ -124,7 +124,7 @@ func TestDescribeSymbolEveryKind(t *testing.T) {
 		t.Errorf("describe_symbol(NewCircle) wrong: kind=%s", fn.Kind)
 	}
 
-	_, out, err = describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
+	_, out, err = describeSymbol(st, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		Describes: []DescribeSymbolEntry{{PkgPath: "shapes", SymbolKey: "Circle.Area"}},
 	})
 	if err != nil {
@@ -137,7 +137,7 @@ func TestDescribeSymbolEveryKind(t *testing.T) {
 
 	// The point of consolidating: var/const now have a describe path too,
 	// which describe_type/describe_function/describe_method never gave them.
-	_, out, err = describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
+	_, out, err = describeSymbol(st, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		Describes: []DescribeSymbolEntry{{PkgPath: "shapes", SymbolKey: "DefaultScale"}},
 	})
 	if err != nil {
@@ -148,7 +148,7 @@ func TestDescribeSymbolEveryKind(t *testing.T) {
 		t.Errorf("describe_symbol(DefaultScale) wrong: kind=%s source=%q", v.Kind, v.Source)
 	}
 
-	_, out, err = describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
+	_, out, err = describeSymbol(st, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		Describes: []DescribeSymbolEntry{{PkgPath: "shapes", SymbolKey: "KindCircle"}},
 	})
 	if err != nil {
@@ -159,7 +159,7 @@ func TestDescribeSymbolEveryKind(t *testing.T) {
 		t.Errorf("describe_symbol(KindCircle) wrong: kind=%s source=%q", c.Kind, c.Source)
 	}
 
-	if _, _, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
+	if _, _, err := describeSymbol(st, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		Describes: []DescribeSymbolEntry{{PkgPath: "shapes", SymbolKey: "Nope"}},
 	}); err == nil {
 		t.Error("describing a missing symbol must error")
@@ -167,9 +167,9 @@ func TestDescribeSymbolEveryKind(t *testing.T) {
 }
 
 func TestPackageDocTools(t *testing.T) {
-	eng := sandboxStore(t)
+	st := sandboxStore(t)
 
-	_, out, err := describePackage(eng, testCfg())(context.Background(), nil, DescribePackageInput{
+	_, out, err := describePackage(st, testCfg())(context.Background(), nil, DescribePackageInput{
 		Describes: []DescribePackageEntry{{PkgPath: "shapes"}},
 	})
 	if err != nil {
@@ -184,7 +184,7 @@ func TestPackageDocTools(t *testing.T) {
 		t.Errorf("describe_package(shapes).Files missing entries: %v", desc.Files)
 	}
 
-	_, fout, err := describeFile(eng, testCfg())(context.Background(), nil, DescribeFileInput{
+	_, fout, err := describeFile(st, testCfg())(context.Background(), nil, DescribeFileInput{
 		Describes: []DescribeFileEntry{{PkgPath: "shapes", FileName: "shapes.go"}},
 	})
 	if err != nil {
@@ -195,7 +195,7 @@ func TestPackageDocTools(t *testing.T) {
 		t.Errorf("describe_file(shapes.go).Doc = %v", file.Doc)
 	}
 
-	_, created, err := createFile(eng, testCfg())(context.Background(), nil, CreateFileInput{
+	_, created, err := createFile(st, testCfg())(context.Background(), nil, CreateFileInput{
 		Creates: []CreateFileEntry{{PkgPath: "shapes", FileName: "new_doc.go", Doc: new("New file doc.")}},
 	})
 	if err != nil {
@@ -204,7 +204,7 @@ func TestPackageDocTools(t *testing.T) {
 	if created.IntroducedDiagnostics != nil {
 		t.Errorf("create_file with doc produced diagnostics: %+v", created)
 	}
-	_, fout2, err := describeFile(eng, testCfg())(context.Background(), nil, DescribeFileInput{
+	_, fout2, err := describeFile(st, testCfg())(context.Background(), nil, DescribeFileInput{
 		Describes: []DescribeFileEntry{{PkgPath: "shapes", FileName: "new_doc.go"}},
 	})
 	if err != nil {
@@ -215,12 +215,12 @@ func TestPackageDocTools(t *testing.T) {
 		t.Errorf("new_doc.go doc = %v, want %q", newFile.Doc, "New file doc.")
 	}
 
-	if _, _, err := editFile(eng, testCfg())(context.Background(), nil, EditFileInput{
+	if _, _, err := editFile(st, testCfg())(context.Background(), nil, EditFileInput{
 		Edits: []EditFileEntry{{PkgPath: "shapes", FileName: "new_doc.go", Doc: new("")}},
 	}); err != nil {
 		t.Fatalf("edit_file (clear): %v", err)
 	}
-	_, fout3, err := describeFile(eng, testCfg())(context.Background(), nil, DescribeFileInput{
+	_, fout3, err := describeFile(st, testCfg())(context.Background(), nil, DescribeFileInput{
 		Describes: []DescribeFileEntry{{PkgPath: "shapes", FileName: "new_doc.go"}},
 	})
 	if err != nil {
@@ -231,7 +231,7 @@ func TestPackageDocTools(t *testing.T) {
 		t.Errorf("cleared doc = %v, want nil", cleared.Doc)
 	}
 
-	if _, _, err := editFile(eng, testCfg())(context.Background(), nil, EditFileInput{
+	if _, _, err := editFile(st, testCfg())(context.Background(), nil, EditFileInput{
 		Edits: []EditFileEntry{{PkgPath: "shapes", FileName: "nope.go", Doc: new("x")}},
 	}); err == nil {
 		t.Error("edit_file on a missing file must error")

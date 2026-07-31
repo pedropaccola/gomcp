@@ -8,8 +8,8 @@ import (
 )
 
 func TestCreateFileBatchAbortsWhollyOnFailure(t *testing.T) {
-	eng := sandboxStore(t)
-	_, _, err := createFile(eng, testCfg())(context.Background(), nil, CreateFileInput{
+	st := sandboxStore(t)
+	_, _, err := createFile(st, testCfg())(context.Background(), nil, CreateFileInput{
 		Creates: []CreateFileEntry{
 			{PkgPath: "shapes", FileName: "first.go"},
 			{PkgPath: "shapes", FileName: "shapes.go"}, // already exists
@@ -21,7 +21,7 @@ func TestCreateFileBatchAbortsWhollyOnFailure(t *testing.T) {
 	if !strings.Contains(err.Error(), "creates[1]") {
 		t.Errorf("error must name the failing entry, got %v", err)
 	}
-	_, out, err := listFiles(eng, testCfg())(context.Background(), nil, ListFilesInput{PkgPath: "shapes"})
+	_, out, err := listFiles(st, testCfg())(context.Background(), nil, ListFilesInput{PkgPath: "shapes"})
 	if err != nil {
 		t.Fatalf("list_files: %v", err)
 	}
@@ -31,8 +31,8 @@ func TestCreateFileBatchAbortsWhollyOnFailure(t *testing.T) {
 }
 
 func TestCreatePackageBatch(t *testing.T) {
-	eng := sandboxStore(t)
-	_, out, err := createPackage(eng, testCfg())(context.Background(), nil, CreatePackageInput{
+	st := sandboxStore(t)
+	_, out, err := createPackage(st, testCfg())(context.Background(), nil, CreatePackageInput{
 		Creates: []CreatePackageEntry{
 			{PkgPath: "widgets"},
 			{PkgPath: "gadgets"},
@@ -48,8 +48,8 @@ func TestCreatePackageBatch(t *testing.T) {
 }
 
 func TestCreateSymbolBatchAbortsWhollyOnFailure(t *testing.T) {
-	eng := sandboxStore(t)
-	_, _, err := createSymbol(eng, testCfg())(context.Background(), nil, CreateSymbolInput{
+	st := sandboxStore(t)
+	_, _, err := createSymbol(st, testCfg())(context.Background(), nil, CreateSymbolInput{
 		Creates: []CreateSymbolEntry{
 			{PkgPath: "shapes", FileName: "batch.go", Source: "func Foo() {}"},
 			{PkgPath: "shapes", FileName: "batch.go", Source: "func Foo() {}"},
@@ -58,7 +58,7 @@ func TestCreateSymbolBatchAbortsWhollyOnFailure(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "creates[1]") {
 		t.Fatalf("expected creates[1] to fail on the duplicate, got %v", err)
 	}
-	if _, _, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
+	if _, _, err := describeSymbol(st, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		Describes: []DescribeSymbolEntry{{PkgPath: "shapes", SymbolKey: "Foo"}},
 	}); err == nil {
 		t.Error("Foo must not exist — the whole batch should have been discarded, including entry 0")
@@ -66,15 +66,15 @@ func TestCreateSymbolBatchAbortsWhollyOnFailure(t *testing.T) {
 }
 
 func TestCreateSymbolBatchRefusesEmpty(t *testing.T) {
-	eng := sandboxStore(t)
-	if _, _, err := createSymbol(eng, testCfg())(context.Background(), nil, CreateSymbolInput{}); err == nil {
+	st := sandboxStore(t)
+	if _, _, err := createSymbol(st, testCfg())(context.Background(), nil, CreateSymbolInput{}); err == nil {
 		t.Error("an empty batch must be refused")
 	}
 }
 
 func TestCreateSymbolMultiEntry(t *testing.T) {
-	eng := sandboxStore(t)
-	_, out, err := createSymbol(eng, testCfg())(context.Background(), nil, CreateSymbolInput{
+	st := sandboxStore(t)
+	_, out, err := createSymbol(st, testCfg())(context.Background(), nil, CreateSymbolInput{
 		Creates: []CreateSymbolEntry{
 			{PkgPath: "shapes", FileName: "batch.go", Source: "func Foo() {}"},
 			{PkgPath: "shapes", FileName: "batch.go", Source: "func Bar() {}"},
@@ -86,12 +86,12 @@ func TestCreateSymbolMultiEntry(t *testing.T) {
 	if out.IntroducedDiagnostics != nil {
 		t.Errorf("batch introduced diagnostics: %+v", out)
 	}
-	if _, _, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
+	if _, _, err := describeSymbol(st, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		Describes: []DescribeSymbolEntry{{PkgPath: "shapes", SymbolKey: "Foo"}},
 	}); err != nil {
 		t.Errorf("Foo missing after batch: %v", err)
 	}
-	if _, _, err := describeSymbol(eng, testCfg())(context.Background(), nil, DescribeSymbolInput{
+	if _, _, err := describeSymbol(st, testCfg())(context.Background(), nil, DescribeSymbolInput{
 		Describes: []DescribeSymbolEntry{{PkgPath: "shapes", SymbolKey: "Bar"}},
 	}); err != nil {
 		t.Errorf("Bar missing after batch: %v", err)
@@ -103,8 +103,8 @@ func TestCreateSymbolMultiEntry(t *testing.T) {
 // must come into being in the same call, seeded the same way
 // create_package seeds one, alongside the requested XTest file.
 func TestCreateFileOriginatesFreshXTestPackage(t *testing.T) {
-	eng := sandboxStore(t)
-	_, out, err := createFile(eng, testCfg())(context.Background(), nil, CreateFileInput{
+	st := sandboxStore(t)
+	_, out, err := createFile(st, testCfg())(context.Background(), nil, CreateFileInput{
 		Creates: []CreateFileEntry{
 			{PkgPath: "brandnew_test", FileName: "extra_test.go"},
 		},
@@ -119,7 +119,7 @@ func TestCreateFileOriginatesFreshXTestPackage(t *testing.T) {
 	if !slices.Contains(files, "extra_test.go") {
 		t.Errorf("requested XTest file missing: %+v", out)
 	}
-	if _, _, err := describePackage(eng, testCfg())(context.Background(), nil, DescribePackageInput{
+	if _, _, err := describePackage(st, testCfg())(context.Background(), nil, DescribePackageInput{
 		Describes: []DescribePackageEntry{{PkgPath: "brandnew"}},
 	}); err != nil {
 		t.Errorf("brandnew not resolvable after origination: %v", err)
@@ -131,8 +131,8 @@ func TestCreateFileOriginatesFreshXTestPackage(t *testing.T) {
 // always creates Prod, and an XTest address must be refused, not
 // reinterpreted.
 func TestCreatePackageRefusesXTestAddress(t *testing.T) {
-	eng := sandboxStore(t)
-	_, _, err := createPackage(eng, testCfg())(context.Background(), nil, CreatePackageInput{
+	st := sandboxStore(t)
+	_, _, err := createPackage(st, testCfg())(context.Background(), nil, CreatePackageInput{
 		Creates: []CreatePackageEntry{{PkgPath: "shapes_test"}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "XTest") {

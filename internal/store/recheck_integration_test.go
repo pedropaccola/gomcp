@@ -73,21 +73,21 @@ func TestRecheckScopeCarriesForwardUnaffectedPackages(t *testing.T) {
 // the tools-layer retry path: after a narrow recheck, NarrowlyChecked
 // must be true, and false again once EnsureFullyChecked returns.
 func TestEnsureFullyCheckedClearsNarrowFlag(t *testing.T) {
-	eng := sandboxStore(t)
+	st := sandboxStore(t)
 
-	if _, err := eng.Edit(context.Background(), func(tx *Tx) error {
+	if _, err := st.Edit(context.Background(), func(tx *Tx) error {
 		return tx.EditSymbol("example.com/sandbox/mvdest", "Existing", "func Existing() int { return 1 }")
 	}); err != nil {
 		t.Fatalf("Edit(mvdest): %v", err)
 	}
-	if !eng.ws.NarrowlyChecked() {
+	if !st.ws.NarrowlyChecked() {
 		t.Fatal("expected NarrowlyChecked after editing a leaf package")
 	}
 
-	if err := eng.EnsureFullyChecked(context.Background()); err != nil {
+	if err := st.EnsureFullyChecked(context.Background()); err != nil {
 		t.Fatalf("EnsureFullyChecked: %v", err)
 	}
-	if eng.ws.NarrowlyChecked() {
+	if st.ws.NarrowlyChecked() {
 		t.Error("NarrowlyChecked should be false after EnsureFullyChecked")
 	}
 }

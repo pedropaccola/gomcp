@@ -24,9 +24,9 @@ type ReloadOutput struct {
 	DiagnosticsTruncated
 }
 
-func flush(eng *store.Store) mcp.ToolHandlerFor[FlushInput, FlushOutput] {
+func flush(st *store.Store) mcp.ToolHandlerFor[FlushInput, FlushOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, _ FlushInput) (*mcp.CallToolResult, FlushOutput, error) {
-		written, removed, err := eng.Flush()
+		written, removed, err := st.Flush()
 		return nil, FlushOutput{
 			FilesWritten: filesByPackage(written),
 			FilesRemoved: filesByPackage(removed),
@@ -34,15 +34,15 @@ func flush(eng *store.Store) mcp.ToolHandlerFor[FlushInput, FlushOutput] {
 	}
 }
 
-func reload(eng *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ReloadInput, ReloadOutput] {
+func reload(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ReloadInput, ReloadOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, _ ReloadInput) (*mcp.CallToolResult, ReloadOutput, error) {
 		var out ReloadOutput
-		discarded, err := eng.Reload(ctx)
+		discarded, err := st.Reload(ctx)
 		if err != nil {
 			return nil, out, err
 		}
 		out.FilesDiscarded = filesByPackage(discarded)
-		err = eng.Read(ctx, func(v *store.View) error {
+		err = st.Read(ctx, func(v *store.View) error {
 			out.DiagnosticsTruncated = newDiagnosticsTruncated(v.AllDiagnostics(), cfg.diagLimit)
 			return nil
 		})

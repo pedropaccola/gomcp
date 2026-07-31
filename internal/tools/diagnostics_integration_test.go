@@ -7,8 +7,8 @@ import (
 )
 
 func TestDiagnosticsPackagesBatch(t *testing.T) {
-	eng := sandboxStore(t)
-	_, out, err := diagnosticsPackages(eng, testCfg())(context.Background(), nil, DiagnosticsPackagesInput{
+	st := sandboxStore(t)
+	_, out, err := diagnosticsPackages(st, testCfg())(context.Background(), nil, DiagnosticsPackagesInput{
 		Diagnoses: []DiagnosticsPackageEntry{
 			{PkgPath: "broken"},
 			{PkgPath: "shapes"},
@@ -27,7 +27,7 @@ func TestDiagnosticsPackagesBatch(t *testing.T) {
 		t.Errorf("Results[1] (shapes) has diagnostics, want none: %v", out.Results[1].Diagnostics)
 	}
 
-	if _, _, err := diagnosticsPackages(eng, testCfg())(context.Background(), nil, DiagnosticsPackagesInput{
+	if _, _, err := diagnosticsPackages(st, testCfg())(context.Background(), nil, DiagnosticsPackagesInput{
 		Diagnoses: []DiagnosticsPackageEntry{
 			{PkgPath: "shapes"},
 			{PkgPath: "nope"},
@@ -38,8 +38,8 @@ func TestDiagnosticsPackagesBatch(t *testing.T) {
 }
 
 func TestDiagnosticsFilesBatch(t *testing.T) {
-	eng := sandboxStore(t)
-	_, out, err := diagnosticsFiles(eng, testCfg())(context.Background(), nil, DiagnosticsFilesInput{
+	st := sandboxStore(t)
+	_, out, err := diagnosticsFiles(st, testCfg())(context.Background(), nil, DiagnosticsFilesInput{
 		Diagnoses: []DiagnosticsFileEntry{
 			{PkgPath: "broken", FileName: "broken.go"},
 			{PkgPath: "shapes", FileName: "shapes.go"},
@@ -64,8 +64,8 @@ func TestDiagnosticsFilesBatch(t *testing.T) {
 // different packages in a single batch, since each entry is already
 // individually addressed.
 func TestDiagnosticsSymbolsBatchAcrossPackages(t *testing.T) {
-	eng := sandboxStore(t)
-	_, out, err := diagnosticsSymbols(eng, testCfg())(context.Background(), nil, DiagnosticsSymbolsInput{
+	st := sandboxStore(t)
+	_, out, err := diagnosticsSymbols(st, testCfg())(context.Background(), nil, DiagnosticsSymbolsInput{
 		Diagnoses: []DiagnosticsSymbolEntry{
 			{PkgPath: "broken", SymbolKey: "Bad"},
 			{PkgPath: "shapes", SymbolKey: "Circle"},

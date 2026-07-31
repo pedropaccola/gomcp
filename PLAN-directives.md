@@ -1,6 +1,11 @@
 # gomcp: Compiler-Directive Awareness & Generated-File Read-Only Support
 
 Status: implementation-ready, sharpened via `/grill-with-docs` interview. No code changed yet.
+Re-verified against the codebase after the separate `internal/workspace` CRUD-verb refactor
+(`PLAN-workspace-api.md`) — file:line citations below were replaced with symbol-name references,
+since line numbers already went stale once mid-session and gomcp itself deliberately never
+addresses by line for the same reason. A few Phase 3/4 specifics were also updated where that
+refactor changed *where* the relevant logic actually lives, noted inline below.
 
 ## Context
 
@@ -57,13 +62,15 @@ Two things forced this into a real tracked field rather than a rendering-bug fix
 - `workspace.File` gains a tracked, ordered `[]string` of leading (pre-package) directive lines —
   not a single string, since a file can legitimately carry more than one (`//go:build` and a
   file-scoped `//go:generate` together).
-- `Tx.CreateFile`/`Tx.EditFile` (`internal/store/tx.go:16-36`, `:219-247`) gain a `directives []string`
-  parameter alongside `doc`.
+- `Tx.CreateFile`/`Tx.EditFile` (`internal/store/tx.go`) gain a `directives []string` parameter
+  alongside `doc`. Both still call `Workspace.SwapFile` directly (that hasn't changed), so the new
+  parameter's rendering logic lives at the same call site the `doc`/`RenderDocComment` handling
+  already does today.
 - `Tx.EditFile`'s `doc` parameter must stop being collapsed through `optStr` before reaching this layer
-  (`internal/tools/editors.go:54` currently does `optStr(entry.Doc)`, discarding nil-vs-empty). Now that
-  `directives` is independently settable, "touch only directives, leave doc alone" is a real case that
-  needs `nil` (no change) distinguishable from an empty-but-present value (clear) all the way down, not
-  just at the tool-input struct.
+  (`internal/tools/editors.go`'s `editFile` handler currently does `optStr(entry.Doc)`, discarding
+  nil-vs-empty). Now that `directives` is independently settable, "touch only directives, leave doc
+  alone" is a real case that needs `nil` (no change) distinguishable from an empty-but-present value
+  (clear) all the way down, not just at the tool-input struct.
 - Rendering rule (superseding the original "blank line after every directive line" idea, which was
   designed for a since-abandoned single-string-mixing model): directive lines render consecutively, no
   blank line between them, then exactly one blank line, then the doc comment (if any), then the
@@ -122,18 +129,31 @@ Files are no longer at risk of silently losing a directive to an edit: directive
 field now, never inferred from or spliced out of a replaceable `doc` span. The risk that motivated this
 phase originally is specific to symbols, where the directive line still lives inline inside `Source`.
 
+**Where this actually gets implemented, updated post-refactor:** `EditSymbol`'s real placement/
+replacement logic no longer lives in `store`'s `Tx.EditSymbol` — it moved to `Workspace.EditSymbol`
+(`internal/workspace/editing.go`) as part of the separate CRUD-verb redesign (`PLAN-workspace-api.md`).
+`Tx.EditSymbol` is now a thin pass-through (calls `tx.ws.EditSymbol`, then `tx.markChanged`). This is
+a better fit for this phase, not a complication: the validation described below needs the parsed
+`Fragment`/`Source` comment data that `Workspace.EditSymbol` already has in hand at the exact point
+it computes the replacement, rather than that data needing to cross the store/workspace boundary.
+Implement the check inside `Workspace.EditSymbol` itself, and have it return the dropped-lines
+result alongside its existing `(FilePath, error)` so `Tx.EditSymbol` can pass it through to
+`WriteOutput` the same way it already passes through the touched path.
+
 **Mechanical role of `EditSymbolEntry.Directives`:**
 - **Supplied:** gomcp validates that each listed line appears verbatim in the corresponding leading
   comment of `Source`. Missing one is refused outright — deterministic, not a heuristic, since the
   agent made an explicit claim gomcp can just check.
 - **Omitted:** heuristic fallback. Diff directive-shaped lines detected in the symbol's *previous*
   comment block against the new `Source`; anything present before and missing now is reported, never
-  blocking, never auto-restored (an agent may deliberately mean to remove one).
+  blocking, never auto-restored (an agent may deliberately mean to remove one). This is exactly what
+  the symbol's tracked `directives` field (Phase 1) exists to make cheap — the "previous" state is
+  already sitting on the `Symbol` being replaced, no separate lookup needed.
 
 **Shape of the report:** reuse the existing `DiagnosticEntry`/`DiagnosticsTruncated` idiom
-(`internal/tools/shared.go:39-56`) rather than a bare `[]string` — pkg/file/symbol-scoped entries plus a
+(`internal/tools/shared.go`) rather than a bare `[]string` — pkg/file/symbol-scoped entries plus a
 truncation cap, consistent with how `WriteOutput` already reports everything else that "might be a lot."
-Add e.g. `DroppedDirectives *DiagnosticsTruncated` to `WriteOutput` (`internal/tools/edit.go:19-25`),
+Add e.g. `DroppedDirectives *DiagnosticsTruncated` to `WriteOutput` (`internal/tools/edit.go`),
 populated only when non-empty, same `omitempty` discipline the rest of the struct already follows.
 
 ## Phase 4 — Generated files are read-only
@@ -148,18 +168,21 @@ and every codegen tool (including Kubernetes' own) already emits. Per the settle
 checked fresh at the moment of mutation, not cached as workspace state** — no persistent field to keep
 in sync across reloads.
 
-**Enforcement points — three, not one.** Investigated directly rather than assumed: there is a true
-single convergence point for *installing new content* — `Workspace.SwapFile`
-(`internal/workspace/primitives.go:35-53`) — reached by every Create/Edit/Delete-symbol, cross-package
-Move, rename, and relocate, either directly (`Tx.installFile`) or via `ApplyFileSplices`/
-`RelocateDeclaration`/`RelocateFile`/`MovePackage`. But two more paths never touch it: `DeleteFile`/
-`DeletePackage` tombstone directly (`internal/store/tx.go:151,173`, via `Workspace.DropFile`/`Tombstone`)
-with no content swap, and same-package `MoveFile` (`Workspace.MoveFile`, `primitives.go:70`) just
-renames the existing `*File` in place. So the guard belongs at exactly three low-level primitives —
-`SwapFile`, `DropFile`/`Tombstone`, and same-package `MoveFile`'s rename path — not scattered across the
-13 `Tx`-level functions, and not a single true choke-point either; that's a separate, larger
-architectural question about write-path indirection in `internal/workspace`, parked for follow-up
-investigation, not part of this plan.
+**Enforcement points — three, not one, and now cleaner post-refactor.** Investigated directly rather
+than assumed: there is a true single convergence point for *installing new content* —
+`Workspace.SwapFile` (`internal/workspace/primitives.go`) — reached by every Create/Edit/Delete-symbol,
+Create/Delete-package, cross-package Move, rename, and relocate, either directly or via
+`ApplyFileSplices`/`RelocateDeclaration`/`RelocateFile`/`MovePackage`. Two more paths never touch it:
+`Workspace.DropFile` and `Workspace.DropPackage` (both now real `workspace`-level verbs as of the
+CRUD-verb redesign — `DropPackage` used to be raw `Tombstone`+`RemoveUnit` composition living directly
+in `Tx.DeletePackage`, which would have made this a fourth, messier site; it no longer is), which
+tombstone rather than swap content, and same-package `Workspace.MoveFile`, which just renames the
+existing `*File` in place with no content swap either. So the guard belongs at exactly three
+`workspace`-level primitives — `SwapFile`, `DropFile`/`DropPackage`, and same-package `MoveFile`'s
+rename path — not scattered across `Tx`'s functions at all anymore (a real improvement the CRUD-verb
+redesign delivered as a side effect: every one of these is now a clean `workspace` verb, not `Tx`
+composing raw primitives), and still not a single true choke-point; that's the separate, larger
+architectural question about write-path indirection this plan continues to park, not resolve.
 
 **Refusal shape:** mirror `KindExternal`'s existing pattern exactly
 (`internal/tools/edit.go:57-66`: `"%q is a dependency: writes stay scoped to the workspace"`) — same
@@ -168,22 +191,34 @@ externally, then disk_reload"`.
 
 ## Critical files
 
-- `internal/workspace/file.go` — where the new tracked directive-lines field and `IsGenerated`-style
-  detection belong on `workspace.File`.
-- `internal/store/tx.go:16-36,219-247,249-297` — `CreateFile`, `EditFile`, `EditSymbol`; new
-  `directives` parameter, `doc`'s nil-vs-empty fix, and Phase 4's generated-file guard call sites.
-- `internal/store/fragments.go:125-139` — `renderDocComment`; still relevant for rendering `doc` itself,
-  but no longer responsible for directive-grammar correctness now that directives are their own field.
-- `internal/workspace/primitives.go:35-53,70` — `SwapFile`, `MoveFile`; Phase 4's two of three
-  enforcement points.
-- `internal/store/tx.go:151,173` — `DeleteFile`/`DeletePackage`; Phase 4's third enforcement point.
+Referenced by symbol, not file:line — line numbers already went stale once mid-plan from an unrelated
+refactor, and gomcp's own tools deliberately never address by line for the same reason.
+
+- `workspace.File` (`internal/workspace/file.go`) — where the new tracked directive-lines field and
+  `IsGenerated`-style detection belong.
+- `workspace.Symbol` (`internal/workspace/symbol.go`) — where the symbol-level tracked `directives`
+  field belongs.
+- `Tx.CreateFile`/`Tx.EditFile` (`internal/store/tx.go`) — new `directives` parameter, `doc`'s
+  nil-vs-empty fix. Unchanged by the CRUD-verb refactor — both still call `Workspace.SwapFile` directly.
+- `Workspace.EditSymbol` (`internal/workspace/editing.go`) — where Phase 3's validation/drop-detection
+  actually belongs post-refactor (moved here from what used to be `Tx.EditSymbol`'s own body); returns
+  the dropped-lines result alongside its existing `(FilePath, error)`.
+- `Workspace.CreateSymbol` (`internal/workspace/placement.go`) — the equivalent home for any
+  Phase 1 directive-population logic on the create path.
+- `internal/workspace/fragments.go` — `RenderDocComment` (moved here from `internal/store` by the
+  CRUD-verb refactor, now exported); still relevant for rendering `doc` itself, but no longer
+  responsible for directive-grammar correctness now that directives are their own field.
+- `Workspace.SwapFile`, `Workspace.DropFile`, `Workspace.DropPackage`, same-package `Workspace.MoveFile`
+  (`internal/workspace/primitives.go`) — Phase 4's three enforcement points, all now real `workspace`
+  verbs (see Phase 4's updated note on `DropPackage`).
 - `internal/tools/creators.go`, `editors.go`, `describers.go`, `edit.go` — Phase 2/3's full presentation
-  blast radius, table above.
-- `internal/disk/disk.go:46,218` — confirms `NeedFiles`/`IgnoredFiles` already available, no load-mode
-  change needed for Phase 2's `ExcludedFiles`.
-- `internal/workspace/package.go:14-20` — `KindExternal`, the precedent Phase 4's refusal shape and
-  posture are modeled on.
-- `AGENTS.md`, `ROADMAP.md:113-134` — where this capability set gets documented/logged once shipped.
+  blast radius, table above. Unchanged by the CRUD-verb refactor (tools layer wasn't touched).
+- `internal/disk/disk.go` (`LoadInto`, `FetchExternal`) — confirms `NeedFiles`/`IgnoredFiles` already
+  available, no load-mode change needed for Phase 2's `ExcludedFiles`.
+- `workspace.KindExternal` (`internal/workspace/package.go`) — the precedent Phase 4's refusal shape
+  and posture are modeled on.
+- `AGENTS.md`, `ROADMAP.md` (Known Limitations section) — where this capability set gets documented/
+  logged once shipped.
 
 ## Verification
 

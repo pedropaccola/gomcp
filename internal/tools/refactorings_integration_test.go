@@ -8,8 +8,8 @@ import (
 )
 
 func TestMoveFileEchoKeepsNonVacatedSource(t *testing.T) {
-	eng := sandboxStore(t)
-	_, out, err := moveFile(eng, testCfg())(context.Background(), nil, MoveFileInput{
+	st := sandboxStore(t)
+	_, out, err := moveFile(st, testCfg())(context.Background(), nil, MoveFileInput{
 		PkgPath: "mvsrc", FileName: "standalone.go", NewPkgPath: new("mvdest"),
 	})
 	if err != nil {
@@ -24,8 +24,8 @@ func TestMoveFileEchoKeepsNonVacatedSource(t *testing.T) {
 }
 
 func TestMoveFileEchoKeepsSamePackageRenameTogether(t *testing.T) {
-	eng := sandboxStore(t)
-	_, out, err := moveFile(eng, testCfg())(context.Background(), nil, MoveFileInput{
+	st := sandboxStore(t)
+	_, out, err := moveFile(st, testCfg())(context.Background(), nil, MoveFileInput{
 		PkgPath: "shapes", FileName: "groups.go", NewFileName: new("groups2.go"),
 	})
 	if err != nil {
@@ -38,8 +38,8 @@ func TestMoveFileEchoKeepsSamePackageRenameTogether(t *testing.T) {
 }
 
 func TestMoveFileEchoOmitsVacatedSource(t *testing.T) {
-	eng := sandboxStore(t)
-	_, out, err := moveFile(eng, testCfg())(context.Background(), nil, MoveFileInput{
+	st := sandboxStore(t)
+	_, out, err := moveFile(st, testCfg())(context.Background(), nil, MoveFileInput{
 		PkgPath: "mvalpha", FileName: "mvalpha.go", NewPkgPath: new("mvbeta"),
 	})
 	if err != nil {
@@ -54,8 +54,8 @@ func TestMoveFileEchoOmitsVacatedSource(t *testing.T) {
 }
 
 func TestMovePackageEchoOmitsVacatedSource(t *testing.T) {
-	eng := sandboxStore(t)
-	_, out, err := movePackage(eng, testCfg())(context.Background(), nil, MovePackageInput{
+	st := sandboxStore(t)
+	_, out, err := movePackage(st, testCfg())(context.Background(), nil, MovePackageInput{
 		PkgPath: "shapes", NewPkgPath: "geo",
 	})
 	if err != nil {
@@ -70,21 +70,21 @@ func TestMovePackageEchoOmitsVacatedSource(t *testing.T) {
 }
 
 func TestMoveSymbolInputWiring(t *testing.T) {
-	eng := sandboxStore(t)
+	st := sandboxStore(t)
 
-	if _, _, err := moveSymbol(eng, testCfg())(context.Background(), nil, MoveSymbolInput{
+	if _, _, err := moveSymbol(st, testCfg())(context.Background(), nil, MoveSymbolInput{
 		PkgPath: "shapes", SymbolKey: "NotShape", NewSymbolKey: new("AlsoNotShape"),
 	}); err != nil {
 		t.Fatalf("refactor_move_symbol rename: %v", err)
 	}
 
-	if _, _, err := moveSymbol(eng, testCfg())(context.Background(), nil, MoveSymbolInput{
+	if _, _, err := moveSymbol(st, testCfg())(context.Background(), nil, MoveSymbolInput{
 		PkgPath: "shapes", SymbolKey: "Circle.Area", NewSymbolKey: new("Square.Extent"),
 	}); err == nil || !strings.Contains(err.Error(), "cannot change") {
 		t.Errorf("mismatched receiver via refactor_move_symbol must be refused, got %v", err)
 	}
 
-	if _, _, err := moveSymbol(eng, testCfg())(context.Background(), nil, MoveSymbolInput{
+	if _, _, err := moveSymbol(st, testCfg())(context.Background(), nil, MoveSymbolInput{
 		PkgPath: "shapes", SymbolKey: "Circle.Area", NewSymbolKey: new("Circle.Extent"),
 	}); err != nil {
 		t.Fatalf("refactor_move_symbol qualified method rename: %v", err)
@@ -92,16 +92,16 @@ func TestMoveSymbolInputWiring(t *testing.T) {
 }
 
 func TestMoveSymbolInputWiringSymbolKeysBatch(t *testing.T) {
-	eng := sandboxStore(t)
+	st := sandboxStore(t)
 
-	if _, _, err := moveSymbol(eng, testCfg())(context.Background(), nil, MoveSymbolInput{
+	if _, _, err := moveSymbol(st, testCfg())(context.Background(), nil, MoveSymbolInput{
 		PkgPath: "mvsrc", SymbolKeys: []string{"Box", "Box.M", "Box.AreaOfBox"},
 		NewPkgPath: new("mvdest"), NewFileName: new("box.go"),
 	}); err != nil {
 		t.Fatalf("refactor_move_symbol symbol_keys batch: %v", err)
 	}
 
-	if _, _, err := moveSymbol(eng, testCfg())(context.Background(), nil, MoveSymbolInput{
+	if _, _, err := moveSymbol(st, testCfg())(context.Background(), nil, MoveSymbolInput{
 		PkgPath: "shapes", SymbolKey: "NotShape", SymbolKeys: []string{"NotShape"},
 	}); err == nil || !strings.Contains(err.Error(), "not both") {
 		t.Errorf("symbol_key and symbol_keys together must be refused, got %v", err)
