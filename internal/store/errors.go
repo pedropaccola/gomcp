@@ -11,8 +11,3 @@ func errNoFile(name string, pkg any) error {
 func errFileExists(path any) error {
 	return fmt.Errorf("file %q already exists", path)
 }
-
-// errSymbolExists reports that key already names a symbol in pkg.
-func errSymbolExists(key string, pkg any) error {
-	return fmt.Errorf("symbol %q already exists in %q", key, pkg)
-}

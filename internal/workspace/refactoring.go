@@ -749,8 +749,7 @@ func (w *Workspace) MovePackage(oldPkg, newPkg PackagePath, renameName bool, old
 	for _, h := range halves {
 		for _, file := range h.orig.Files() {
 			newPath := newPkg.File(file.Path.Base())
-			w.Tombstone(oldPkg, file.Path, h.orig.Name)
-			w.ClearTombstone(newPath)
+			w.tombstone(oldPkg, file.Path, h.orig.Name)
 			touched = append(touched, file.Path, newPath)
 			candidate := file.Src()
 			if renameName {
@@ -772,7 +771,7 @@ func (w *Workspace) MovePackage(oldPkg, newPkg PackagePath, renameName bool, old
 			}
 		}
 	}
-	w.RemoveUnit(oldPkg)
+	w.removeUnit(oldPkg)
 	return touched, nil
 }
 

@@ -11,10 +11,10 @@ func tombstoneMask(pkgName string) []byte {
 	return []byte("package " + pkgName + "\n")
 }
 
-// Tombstone masks a path as removed for the next recheck and flush,
+// tombstone masks a path as removed for the next recheck and flush,
 // recording the package that owned it so later consumers (the recheck's
 // tombstone sweep) never have to re-derive it from the path.
-func (w *Workspace) Tombstone(pkg PackagePath, path FilePath, pkgName string) {
+func (w *Workspace) tombstone(pkg PackagePath, path FilePath, pkgName string) {
 	w.ensureRemovedForked()
 	w.removed[path] = tombstoneEntry{pkg: pkg, mask: tombstoneMask(pkgName)}
 }

@@ -92,12 +92,12 @@ func (w *Workspace) Reset(module PackagePath, fset *token.FileSet, units map[Pac
 	w.externalFset = token.NewFileSet()
 }
 
-// SwapLoaded replaces the units and their position table with a recheck's
+// Rebuild replaces the units and their position table with a recheck's
 // output, keeping tombstones, module identity, and the dependency cache —
 // the post-mutation swap. narrow marks whether this was a dirty-scoped
 // recheck (some packages carried forward from an earlier session) rather
 // than a full one — see narrowlyChecked.
-func (w *Workspace) SwapLoaded(fset *token.FileSet, units map[PackagePath]*Unit, narrow bool) {
+func (w *Workspace) Rebuild(fset *token.FileSet, units map[PackagePath]*Unit, narrow bool) {
 	w.fset = fset
 	w.units = units
 	w.narrowlyChecked = narrow
@@ -137,16 +137,19 @@ func (w *Workspace) UnitKeys() []PackagePath {
 }
 
 // InstallUnit maps a unit at an address; creation and package moves end
-// here.
+// here. Exported for tests only (internal/testutil's fixture builders
+// construct workspace states no production verb needs to reach, like a
+// package with pre-seeded diagnostics) — CreatePackage/MovePackage are
+// the real production doors onto this.
 func (w *Workspace) InstallUnit(pkg PackagePath, unit *Unit) {
 	w.ensureUnitsForked()
 	w.units[pkg] = unit
 }
 
-// RemoveUnit unmaps an address without tombstoning its files — package
+// removeUnit unmaps an address without tombstoning its files — package
 // moves relocate files individually first. DeletePackage-style removal
 // tombstones each file, then removes the unit.
-func (w *Workspace) RemoveUnit(pkg PackagePath) {
+func (w *Workspace) removeUnit(pkg PackagePath) {
 	w.ensureUnitsForked()
 	delete(w.units, pkg)
 }

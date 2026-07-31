@@ -3,6 +3,7 @@ package workspace
 import (
 	"fmt"
 	"go/parser"
+	"go/token"
 	"maps"
 
 	"golang.org/x/tools/imports"
@@ -59,8 +60,7 @@ func (w *Workspace) DropFile(addr PackagePath, isXTest bool, path FilePath) {
 	owner := w.ensurePackageForked(addr, isXTest)
 	delete(owner.files, path)
 	owner.RebuildIndex()
-	w.ensureRemovedForked()
-	w.removed[path] = tombstoneEntry{pkg: addr, mask: tombstoneMask(owner.Name)}
+	w.tombstone(addr, path, owner.Name)
 	w.pruneEmptyUnit(addr)
 }
 
@@ -75,9 +75,8 @@ func (w *Workspace) MoveFile(addr PackagePath, isXTest bool, oldPath, newPath Fi
 	moved.dirty = true
 	delete(owner.files, oldPath)
 	owner.files[newPath] = &moved
-	w.ensureRemovedForked()
-	w.removed[oldPath] = tombstoneEntry{pkg: addr, mask: tombstoneMask(owner.Name)}
-	delete(w.removed, newPath)
+	w.tombstone(addr, oldPath, owner.Name)
+	w.ClearTombstone(newPath)
 	owner.RebuildIndex()
 }
 
@@ -161,6 +160,55 @@ func (w *Workspace) ensurePackageForked(addr PackagePath, isXTest bool) *Package
 // other mutating primitive.
 func (w *Workspace) MarkFlushed(addr PackagePath, isXTest bool, path FilePath) {
 	w.ensurePackageForked(addr, isXTest).MarkFlushed(path)
+}
+
+// CreatePackage creates a new package at a module-prefixed address with
+// one stub file named after the package (name defaults to the address
+// base) — the verb DeletePackage/DropPackage's own construction mirrors,
+// finally given a home here instead of being hand-assembled by callers
+// outside this package. Fails if the address already holds a package, is
+// outside the module, or name isn't a valid identifier. Returns the stub
+// file's path.
+func (w *Workspace) CreatePackage(pkg PackagePath, name string) (FilePath, error) {
+	if pkg == w.module {
+		return "", OutsideModuleCreateError(pkg, w.module)
+	}
+	if _, exists := w.Unit(pkg); exists {
+		return "", PackageExistsError(pkg)
+	}
+	if name == "" {
+		name = pkg.Base()
+	}
+	if !token.IsIdentifier(name) {
+		return "", InvalidPackageNameError(name)
+	}
+	w.InstallUnit(pkg, NewUnit(NewPackage(name, pkg, KindProd, nil, nil), nil))
+	path := pkg.File(name + ".go")
+	if err := w.SwapFile(pkg, false, path, []byte("package "+name+"\n")); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// DropPackage removes a whole package address at once: every member
+// file tombstoned, then the unit itself — the efficient counterpart to
+// tombstoning each file through DropFile, which would also rebuild the
+// index and prune per file for a unit about to be discarded wholesale
+// regardless. Idempotent: a missing package is a noop, not a failure.
+func (w *Workspace) DropPackage(pkg PackagePath) []FilePath {
+	unit, ok := w.Unit(pkg)
+	if !ok {
+		return nil
+	}
+	var touched []FilePath
+	for _, p := range unit.Members() {
+		for _, file := range p.Files() {
+			w.tombstone(pkg, file.Path, p.Name)
+			touched = append(touched, file.Path)
+		}
+	}
+	w.removeUnit(pkg)
+	return touched
 }
 
 // DropTombstonedFile removes path from a freshly loaded unit map — the load-path

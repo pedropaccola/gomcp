@@ -3,26 +3,27 @@ package store
 import (
 	"fmt"
 	"go/token"
-	"slices"
+	"strings"
 
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 // CreateFile adds an empty file to an existing package, optionally seeded
 // with a package doc comment. pkg may name a unit's XTest half via its
-// own "_test"-suffixed address (workspace.Workspace.EnsurePackage),
+// own "_test"-suffixed address (workspace.Workspace.EnsureXTest),
 // installing that half — and a fresh Prod sibling too, if the whole
 // package is new — the first time something targets it.
 func (tx *Tx) CreateFile(pkg workspace.PackageID, name, doc string) error {
-	p, freshProd, err := tx.ws.EnsurePackage(pkg)
+	p, freshProd, err := tx.ws.EnsureXTest(pkg)
 	if err != nil {
 		return err
 	}
 	if freshProd != nil {
 		stub := freshProd.ID.Base().File(freshProd.Name + ".go")
-		if err := tx.installFile(freshProd.ID.Base(), false, stub, []byte("package "+freshProd.Name+"\n")); err != nil {
+		if err := tx.ws.SwapFile(freshProd.ID.Base(), false, stub, []byte("package "+freshProd.Name+"\n")); err != nil {
 			return err
 		}
+		tx.markChanged(stub)
 	}
 	path, err := workspace.NewFilePath(tx.ws.Module(), p.ID.Base(), name)
 	if err != nil {
@@ -31,117 +32,36 @@ func (tx *Tx) CreateFile(pkg workspace.PackageID, name, doc string) error {
 	if _, _, exists := tx.ws.ResolveFileByPath(path); exists {
 		return fmt.Errorf("file %q already exists", path)
 	}
-	content := string(renderDocComment(doc)) + "package " + p.Name + "\n"
-	return tx.installFile(p.ID.Base(), p.ID.Kind() == workspace.KindXTest, path, []byte(content))
+	content := string(workspace.RenderDocComment(doc)) + "package " + p.Name + "\n"
+	if err := tx.ws.SwapFile(p.ID.Base(), p.ID.Kind() == workspace.KindXTest, path, []byte(content)); err != nil {
+		return err
+	}
+	tx.markChanged(path)
+	return nil
 }
 
 // CreatePackage creates a new package at a module-prefixed address with one
 // file named after the package. name defaults to the address base. Fails if
 // the address already holds a package; the directory is created at Flush.
 func (tx *Tx) CreatePackage(pkg workspace.PackagePath, name string) error {
-	if pkg == tx.ws.Module() {
-		return workspace.OutsideModuleCreateError(pkg, tx.ws.Module())
+	path, err := tx.ws.CreatePackage(pkg, name)
+	if err != nil {
+		return err
 	}
-	if _, exists := tx.ws.Unit(pkg); exists {
-		return workspace.PackageExistsError(pkg)
-	}
-	if name == "" {
-		name = pkg.Base()
-	}
-	if !token.IsIdentifier(name) {
-		return workspace.InvalidPackageNameError(name)
-	}
-	tx.ws.InstallUnit(pkg, workspace.NewUnit(workspace.NewPackage(name, pkg, workspace.KindProd, nil, nil), nil))
-	return tx.installFile(pkg, false, pkg.File(name+".go"), []byte("package "+name+"\n"))
+	tx.markChanged(path)
+	return nil
 }
 
 // CreateSymbol adds one new top-level declaration to a file of an existing
-// package, at its canonical position. pkg may name a unit's XTest half
-// via its own "_test"-suffixed address (workspace.Workspace.EnsurePackage),
-// installing that half — and a fresh Prod sibling too, if the whole
-// package is new — the first time something targets it. The file is
-// required, never inferred — but a missing file inside the package is
-// created implicitly, since creation cannot destroy. A new plain
-// (non-position-dependent) const or var merges into the file's existing
-// grouped block of the same kind, if one already exists — keeping
-// placement decisions meaningful instead of proliferating interchangeable,
-// unaddressable group shells; a new group is only created when none
-// exists yet, and a standalone declaration is never retroactively
-// converted into one. A new iota (position-dependent) group never merges
-// — it always starts its own — and is placed next to its shared type's
-// own declaration when typed and that type is in this file, the same
-// clustering declPrecedes already gives methods with their receiver;
-// otherwise it falls to the standard const/var region, same as an
-// untyped iota group always does.
+// package, at its canonical position. See Workspace.CreateSymbol for the
+// full placement policy.
 func (tx *Tx) CreateSymbol(pkg workspace.PackageID, fileName, src string) error {
-	p, freshProd, err := tx.ws.EnsurePackage(pkg)
+	touched, err := tx.ws.CreateSymbol(pkg, fileName, src)
 	if err != nil {
 		return err
 	}
-	if freshProd != nil {
-		stub := freshProd.ID.Base().File(freshProd.Name + ".go")
-		if err := tx.installFile(freshProd.ID.Base(), false, stub, []byte("package "+freshProd.Name+"\n")); err != nil {
-			return err
-		}
-	}
-	canon := p.ID.Base()
-	isXTest := p.ID.Kind() == workspace.KindXTest
-	frag, err := parseDeclFragment(src)
-	if err != nil {
-		return err
-	}
-	for _, key := range frag.keys {
-		if key == "init" {
-			continue // any number of init functions is legal
-		}
-		if _, exists := p.Symbol(key); exists {
-			return errSymbolExists(key, pkg)
-		}
-	}
-	path, err := workspace.NewFilePath(tx.ws.Module(), canon, fileName)
-	if err != nil {
-		return err
-	}
-	file, ok := p.File(path)
-	if !ok {
-		candidate := []byte("package " + p.Name + "\n\n" + src + "\n")
-		return tx.installFile(canon, isXTest, path, candidate)
-	}
-
-	if (frag.kind == workspace.KindConst || frag.kind == workspace.KindVar) && !frag.usesIota {
-		tok := token.CONST
-		if frag.kind == workspace.KindVar {
-			tok = token.VAR
-		}
-		if at, ok := tx.ws.MergeableGroupInsertOffset(canon, path, tok); ok {
-			specs, _, err := constVarEntries(src)
-			if err != nil {
-				return err
-			}
-			sp, ok := tx.ws.NewSpliceAtOffset(p, path, at.ToByteRange(), []byte("\n"+specs+"\n"))
-			if !ok {
-				return workspace.NoInsertionPointError(path)
-			}
-			return tx.installFile(canon, isXTest, path, workspace.ByteSplices{sp}.Apply(file.Src()))
-		}
-	}
-
-	at, ok := tx.ws.InsertOffset(canon, path, frag.kind, frag.recv)
-	if !ok {
-		return workspace.NoInsertionPointError(path)
-	}
-	if frag.kind == workspace.KindConst && frag.usesIota {
-		if _, typeName, terr := constVarEntries(src); terr == nil && typeName != "" {
-			if anchor, ok := tx.ws.TypeDeclOffset(canon, path, typeName); ok {
-				at = anchor
-			}
-		}
-	}
-	sp, ok := tx.ws.NewSpliceAtOffset(p, path, at.ToByteRange(), []byte("\n\n"+src+"\n"))
-	if !ok {
-		return workspace.NoInsertionPointError(path)
-	}
-	return tx.installFile(canon, isXTest, path, workspace.ByteSplices{sp}.Apply(file.Src()))
+	tx.markChanged(touched...)
+	return nil
 }
 
 // DeleteFile removes one file and every declaration in it, tombstoning the
@@ -171,49 +91,22 @@ func (tx *Tx) DeleteFile(pkg workspace.PackagePath, name string) error {
 // DeletePackage removes a whole package address, tombstoning every file.
 // Deletion is idempotent: a missing package is a noop, not a failure.
 func (tx *Tx) DeletePackage(pkg workspace.PackagePath) error {
-	unit, ok := tx.ws.Unit(pkg)
-	if !ok {
-		return nil
-	}
-	for _, p := range unit.Members() {
-		for _, file := range p.Files() {
-			tx.ws.Tombstone(pkg, file.Path, p.Name)
-			tx.markChanged(file.Path)
-		}
-	}
-	tx.ws.RemoveUnit(pkg)
+	tx.markChanged(tx.ws.DropPackage(pkg)...)
 	return nil
 }
 
-// DeleteSymbol removes key's declaration — its spec alone when it lives in
-// a grouped declaration with siblings, unless its value is derived from
-// its position (iota, or inheriting the previous spec's expression), in
-// which case the whole group is removed together. Deleting one member of
-// a position-dependent group and leaving the rest as-is has no single
-// correct resolution (keep everyone else's original values? renumber
-// them?) — a whole-group replacement states explicitly what the agent
-// wants, not a guess this verb would have to make.
-//
-// A name sharing a *ast.ValueSpec with others (`var a, b int`, `var a, b
-// = f()`) is trimmed from the spec instead of taking the others down with
-// it — see Workspace.DeletionSplices. Once no real name remains, the spec
-// collapses to a full removal, same as deleting a solo name.
-//
-// Deletion is idempotent: a missing symbol is a noop, not a failure.
+// DeleteSymbol removes key's declaration. Idempotent: a missing symbol is
+// a noop, not a failure. See Workspace.DeleteSymbol for the full removal
+// policy.
 func (tx *Tx) DeleteSymbol(pkg workspace.PackagePath, key string) error {
-	splices, found, err := tx.ws.ComputeDeletionSplices(pkg, key)
+	path, found, err := tx.ws.DeleteSymbol(pkg, key)
 	if err != nil {
 		return err
 	}
-	if !found {
-		return nil
+	if found {
+		tx.markChanged(path)
 	}
-	path := splices[0].Path
-	file, owner, ok := tx.ws.ResolveFileByPath(path)
-	if !ok {
-		return workspace.VanishedError(path, fmt.Sprintf("while deleting %q", key))
-	}
-	return tx.installFile(pkg, owner.ID.Kind() == workspace.KindXTest, path, splices.Apply(file.Src()))
+	return nil
 }
 
 // EditFile replaces or clears a file's package doc comment — the comment
@@ -238,62 +131,27 @@ func (tx *Tx) EditFile(pkg workspace.PackagePath, name, doc string) error {
 	if astFile.Doc != nil {
 		docPos = astFile.Doc.Pos()
 	}
-	sp, ok := tx.ws.NewSpliceAtPos(p, path, docPos, docEnd, renderDocComment(doc))
+	sp, ok := tx.ws.NewSpliceAtPos(p, path, docPos, docEnd, workspace.RenderDocComment(doc))
 	if !ok {
 		return fmt.Errorf("cannot locate doc comment span in %q", path)
 	}
 	candidate := workspace.ByteSplices{sp}.Apply(file.Src())
-	return tx.installFile(pkg, false, path, candidate)
+	if err := tx.ws.SwapFile(pkg, false, path, candidate); err != nil {
+		return err
+	}
+	tx.markChanged(path)
+	return nil
 }
 
-// EditSymbol replaces key's whole declaration with src — for members of
-// grouped declarations, src is the member's spec as written inside the
-// group. A replacement may rename; the new key must not collide.
-// For a member of a position-dependent const group (iota, or inheriting
-// the previous spec's expression), src must be the group's whole
-// intended state — every member's spec, not just key's own, still bare
-// (no group keyword/parens — those are reconstructed) — since a partial
-// replacement would silently drop whatever isn't mentioned; the
-// targeted key itself must still be present, or the edit is refused (use
-// MoveSymbol to rename a group member instead, which propagates
-// references correctly and is the only tool that can). Editing a
-// non-position-dependent group member to introduce iota is refused —
-// that converts the group's structure, not just one value, and isn't
-// supported through a single member's replacement.
+// EditSymbol replaces key's whole declaration with src. See
+// Workspace.EditSymbol for the full replacement policy.
 func (tx *Tx) EditSymbol(pkg workspace.PackagePath, key, src string) error {
-	wasPositionDependent, groupTok, target, err := tx.ws.ComputeEditPlan(pkg, key)
+	path, err := tx.ws.EditSymbol(pkg, key, src)
 	if err != nil {
 		return err
 	}
-	var frag fragment
-	replacement := src
-	switch {
-	case wasPositionDependent:
-		frag, err = parseSpecFragment(groupTok, src)
-		replacement = groupTok.String() + " (\n" + src + "\n)"
-	case groupTok != token.ILLEGAL:
-		frag, err = parseSpecFragment(groupTok, src)
-		if err == nil && frag.usesIota {
-			err = fmt.Errorf("%q would introduce iota into a group that doesn't use it: converting a plain group into a position-dependent one isn't supported through a single member's replacement", key)
-		}
-	default:
-		frag, err = parseDeclFragment(src)
-	}
-	if err != nil {
-		return err
-	}
-	if wasPositionDependent && !slices.Contains(frag.keys, key) {
-		return fmt.Errorf("%q is missing from the replacement: a position-dependent group member can't be renamed through a single member's replacement", key)
-	}
-	if collisions := tx.ws.DetectEditCollisions(pkg, key, frag.keys); len(collisions) > 0 {
-		return fmt.Errorf("replacement declares %q, which already exists in %q", collisions[0], pkg)
-	}
-	file, owner, ok := tx.ws.ResolveFileByPath(target.Path)
-	if !ok {
-		return workspace.VanishedError(target.Path, fmt.Sprintf("while editing %q", key))
-	}
-	target.Repl = []byte(replacement)
-	return tx.installFile(pkg, owner.ID.Kind() == workspace.KindXTest, target.Path, workspace.ByteSplices{target}.Apply(file.Src()))
+	tx.markChanged(path)
+	return nil
 }
 
 // MoveFile relocates a file to another package (newPkgPath) and/or gives
@@ -410,7 +268,7 @@ func (tx *Tx) MovePackage(oldPkg, newPkg workspace.PackagePath) error {
 // surviving use site (Workspace.ComputeQualifierFixups): a same-package
 // reference gains the destination's qualifier, one already qualified
 // toward the destination loses it, and any other qualifier is repointed
-// — see relocateSymbol. Moves never cross the test build boundary, and
+// — see relocateSymbols. Moves never cross the test build boundary, and
 // the destination file is created when missing.
 func (tx *Tx) MoveSymbol(pkg workspace.PackagePath, key string, newPkgPath workspace.PackagePath, newFileName, newSymbolKey string) error {
 	if newPkgPath != "" && newFileName == "" {
@@ -446,7 +304,7 @@ func (tx *Tx) MoveSymbol(pkg workspace.PackagePath, key string, newPkgPath works
 	if newPkgPath != "" {
 		destPkg = newPkgPath
 	}
-	return tx.relocateSymbol(pkg, destPkg, workingKey, newFileName)
+	return tx.relocateSymbols(pkg, destPkg, []string{workingKey}, newFileName)
 }
 
 // MoveSymbolGroup relocates several symbols from pkg to the same
@@ -457,7 +315,7 @@ func (tx *Tx) MoveSymbol(pkg workspace.PackagePath, key string, newPkgPath works
 // combined rename, since renaming applies per-symbol and combining it
 // with an N-symbol batch multiplies the interface for a combination
 // nobody's asked for — rename first with MoveSymbol, then move. Composes
-// on Workspace.RelocateSymbols for the actual mechanics.
+// on relocateSymbols for the actual mechanics.
 func (tx *Tx) MoveSymbolGroup(pkg workspace.PackagePath, keys []string, newPkgPath workspace.PackagePath, newFileName string) error {
 	if len(keys) < 2 {
 		return fmt.Errorf("MoveSymbolGroup needs at least two keys: moving exactly one symbol already has its own single-key path")
@@ -466,29 +324,17 @@ func (tx *Tx) MoveSymbolGroup(pkg workspace.PackagePath, keys []string, newPkgPa
 	if newPkgPath != "" {
 		destPkg = newPkgPath
 	}
-	destOwner, ok := tx.ws.ProdPackage(destPkg)
-	if !ok {
-		return workspace.NoPackageError(destPkg)
-	}
-	destPath, err := workspace.NewFilePath(tx.ws.Module(), destOwner.ID.Base(), newFileName)
-	if err != nil {
-		return err
-	}
-	touched, err := tx.ws.RelocateSymbols(pkg, destPkg, keys, destPath)
-	if err != nil {
-		return err
-	}
-	tx.markChanged(touched...)
-	return nil
+	return tx.relocateSymbols(pkg, destPkg, keys, newFileName)
 }
 
-// relocateSymbol is MoveSymbol's file-relocation half: extract key's
-// declaration from srcPkg and splice it into a file of destPkg (destPkg
-// equals srcPkg for a same-package move). destPkg must already exist.
-// Composes on Workspace.RelocateSymbols for the actual mechanics — see
-// its own doc comment for the conflict/qualifier-fixup guarantees.
-// Private: composed by MoveSymbol, never called standalone.
-func (tx *Tx) relocateSymbol(srcPkg, destPkg workspace.PackagePath, key, fileName string) error {
+// relocateSymbols is MoveSymbol's and MoveSymbolGroup's shared
+// file-relocation half: extract keys' declarations from srcPkg and splice
+// them into a file of destPkg (destPkg equals srcPkg for a same-package
+// move). destPkg must already exist. Composes on Workspace.RelocateSymbols
+// for the actual mechanics — see its own doc comment for the
+// conflict/qualifier-fixup guarantees. Private: composed by MoveSymbol
+// (single key) and MoveSymbolGroup (several), never called standalone.
+func (tx *Tx) relocateSymbols(srcPkg, destPkg workspace.PackagePath, keys []string, fileName string) error {
 	destOwner, ok := tx.ws.ProdPackage(destPkg)
 	if !ok {
 		return workspace.NoPackageError(destPkg)
@@ -497,7 +343,7 @@ func (tx *Tx) relocateSymbol(srcPkg, destPkg workspace.PackagePath, key, fileNam
 	if err != nil {
 		return err
 	}
-	touched, err := tx.ws.RelocateSymbols(srcPkg, destPkg, []string{key}, destPath)
+	touched, err := tx.ws.RelocateSymbols(srcPkg, destPkg, keys, destPath)
 	if err != nil {
 		return err
 	}
@@ -511,7 +357,7 @@ func (tx *Tx) relocateSymbol(srcPkg, destPkg workspace.PackagePath, key, fileNam
 // matched by qualified name. Renames exactly this one object — renaming an
 // interface method does not chase implementors; broken satisfactions
 // arrive in the echo instead. Private: the public verb is MoveSymbol,
-// which composes this with relocateSymbol.
+// which composes this with relocateSymbols.
 func (tx *Tx) renameSymbol(pkg workspace.PackagePath, key, newName string) error {
 	if !token.IsIdentifier(newName) {
 		return fmt.Errorf("%q is not a valid identifier", newName)
@@ -522,7 +368,7 @@ func (tx *Tx) renameSymbol(pkg workspace.PackagePath, key, newName string) error
 	}
 	newKey := workspace.MethodKey(sym.Recv, newName)
 	if _, exists := owner.Symbol(newKey); exists {
-		return errSymbolExists(newKey, pkg)
+		return workspace.SymbolExistsError(newKey, pkg)
 	}
 
 	var edits workspace.ByteSplices
@@ -530,7 +376,7 @@ func (tx *Tx) renameSymbol(pkg workspace.PackagePath, key, newName string) error
 	if sp, ok := tx.ws.NewSpliceAtPos(owner, sym.File, def.Pos(), def.End(), []byte(newName)); ok {
 		edits = append(edits, sp)
 	}
-	if from, to, ok := workspace.LeadingDocWord(symbolDoc(sym), "", sym.Name); ok {
+	if from, to, ok := workspace.LeadingDocWord(workspace.SymbolDoc(sym), "", sym.Name); ok {
 		if sp, ok := tx.ws.NewSpliceAtPos(owner, sym.File, from, to, []byte(newName)); ok {
 			edits = append(edits, sp)
 		}
@@ -540,5 +386,95 @@ func (tx *Tx) renameSymbol(pkg workspace.PackagePath, key, newName string) error
 		return err
 	}
 	edits = append(edits, uses...)
-	return tx.applyFileSplices(edits)
+	touched, err := tx.ws.ApplyFileSplices(edits)
+	if err != nil {
+		return err
+	}
+	tx.markChanged(touched...)
+	return nil
+}
+
+// RepairMissingImports is the bounded self-repair pass behind Store.Edit:
+// when a recheck reports "undefined: X" and X names exactly one
+// in-memory package, the missing import is spliced in. goimports cannot
+// discover packages that exist only in memory (it scans disk), and
+// imports are not agent-addressable, so the server must cover its own
+// blind spot. Best-effort by design: ambiguous names and failed splices
+// leave the diagnostic standing, and a wrong repair (an ident that merely
+// collides with a package name) surfaces as an ordinary diagnostic on the
+// next echo while goimports drops the then-unused import on the file's
+// next reload.
+func (tx *Tx) RepairMissingImports() bool {
+	// Unique importable package names known to the workspace.
+	candidates := make(map[string]workspace.PackagePath) // package name -> import path
+	ambiguous := make(map[string]bool)
+	for _, addr := range tx.ws.UnitKeys() {
+		unit, _ := tx.ws.Unit(addr)
+		pkg := unit.Prod()
+		if pkg == nil || pkg.ID.Base() == "" || pkg.Name == "main" {
+			continue
+		}
+		if _, dup := candidates[pkg.Name]; dup {
+			ambiguous[pkg.Name] = true
+			delete(candidates, pkg.Name)
+			continue
+		}
+		candidates[pkg.Name] = pkg.ID.Base()
+	}
+
+	needed := make(map[workspace.FilePath]map[string]bool) // file -> import paths
+	for _, diag := range tx.AllDiagnostics() {
+		if diag.Kind != workspace.DiagType || diag.File == "" {
+			continue
+		}
+		name, found := strings.CutPrefix(diag.Msg, "undefined: ")
+		if !found || !token.IsIdentifier(name) || ambiguous[name] {
+			continue
+		}
+		path, ok := candidates[name]
+		if !ok {
+			continue
+		}
+		file, owner, ok := tx.ws.ResolveFileByPath(diag.File)
+		if !ok || owner.ID.Base() == path || workspace.ImportsPath(file.Ast(), string(path)) {
+			continue
+		}
+		if needed[diag.File] == nil {
+			needed[diag.File] = make(map[string]bool)
+		}
+		needed[diag.File][string(path)] = true
+	}
+
+	repaired := false
+	for _, filePath := range sortedKeys(needed) {
+		file, owner, ok := tx.ws.ResolveFileByPath(filePath)
+		if !ok {
+			continue
+		}
+		var repl strings.Builder
+		for _, path := range sortedKeys(needed[filePath]) {
+			fmt.Fprintf(&repl, "\n\nimport %q", path)
+		}
+		insertAt := file.Ast().Name.End()
+		sp, ok := tx.ws.NewSpliceAtPos(owner, filePath, insertAt, insertAt, []byte(repl.String()))
+		if !ok {
+			continue
+		}
+		candidate := workspace.ByteSplices{sp}.Apply(file.Src())
+		addr := filePath.PackagePath()
+		if err := tx.ws.SwapFile(addr, owner.ID.Kind() == workspace.KindXTest, filePath, candidate); err != nil {
+			continue // repair is best-effort; the diagnostic stays visible
+		}
+		tx.markChanged(filePath)
+		repaired = true
+	}
+	return repaired
+}
+
+// markChanged records paths as changed by this transaction; every verb reports
+// its footprint here regardless of prior dirtiness.
+func (tx *Tx) markChanged(paths ...workspace.FilePath) {
+	for _, path := range paths {
+		tx.changed[path] = true
+	}
 }

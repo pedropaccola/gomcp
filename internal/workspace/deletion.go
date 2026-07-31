@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 )
@@ -100,4 +101,39 @@ func (w *Workspace) ComputeDeletionSplices(pkg PackagePath, key string) (splices
 		return nil, true, errNotInSource(key)
 	}
 	return ByteSplices{splice}, true, nil
+}
+
+// DeleteSymbol removes key's declaration — its spec alone when it lives in
+// a grouped declaration with siblings, unless its value is derived from
+// its position (iota, or inheriting the previous spec's expression), in
+// which case the whole group is removed together. Deleting one member of
+// a position-dependent group and leaving the rest as-is has no single
+// correct resolution (keep everyone else's original values? renumber
+// them?) — a whole-group replacement states explicitly what the agent
+// wants, not a guess this verb would have to make.
+//
+// A name sharing a *ast.ValueSpec with others (`var a, b int`, `var a, b
+// = f()`) is trimmed from the spec instead of taking the others down with
+// it — see ComputeDeletionSplices. Once no real name remains, the spec
+// collapses to a full removal, same as deleting a solo name.
+//
+// Deletion is idempotent: a missing symbol is a noop, not a failure.
+// Returns the file touched and whether key was actually found.
+func (w *Workspace) DeleteSymbol(pkg PackagePath, key string) (FilePath, bool, error) {
+	splices, found, err := w.ComputeDeletionSplices(pkg, key)
+	if err != nil {
+		return "", false, err
+	}
+	if !found {
+		return "", false, nil
+	}
+	path := splices[0].Path
+	file, owner, ok := w.ResolveFileByPath(path)
+	if !ok {
+		return "", false, VanishedError(path, fmt.Sprintf("while deleting %q", key))
+	}
+	if err := w.SwapFile(pkg, owner.ID.Kind() == KindXTest, path, splices.Apply(file.Src())); err != nil {
+		return "", false, err
+	}
+	return path, true, nil
 }

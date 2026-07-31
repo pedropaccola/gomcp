@@ -23,7 +23,7 @@ func (w *Workspace) ResolvePackage(id PackageID) (*Package, bool) {
 	return nil, false
 }
 
-// EnsurePackage is ResolvePackage's create-side sibling: when id names
+// EnsureXTest is ResolvePackage's create-side sibling: when id names
 // a unit's XTest half that doesn't exist yet, it installs a fresh XTest
 // package — and, if the unit doesn't exist at all yet, a fresh Prod
 // sibling too, so a create verb never needs the destination package to
@@ -35,7 +35,7 @@ func (w *Workspace) ResolvePackage(id PackageID) (*Package, bool) {
 // door a create verb is allowed to originate a package that isn't there
 // yet, mirroring CreatePackage's own shell construction for a brand new
 // unit.
-func (w *Workspace) EnsurePackage(id PackageID) (pkg, freshProd *Package, err error) {
+func (w *Workspace) EnsureXTest(id PackageID) (pkg, freshProd *Package, err error) {
 	if p, ok := w.ResolvePackage(id); ok {
 		return p, nil, nil
 	}

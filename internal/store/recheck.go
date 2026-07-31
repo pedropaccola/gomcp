@@ -120,7 +120,7 @@ func (e *Store) recheckScopedLocked(ctx context.Context, ws *workspace.Workspace
 			unit.MarkDirty(path)
 		}
 	}
-	ws.SwapLoaded(newFset, units, narrow)
+	ws.Rebuild(newFset, units, narrow)
 	return nil
 }
 

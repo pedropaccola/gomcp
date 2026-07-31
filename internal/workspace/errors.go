@@ -53,3 +53,8 @@ func errNoTypeInfo(key string) error {
 func errNotInSource(key string) error {
 	return fmt.Errorf("cannot locate %q in source", key)
 }
+
+// SymbolExistsError reports that key already names a symbol in pkg.
+func SymbolExistsError(key string, pkg any) error {
+	return fmt.Errorf("symbol %q already exists in %q", key, pkg)
+}
