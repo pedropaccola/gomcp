@@ -78,7 +78,7 @@ func TestForkExternalIndependentCache(t *testing.T) {
 	}
 }
 
-func TestDropFilePrunesEmptyUnit(t *testing.T) {
+func TestDropFilePrunesEmptyMembers(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\nfunc Foo() {}\n")
 	w.DropFile("test.mod/pkg", KindProd, "test.mod/pkg/pkg.go")
 	if _, ok := w.ProdPackage("test.mod/pkg"); ok {

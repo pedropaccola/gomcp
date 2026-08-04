@@ -56,7 +56,7 @@ func (v *View) Methods(pkg workspace.PackagePath, typeName string) []Symbol {
 // order, Prod before XTest.
 func (v *View) Packages() []workspace.PackageID {
 	var out []workspace.PackageID
-	for _, addr := range v.ws.UnitKeys() {
+	for _, addr := range v.ws.MemberKeys() {
 		for _, pkg := range v.ws.MembersOf(addr) {
 			out = append(out, pkg.ID)
 		}
@@ -64,10 +64,10 @@ func (v *View) Packages() []workspace.PackageID {
 	return out
 }
 
-// UnitKeys enumerates every unit's address, sorted — one entry per
+// MemberKeys enumerates every unit's address, sorted — one entry per
 // directory, unlike Packages which emits Prod and XTest separately.
-func (v *View) UnitKeys() []workspace.PackagePath {
-	return v.ws.UnitKeys()
+func (v *View) MemberKeys() []workspace.PackagePath {
+	return v.ws.MemberKeys()
 }
 
 // SymbolsImplementing scans for named types whose value or pointer method

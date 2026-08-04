@@ -71,7 +71,7 @@ func listPackages(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListPacka
 	return func(ctx context.Context, _ *mcp.CallToolRequest, _ ListPackagesInput) (*mcp.CallToolResult, ListPackagesOutput, error) {
 		var out ListPackagesOutput
 		err := st.Read(ctx, func(v *store.View) error {
-			dirs := v.UnitKeys()
+			dirs := v.MemberKeys()
 			out.Packages = make([]string, len(dirs))
 			for i, dir := range dirs {
 				out.Packages[i] = dir.String()

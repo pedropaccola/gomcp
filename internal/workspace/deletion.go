@@ -111,7 +111,7 @@ func (w *Workspace) ComputeDeletionSplices(pkg PackagePath, key, fileName string
 	return ByteSplices{splice}, true, nil
 }
 
-// DeleteSymbol removes key's declaration — its spec alone when it lives in
+// DropSymbol removes key's declaration — its spec alone when it lives in
 // a grouped declaration with siblings, unless its value is derived from
 // its position (iota, or inheriting the previous spec's expression), in
 // which case the whole group is removed together. fileName scopes
@@ -129,7 +129,7 @@ func (w *Workspace) ComputeDeletionSplices(pkg PackagePath, key, fileName string
 //
 // Deletion is idempotent: a missing symbol is a noop, not a failure.
 // Returns the file touched and whether key was actually found.
-func (w *Workspace) DeleteSymbol(pkg PackagePath, key, fileName string) (FilePath, bool, error) {
+func (w *Workspace) DropSymbol(pkg PackagePath, key, fileName string) (FilePath, bool, error) {
 	splices, found, err := w.ComputeDeletionSplices(pkg, key, fileName)
 	if err != nil {
 		return "", false, err

@@ -106,9 +106,9 @@ func (tx *Tx) DeletePackage(pkg workspace.PackagePath) error {
 // DeleteSymbol removes key's declaration, scoped to fileName (an
 // assertion: resolution never falls back to a primary-preference
 // guess). Idempotent: a missing symbol is a noop, not a failure. See
-// Workspace.DeleteSymbol for the full removal policy.
+// Workspace.DropSymbol for the full removal policy.
 func (tx *Tx) DeleteSymbol(pkg workspace.PackagePath, key, fileName string) error {
-	path, found, err := tx.ws.DeleteSymbol(pkg, key, fileName)
+	path, found, err := tx.ws.DropSymbol(pkg, key, fileName)
 	if err != nil {
 		return err
 	}
@@ -449,7 +449,7 @@ func (tx *Tx) RepairMissingImports() bool {
 	// Unique importable package names known to the workspace.
 	candidates := make(map[string]workspace.PackagePath) // package name -> import path
 	ambiguous := make(map[string]bool)
-	for _, addr := range tx.ws.UnitKeys() {
+	for _, addr := range tx.ws.MemberKeys() {
 		pkg, _ := tx.ws.ProdPackage(addr)
 		if pkg == nil || pkg.ID.Base() == "" || pkg.Name == "main" {
 			continue

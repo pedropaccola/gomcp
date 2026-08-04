@@ -8,7 +8,7 @@ import (
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
-func TestViewAllDiagnosticsAggregatesEveryUnit(t *testing.T) {
+func TestViewAllDiagnosticsAggregatesEveryMember(t *testing.T) {
 	ws := workspace.NewWorkspace()
 	ws.Reset("test.mod", token.NewFileSet(), map[workspace.PackagePath]*workspace.Package{}, map[workspace.PackagePath]*workspace.Package{})
 	p1 := workspace.NewPackage("a", "test.mod/a", workspace.KindProd, nil, nil)

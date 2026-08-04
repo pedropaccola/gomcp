@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestUnitDirtyCarryAndPrune(t *testing.T) {
+func TestMemberDirtyCarryAndPrune(t *testing.T) {
 	w := NewWorkspace()
 	w.Reset("example.com/mod", token.NewFileSet(), map[PackagePath]*Package{}, map[PackagePath]*Package{})
 	w.InstallProd("example.com/mod/pkg", &Package{Name: "pkg", ID: newPackageID("example.com/mod/pkg", KindProd)})

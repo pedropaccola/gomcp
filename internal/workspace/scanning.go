@@ -24,15 +24,15 @@ type SymbolMatch struct {
 
 // symbolsWhere scans every symbol in the workspace and collects those for
 // which pred holds — the one primitive under every other scanner; new
-// filters should compose on it as predicates. Checks ctx once per unit
-// and stops early, returning whatever was found so far, if it's been
-// canceled or its deadline has passed. Each match records pkg's own ID
-// (Prod or XTest, whichever half the symbol actually lives in), not the
-// unit's canonical address — a scan hit inside the XTest half must be
-// distinguishable from one in Prod.
+// filters should compose on it as predicates. Checks ctx once per
+// address and stops early, returning whatever was found so far, if it's
+// been canceled or its deadline has passed. Each match records pkg's own
+// ID (Prod or XTest, whichever half the symbol actually lives in), not
+// the address's own canonical form — a scan hit inside the XTest half
+// must be distinguishable from one in Prod.
 func (w *Workspace) symbolsWhere(ctx context.Context, pred func(*Package, *Symbol) bool) []SymbolMatch {
 	var out []SymbolMatch
-	for _, addr := range w.UnitKeys() {
+	for _, addr := range w.MemberKeys() {
 		if ctx.Err() != nil {
 			return out
 		}
@@ -139,7 +139,7 @@ func (w *Workspace) SymbolsImplementing(ctx context.Context, pkg PackagePath, ke
 // package-level declarations and methods only — see isPackageLevelUse's
 // doc comment for why that guard matters. Each match records the
 // referencing package's own ID (Prod or XTest, whichever half the
-// reference actually lives in), not the unit's canonical address.
+// reference actually lives in), not the address's own canonical form.
 func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg PackagePath, key string) ([]SymbolMatch, error) {
 	sym, owner, ok := w.ResolveSymbol(pkg, key)
 	if !ok {
@@ -155,7 +155,7 @@ func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg PackagePath, key
 	}
 	seen := make(map[*Symbol]bool)
 	var refs []pkgRef
-	for _, addr := range w.UnitKeys() {
+	for _, addr := range w.MemberKeys() {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}

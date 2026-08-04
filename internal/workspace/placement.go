@@ -238,7 +238,7 @@ func (w *Workspace) MergeableGroupInsertOffset(pkg PackagePath, fileName FilePat
 // collision. Returns the file touched, for the caller's own
 // change-tracking.
 func (w *Workspace) CreateSymbol(pkg PackagePath, fileName, src string) ([]FilePath, error) {
-	if !w.hasUnit(pkg) {
+	if !w.hasMembers(pkg) {
 		return nil, NoPackageError(pkg)
 	}
 	path, err := NewFilePath(w.Module(), pkg, fileName)

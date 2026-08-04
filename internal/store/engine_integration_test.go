@@ -92,7 +92,7 @@ func TestBootstrapSandbox(t *testing.T) {
 	}
 
 	ws := e.ws
-	for _, addr := range ws.UnitKeys() {
+	for _, addr := range ws.MemberKeys() {
 		for _, p := range ws.MembersOf(addr) {
 			for _, f := range p.Files() {
 				if len(f.Src()) == 0 {
@@ -108,12 +108,12 @@ func TestBootstrapSandbox(t *testing.T) {
 
 func TestBootstrapIsIdempotent(t *testing.T) {
 	e := sandboxStore(t)
-	first := len(e.ws.UnitKeys())
+	first := len(e.ws.MemberKeys())
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatalf("second Bootstrap: %v", err)
 	}
-	if len(e.ws.UnitKeys()) != first {
-		t.Errorf("package count changed across re-bootstrap: %d -> %d", first, len(e.ws.UnitKeys()))
+	if len(e.ws.MemberKeys()) != first {
+		t.Errorf("package count changed across re-bootstrap: %d -> %d", first, len(e.ws.MemberKeys()))
 	}
 }
 

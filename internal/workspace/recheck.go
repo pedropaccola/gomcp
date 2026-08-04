@@ -22,12 +22,12 @@ var ErrNarrowlyChecked = errors.New("workspace was narrowly rechecked: SymbolsIm
 // by scanning every package's own file.Ast().Imports (the same primitive
 // PackageMoveSplices already uses for one target import, generalized to
 // every package at once) and walks it breadth-first from dirty. External
-// imports — anything outside w.UnitKeys() — are dead ends: they can't
+// imports — anything outside w.MemberKeys() — are dead ends: they can't
 // import a workspace package back. Aggregate-owned analysis, since it's
 // pure Entity-graph traversal with no engine-specific knowledge.
 func (w *Workspace) ComputeRecheckScope(dirty map[PackagePath]bool) map[PackagePath]bool {
-	importedBy := make(map[PackagePath][]PackagePath) // imported -> importing unit addresses
-	for _, addr := range w.UnitKeys() {
+	importedBy := make(map[PackagePath][]PackagePath) // imported -> importing addresses
+	for _, addr := range w.MemberKeys() {
 		for _, pkg := range w.MembersOf(addr) {
 			for _, file := range pkg.Files() {
 				for _, imp := range file.Ast().Imports {
@@ -36,7 +36,7 @@ func (w *Workspace) ComputeRecheckScope(dirty map[PackagePath]bool) map[PackageP
 						continue
 					}
 					target := PackagePath(path)
-					if !w.hasUnit(target) {
+					if !w.hasMembers(target) {
 						continue // external dependency, not a workspace package
 					}
 					importedBy[target] = append(importedBy[target], addr)

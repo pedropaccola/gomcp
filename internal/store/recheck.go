@@ -47,8 +47,8 @@ func (e *Store) recheckScopedLocked(ctx context.Context, ws *workspace.Workspace
 
 	scope := ws.ComputeRecheckScope(dirtyPkgs)
 	if forceFull {
-		scope = make(map[workspace.PackagePath]bool, len(ws.UnitKeys()))
-		for _, addr := range ws.UnitKeys() {
+		scope = make(map[workspace.PackagePath]bool, len(ws.MemberKeys()))
+		for _, addr := range ws.MemberKeys() {
 			scope[addr] = true
 		}
 	}
@@ -64,7 +64,7 @@ func (e *Store) recheckScopedLocked(ctx context.Context, ws *workspace.Workspace
 	oldFset := ws.FileSet()
 	keptProd := make(map[workspace.PackagePath]*workspace.Package)
 	keptXTest := make(map[workspace.PackagePath]*workspace.Package)
-	for _, addr := range ws.UnitKeys() {
+	for _, addr := range ws.MemberKeys() {
 		members := ws.MembersOf(addr)
 		if scope[addr] {
 			for _, p := range members {

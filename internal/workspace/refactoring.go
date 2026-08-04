@@ -62,10 +62,10 @@ func (w *Workspace) ResolveSymbol(pkg PackagePath, key string) (*Symbol, *Packag
 }
 
 // allPackages enumerates every workspace package (never the external
-// dependency cache), Prod before XTest per unit, in address order.
+// dependency cache), Prod before XTest per address, in address order.
 func (w *Workspace) allPackages() []*Package {
 	var out []*Package
-	for _, pkg := range w.UnitKeys() {
+	for _, pkg := range w.MemberKeys() {
 		out = append(out, w.MembersOf(pkg)...)
 	}
 	return out
@@ -750,7 +750,7 @@ func (w *Workspace) MovePackage(oldPkg, newPkg PackagePath, renameName bool, old
 			}
 		}
 	}
-	w.removeUnit(oldPkg)
+	w.removeMembers(oldPkg)
 	return touched, nil
 }
 

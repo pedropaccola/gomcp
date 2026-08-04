@@ -130,10 +130,10 @@ func (w *Workspace) FsetOf(pkg *Package) *token.FileSet {
 	return w.fset
 }
 
-// UnitKeys enumerates every workspace address with a Prod and/or XTest
+// MemberKeys enumerates every workspace address with a Prod and/or XTest
 // package, sorted — determinism by construction: the raw maps never
 // leave the workspace.
-func (w *Workspace) UnitKeys() []PackagePath {
+func (w *Workspace) MemberKeys() []PackagePath {
 	keys := make(map[PackagePath]bool, len(w.prod)+len(w.xtest))
 	for pkg := range w.prod {
 		keys[pkg] = true
@@ -154,23 +154,23 @@ func (w *Workspace) InstallProd(pkg PackagePath, p *Package) {
 	w.prod[pkg] = p
 }
 
-// removeUnit unmaps an address's Prod and XTest packages without
+// removeMembers unmaps an address's Prod and XTest packages without
 // tombstoning their files — package moves relocate files individually
 // first. DeletePackage-style removal tombstones each file, then removes
 // the unit.
-func (w *Workspace) removeUnit(pkg PackagePath) {
+func (w *Workspace) removeMembers(pkg PackagePath) {
 	w.ensureProdForked()
 	w.ensureXTestForked()
 	delete(w.prod, pkg)
 	delete(w.xtest, pkg)
 }
 
-// Files yields every file in the workspace, paired with the unit address
-// and kind of the package that owns it — the one primitive under every
-// caller that otherwise hand-walks UnitKeys/membersOf/Files itself.
+// Files yields every file in the workspace, paired with the address and
+// kind of the package that owns it — the one primitive under every
+// caller that otherwise hand-walks MemberKeys/MembersOf/Files itself.
 func (w *Workspace) Files() iter.Seq2[FileRef, *File] {
 	return func(yield func(FileRef, *File) bool) {
-		for _, addr := range w.UnitKeys() {
+		for _, addr := range w.MemberKeys() {
 			for _, pkg := range w.MembersOf(addr) {
 				for _, file := range pkg.Files() {
 					if !yield(FileRef{Pkg: addr, Kind: pkg.ID.Kind()}, file) {
@@ -190,11 +190,10 @@ func (w *Workspace) InstallXTest(pkg PackagePath, p *Package) {
 }
 
 // MembersOf returns pkg's non-nil Prod and XTest packages, Prod before
-// XTest — 0 to 2 entries. Direct replacement for the old Unit.Members:
-// every caller that needs "every half of this address" composes on this
-// instead of resolving a Unit first. This shadowing order (Prod, then
-// XTest) is also the default symbol/file resolution order everywhere
-// that composes on MembersOf.
+// XTest — 0 to 2 entries: every caller that needs "every half of this
+// address" composes on this. This shadowing order (Prod, then XTest) is
+// also the default symbol/file resolution order everywhere that
+// composes on MembersOf.
 func (w *Workspace) MembersOf(pkg PackagePath) []*Package {
 	var out []*Package
 	if p, ok := w.prod[pkg]; ok {
@@ -206,10 +205,10 @@ func (w *Workspace) MembersOf(pkg PackagePath) []*Package {
 	return out
 }
 
-// hasUnit reports whether pkg has a Prod and/or XTest package — the
+// hasMembers reports whether pkg has a Prod and/or XTest package — the
 // existence check every membersOf caller that only needs a boolean
 // composes on instead of checking len(membersOf(pkg)) > 0.
-func (w *Workspace) hasUnit(pkg PackagePath) bool {
+func (w *Workspace) hasMembers(pkg PackagePath) bool {
 	if _, ok := w.prod[pkg]; ok {
 		return true
 	}
@@ -220,7 +219,7 @@ func (w *Workspace) hasUnit(pkg PackagePath) bool {
 // FileRef pairs a file with the address and kind of the package that owns
 // it — the identity Workspace.Files' callers need alongside the file
 // itself, since *File carries its Owner but Owner alone doesn't repeat
-// the UnitKeys address grouping callers iterate by.
+// the MemberKeys address grouping callers iterate by.
 type FileRef struct {
 	Pkg  PackagePath
 	Kind PackageKind

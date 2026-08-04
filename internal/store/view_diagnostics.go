@@ -11,7 +11,7 @@ import (
 // AllDiagnostics aggregates every address's diagnostics, in path order.
 func (v *View) AllDiagnostics() []Diagnostic {
 	var out []Diagnostic
-	for _, pkg := range v.ws.UnitKeys() {
+	for _, pkg := range v.ws.MemberKeys() {
 		out = append(out, v.Diagnostics(pkg)...)
 	}
 	return out

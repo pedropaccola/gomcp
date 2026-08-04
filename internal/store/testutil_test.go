@@ -105,7 +105,7 @@ func assertModelEqualsDisk(tb testing.TB, e *Store) {
 	got, want := e.ws, fresh.ws
 	gotView, wantView := NewView(got, context.Background()), NewView(want, context.Background())
 
-	gotKeys, wantKeys := got.UnitKeys(), want.UnitKeys()
+	gotKeys, wantKeys := got.MemberKeys(), want.MemberKeys()
 	if !slices.Equal(gotKeys, wantKeys) {
 		tb.Fatalf("unit set diverged: got %v, want %v", gotKeys, wantKeys)
 	}

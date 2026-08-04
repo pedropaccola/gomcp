@@ -301,11 +301,11 @@ func (p *Package) symbolAt(pos token.Pos) (*Symbol, bool) {
 
 // PackagePath is a package's canonical import path — always unsuffixed,
 // by construction: nothing produces a PackagePath carrying go/packages'
-// own "_test" convention for an external-test half. This is what Unit
-// is keyed by, what Workspace's module root is, and the "path"
-// component sealed inside PackageID — a Unit is inherently kind-agnostic
-// (it bundles both a Prod and an XTest Package at one directory), so its
-// own key can never meaningfully carry a kind.
+// own "_test" convention for an external-test half. This is what every
+// workspace address is keyed by, what Workspace's module root is, and
+// the "path" component sealed inside PackageID — an address is
+// inherently kind-agnostic (it may back both a Prod and an XTest Package
+// at one directory), so its own key can never meaningfully carry a kind.
 type PackagePath string
 
 // Base is p's bare final component — the package's own directory name,
@@ -351,8 +351,8 @@ type PackageID struct {
 	kind PackageKind
 }
 
-// Base is id's canonical path, kind stripped — for Unit lookups and file
-// construction, which are inherently kind-agnostic.
+// Base is id's canonical path, kind stripped — for member lookups and
+// file construction, which are inherently kind-agnostic.
 func (id PackageID) Base() PackagePath { return id.path }
 
 // Kind reports whether id names a Prod, XTest, or External package.

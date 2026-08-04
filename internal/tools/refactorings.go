@@ -134,18 +134,18 @@ func movePackage(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[MovePackag
 }
 
 // pruneVacatedPackages drops any bucket in files whose package address no
-// longer resolves to a unit once the transaction has committed — a move
-// whose old address is now fully empty, not merely modified, so listing
-// it beside the destination would read as "still lives here" when the
-// package is actually gone.
+// longer resolves to an address once the transaction has committed — a
+// move whose old address is now fully empty, not merely modified, so
+// listing it beside the destination would read as "still lives here"
+// when the package is actually gone.
 func pruneVacatedPackages(ctx context.Context, st *store.Store, files map[string][]string) map[string][]string {
 	if len(files) == 0 {
 		return files
 	}
 	st.Read(ctx, func(v *store.View) error {
-		units := v.UnitKeys()
+		members := v.MemberKeys()
 		for addr := range files {
-			if !slices.Contains(units, workspace.PackagePath(addr)) {
+			if !slices.Contains(members, workspace.PackagePath(addr)) {
 				delete(files, addr)
 			}
 		}

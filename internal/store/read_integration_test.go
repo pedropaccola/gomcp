@@ -17,7 +17,7 @@ func TestLookupNavigation(t *testing.T) {
 	ws := e.ws
 
 	var paths []workspace.PackagePath
-	paths = append(paths, ws.UnitKeys()...)
+	paths = append(paths, ws.MemberKeys()...)
 	if !slices.IsSorted(paths) {
 		t.Error("Packages not in path order")
 	}

@@ -58,14 +58,14 @@ func (w *Workspace) SwapFile(addr PackagePath, kind PackageKind, ignored bool, n
 }
 
 // DropFile removes one file from its owner: tombstoned for the disk
-// boundary, index rebuilt, and the unit pruned once its last file is gone
-// — an address with no files is no address.
+// boundary, index rebuilt, and its members pruned once the last file is
+// gone — an address with no files is no address.
 func (w *Workspace) DropFile(addr PackagePath, kind PackageKind, path FilePath) {
 	owner := w.ensurePackageForked(addr, kind)
 	delete(owner.files, path)
 	owner.RebuildIndex()
 	w.tombstone(addr, path, owner.Name)
-	w.pruneEmptyUnit(addr)
+	w.pruneEmptyMembers(addr)
 }
 
 // MoveFile relocates a file within its owner — semantically free in Go,
@@ -84,10 +84,10 @@ func (w *Workspace) MoveFile(addr PackagePath, kind PackageKind, oldPath, newPat
 	owner.RebuildIndex()
 }
 
-// pruneEmptyUnit drops pkg's Prod and XTest packages, independently,
+// pruneEmptyMembers drops pkg's Prod and XTest packages, independently,
 // once each is out of files — an address with no files in any map is no
 // address.
-func (w *Workspace) pruneEmptyUnit(pkg PackagePath) {
+func (w *Workspace) pruneEmptyMembers(pkg PackagePath) {
 	pruneIfEmpty(w.prod, pkg)
 	pruneIfEmpty(w.xtest, pkg)
 }
@@ -213,10 +213,11 @@ func (w *Workspace) CreatePackage(pkg PackagePath, name string, isXTest bool) (F
 }
 
 // DropPackage removes a whole package address at once: every member
-// file tombstoned, then the unit itself — the efficient counterpart to
-// tombstoning each file through DropFile, which would also rebuild the
-// index and prune per file for a unit about to be discarded wholesale
-// regardless. Idempotent: a missing package is a noop, not a failure.
+// file tombstoned, then the address's own members unmapped — the
+// efficient counterpart to tombstoning each file through DropFile, which
+// would also rebuild the index and prune per file for an address about
+// to be discarded wholesale regardless. Idempotent: a missing package is
+// a noop, not a failure.
 func (w *Workspace) DropPackage(pkg PackagePath) []FilePath {
 	members := w.MembersOf(pkg)
 	if len(members) == 0 {
@@ -229,7 +230,7 @@ func (w *Workspace) DropPackage(pkg PackagePath) []FilePath {
 			touched = append(touched, file.Path)
 		}
 	}
-	w.removeUnit(pkg)
+	w.removeMembers(pkg)
 	return touched
 }
 
@@ -245,7 +246,7 @@ func (w *Workspace) ensureXTestForked() {
 // DropTombstonedFile removes path from freshly loaded Prod/XTest maps —
 // the load-path counterpart of DropFile: overlays can only mask a
 // deleted file as empty, so the mask's residue must not survive as a
-// real file. Emptied packages are pruned the way pruneEmptyUnit prunes
+// real file. Emptied packages are pruned the way pruneEmptyMembers prunes
 // installed ones.
 func DropTombstonedFile(prod, xtest map[PackagePath]*Package, pkg PackagePath, path FilePath) {
 	for _, m := range []map[PackagePath]*Package{prod, xtest} {
@@ -262,7 +263,7 @@ func DropTombstonedFile(prod, xtest map[PackagePath]*Package, pkg PackagePath, p
 }
 
 // pruneIfEmpty drops pkg from m once its package is out of files. Shared
-// by pruneEmptyUnit (an installed workspace) and DropTombstonedFile (a
+// by pruneEmptyMembers (an installed workspace) and DropTombstonedFile (a
 // freshly loaded map, before installation) — called once per map (Prod,
 // then XTest) by each.
 func pruneIfEmpty(m map[PackagePath]*Package, pkg PackagePath) {
