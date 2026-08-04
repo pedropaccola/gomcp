@@ -3,7 +3,6 @@ package store
 import (
 	"fmt"
 	"go/token"
-	"strings"
 
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
@@ -386,77 +385,11 @@ func (tx *Tx) renameSymbol(pkg workspace.PackagePath, key, newName string) error
 
 // RepairMissingImports is the bounded self-repair pass behind Store.Edit:
 // when a recheck reports "undefined: X" and X names exactly one
-// in-memory package, the missing import is spliced in. goimports cannot
-// discover packages that exist only in memory (it scans disk), and
-// imports are not agent-addressable, so the server must cover its own
-// blind spot. Best-effort by design: ambiguous names and failed splices
-// leave the diagnostic standing, and a wrong repair (an ident that merely
-// collides with a package name) surfaces as an ordinary diagnostic on the
-// next echo while goimports drops the then-unused import on the file's
-// next reload.
+// in-memory package, the missing import is spliced in. See
+// Workspace.RepairMissingImports for the full repair policy.
 func (tx *Tx) RepairMissingImports() bool {
-	// Unique importable package names known to the workspace.
-	candidates := make(map[string]workspace.PackagePath) // package name -> import path
-	ambiguous := make(map[string]bool)
-	for _, addr := range tx.ws.MemberKeys() {
-		pkg, _ := tx.ws.ProdPackage(addr)
-		if pkg == nil || pkg.ID.Base() == "" || pkg.Name == "main" {
-			continue
-		}
-		if _, dup := candidates[pkg.Name]; dup {
-			ambiguous[pkg.Name] = true
-			delete(candidates, pkg.Name)
-			continue
-		}
-		candidates[pkg.Name] = pkg.ID.Base()
-	}
-
-	needed := make(map[workspace.FilePath]map[string]bool) // file -> import paths
-	for _, diag := range tx.AllDiagnostics() {
-		if diag.Kind != workspace.DiagType || diag.File == "" {
-			continue
-		}
-		name, found := strings.CutPrefix(diag.Msg, "undefined: ")
-		if !found || !token.IsIdentifier(name) || ambiguous[name] {
-			continue
-		}
-		path, ok := candidates[name]
-		if !ok {
-			continue
-		}
-		file, owner, ok := tx.ws.ResolveFileByPath(diag.File)
-		if !ok || owner.ID.Base() == path || workspace.ImportsPath(file.Ast(), string(path)) {
-			continue
-		}
-		if needed[diag.File] == nil {
-			needed[diag.File] = make(map[string]bool)
-		}
-		needed[diag.File][string(path)] = true
-	}
-
-	repaired := false
-	for _, filePath := range sortedKeys(needed) {
-		file, owner, ok := tx.ws.ResolveFileByPath(filePath)
-		if !ok {
-			continue
-		}
-		var repl strings.Builder
-		for _, path := range sortedKeys(needed[filePath]) {
-			fmt.Fprintf(&repl, "\n\nimport %q", path)
-		}
-		insertAt := file.Ast().Name.End()
-		sp, ok := tx.ws.NewSpliceAtPos(owner, filePath, insertAt, insertAt, []byte(repl.String()))
-		if !ok {
-			continue
-		}
-		candidate := workspace.ByteSplices{sp}.Apply(file.Src())
-		addr := filePath.PackagePath()
-		if err := tx.ws.SwapFile(addr, owner.ID.Kind(), file.Ignored, filePath, candidate); err != nil {
-			continue // repair is best-effort; the diagnostic stays visible
-		}
-		tx.markChanged(filePath)
-		repaired = true
-	}
+	touched, repaired := tx.ws.RepairMissingImports()
+	tx.markChanged(touched...)
 	return repaired
 }
 
