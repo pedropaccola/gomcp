@@ -67,8 +67,8 @@ func TestDiagnosticsSymbolsBatchAcrossPackages(t *testing.T) {
 	st := sandboxStore(t)
 	_, out, err := diagnosticsSymbols(st, testCfg())(context.Background(), nil, DiagnosticsSymbolsInput{
 		Diagnoses: []DiagnosticsSymbolEntry{
-			{PkgPath: "broken", SymbolKey: "Bad"},
-			{PkgPath: "shapes", SymbolKey: "Circle"},
+			{PkgPath: "broken", SymbolKey: "Bad", FileName: "broken.go"},
+			{PkgPath: "shapes", SymbolKey: "Circle", FileName: "shapes.go"},
 		},
 	})
 	if err != nil {

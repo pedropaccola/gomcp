@@ -31,14 +31,22 @@ func (k SymbolKind) String() string {
 // owning file's Ast, which by invariant parses exactly its Src — so a
 // Symbol locates byte spans but never survives a rebuild (see
 // RebuildIndex). Both are unexported: Decl/Spec reach outside this package
-// only through the Decl()/Spec() accessors, never by field access.
+// only through the Decl()/Spec() accessors, never by field access. Owner
+// is the owning Package's own ID, and Ignored is the owning File's own
+// Ignored bit, both stamped by RebuildIndex — not IndexAST itself, which
+// stays reusable on bare, ownerless ASTs (classifyFragment's scratch
+// parsing) — so a Symbol is self-describing without needing a
+// separately-threaded owner or file alongside it wherever it's resolved.
 type Symbol struct {
-	Name string
-	File FilePath
-	Kind SymbolKind
-	Recv string   // receiver type name; set only for KindMethod
-	decl ast.Decl // the top-level declaration: the splice point for mutations
-	spec ast.Spec // the symbol's own spec when decl is a grouped GenDecl
+	Name       string
+	File       FilePath
+	Owner      PackageID
+	Ignored    bool
+	Kind       SymbolKind
+	Recv       string // receiver type name; set only for KindMethod
+	Directives []string
+	decl       ast.Decl // the top-level declaration: the splice point for mutations
+	spec       ast.Spec // the symbol's own spec when decl is a grouped GenDecl
 }
 
 // Doc is derived from the AST on demand so it cannot go stale after mutations.
@@ -105,8 +113,14 @@ func DocOf(node ast.Node) *ast.CommentGroup {
 
 // IndexAST fills symbols with astFile's top-level declarations, attributed
 // to path, and returns its init functions — the one indexer, behind
-// RebuildIndex and usable on bare ASTs that have no model File.
-func IndexAST(path FilePath, astFile *ast.File, symbols map[string]*Symbol) (inits []*ast.FuncDecl) {
+// RebuildIndex and usable on bare ASTs that have no model File. Appends
+// rather than overwrites: two files (an active one and a build-excluded
+// sibling, or two build-excluded siblings) can legitimately declare the
+// same name, something a real build would never let both survive into —
+// RebuildIndex, which has file-level Ignored context this function
+// doesn't, is what later imposes a deterministic order over same-keyed
+// entries.
+func IndexAST(path FilePath, astFile *ast.File, symbols map[string][]*Symbol) (inits []*ast.FuncDecl) {
 	for _, decl := range astFile.Decls {
 		switch node := decl.(type) {
 		case *ast.FuncDecl:
@@ -124,19 +138,23 @@ func IndexAST(path FilePath, astFile *ast.File, symbols map[string]*Symbol) (ini
 				sym.Kind = KindMethod
 				sym.Recv = RecvTypeName(node.Recv)
 			}
-			symbols[sym.Key()] = sym
+			sym.Directives = commentGroupDirectives(SymbolDoc(sym))
+			key := sym.Key()
+			symbols[key] = append(symbols[key], sym)
 		case *ast.GenDecl:
 			switch node.Tok {
 			case token.TYPE:
 				for _, spec := range node.Specs {
 					if typeSpec, ok := spec.(*ast.TypeSpec); ok {
-						symbols[typeSpec.Name.Name] = &Symbol{
+						sym := &Symbol{
 							Name: typeSpec.Name.Name,
 							File: path,
 							Kind: KindType,
 							decl: node,
 							spec: typeSpec,
 						}
+						sym.Directives = commentGroupDirectives(SymbolDoc(sym))
+						symbols[typeSpec.Name.Name] = append(symbols[typeSpec.Name.Name], sym)
 					}
 				}
 			case token.VAR, token.CONST:
@@ -150,13 +168,15 @@ func IndexAST(path FilePath, astFile *ast.File, symbols map[string]*Symbol) (ini
 							if id.Name == "_" {
 								continue
 							}
-							symbols[id.Name] = &Symbol{
+							sym := &Symbol{
 								Name: id.Name,
 								File: path,
 								Kind: symbolKind,
 								decl: node,
 								spec: valueSpec,
 							}
+							sym.Directives = commentGroupDirectives(SymbolDoc(sym))
+							symbols[id.Name] = append(symbols[id.Name], sym)
 						}
 					}
 				}

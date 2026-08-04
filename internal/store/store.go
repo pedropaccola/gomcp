@@ -60,14 +60,14 @@ func NewStore(rootDir string, logf func(string, ...any)) *Store {
 // Diagnostics, never a bootstrap failure. Only a driver-level failure
 // returns an error, leaving any previous state untouched.
 func (e *Store) Bootstrap(ctx context.Context) error {
-	fset, module, units, err := e.Load(ctx, nil)
+	fset, module, prod, xtest, err := e.Load(ctx, nil)
 	if err != nil {
 		return err
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	ws := workspace.NewWorkspace()
-	ws.Reset(module, fset, units)
+	ws.Reset(module, fset, prod, xtest)
 	e.ws = ws
 	return nil
 }
@@ -163,7 +163,7 @@ func (e *Store) Edit(ctx context.Context, fn func(*Tx) error) (*EditReport, erro
 
 	stale := func(err error) *EditReport {
 		e.ws = candidate
-		return &EditReport{Changed: tx.ChangedKeys(), Stale: true, Note: err.Error()}
+		return &EditReport{Changed: tx.ChangedKeys(), Stale: true, Note: err.Error(), DirectiveDeltas: tx.directiveDeltas}
 	}
 	if err := e.recheckNarrowLocked(ctx, candidate); err != nil {
 		return stale(err), nil
@@ -178,7 +178,7 @@ func (e *Store) Edit(ctx context.Context, fn func(*Tx) error) (*EditReport, erro
 	}
 
 	e.ws = candidate
-	report := &EditReport{Changed: tx.ChangedKeys()}
+	report := &EditReport{Changed: tx.ChangedKeys(), DirectiveDeltas: tx.directiveDeltas}
 	report.Delta, report.Resolved, report.Unrelated = diffDiagnostics(before, view.AllDiagnostics())
 	return report, nil
 }
@@ -206,10 +206,11 @@ func (e *Store) EnsureFullyChecked(ctx context.Context) error {
 // EditReport is the echo of a committed transaction: store's own copy,
 // relocated next to Store.Edit, its sole constructor.
 type EditReport struct {
-	Changed   []workspace.FilePath // files created, modified, moved, or deleted by this Tx
-	Delta     []Diagnostic         // diagnostics introduced by this transaction
-	Resolved  []Diagnostic         // pre-existing diagnostics this transaction fixed
-	Unrelated int                  // pre-existing diagnostics this transaction left untouched
-	Stale     bool                 // recheck failed: state applied, Delta unavailable
-	Note      string               // human-readable recheck failure, when Stale
+	Changed         []workspace.FilePath // files created, modified, moved, or deleted by this Tx
+	Delta           []Diagnostic         // diagnostics introduced by this transaction
+	Resolved        []Diagnostic         // pre-existing diagnostics this transaction fixed
+	Unrelated       int                  // pre-existing diagnostics this transaction left untouched
+	Stale           bool                 // recheck failed: state applied, Delta unavailable
+	Note            string               // human-readable recheck failure, when Stale
+	DirectiveDeltas []DirectiveDelta     // directive lines added/removed by this Tx's edits, in call order
 }

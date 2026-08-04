@@ -20,12 +20,12 @@ func (v *View) AllDiagnostics() []Diagnostic {
 // Diagnostics aggregates one package address's package- and file-scoped
 // diagnostics across its Prod and XTest packages.
 func (v *View) Diagnostics(pkg workspace.PackagePath) []Diagnostic {
-	unit, ok := v.ws.Unit(pkg)
-	if !ok {
+	members := v.ws.MembersOf(pkg)
+	if len(members) == 0 {
 		return nil
 	}
 	var out []workspace.Diagnostic
-	for _, p := range unit.Members() {
+	for _, p := range members {
 		out = append(out, p.Diags...)
 		for _, file := range p.Files() {
 			out = append(out, file.Diags...)
@@ -39,9 +39,10 @@ func (v *View) Diagnostics(pkg workspace.PackagePath) []Diagnostic {
 // position falls inside the symbol's declaration span, doc comment
 // included. It is a positional view, never the inventory: diagnostics that
 // fall outside every declaration remain visible only at file scope and
-// coarser.
-func (v *View) SymbolDiagnostics(pkg workspace.PackagePath, key string) []Diagnostic {
-	return newDiagnostics(v.ws.SymbolDiagnostics(pkg, key), pkg, key)
+// coarser. fileName, when non-empty, scopes resolution exactly to that
+// file rather than a primary-preference guess.
+func (v *View) SymbolDiagnostics(pkg workspace.PackagePath, key, fileName string) []Diagnostic {
+	return newDiagnostics(v.ws.SymbolDiagnostics(pkg, key, fileName), pkg, key)
 }
 
 func (v *View) attributeDiagnostics(ds []workspace.Diagnostic, fallback workspace.PackagePath) []Diagnostic {
@@ -103,6 +104,20 @@ func (d Diagnostic) String() string {
 	default:
 		return fmt.Sprintf("[%s] %s", d.Kind, d.Msg)
 	}
+}
+
+// DirectiveDelta reports directive lines a single file or symbol edit
+// added or removed, relative to the target's state before the edit —
+// store's own copy, safe to hold past the Edit closure that produced it.
+// Key is empty for a file-level directive change (EditFile), populated
+// for a symbol-level one (EditSymbol). Never produced by a create: there
+// is nothing yet to compare against.
+type DirectiveDelta struct {
+	Package workspace.PackagePath
+	File    workspace.FilePath
+	Key     string
+	Added   []string
+	Removed []string
 }
 
 // newDiagnostic copies one workspace diagnostic into store's shape,

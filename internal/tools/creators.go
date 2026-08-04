@@ -2,17 +2,17 @@ package tools
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pedropaccola/gomcp/internal/store"
-	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
 type CreateFileEntry struct {
-	PkgPath  string  `json:"pkg_path"`
-	FileName string  `json:"file_name"`
-	Doc      *string `json:"doc,omitempty"`
+	PkgPath    string   `json:"pkg_path"`
+	IsXTest    *bool    `json:"is_xtest,omitempty"`
+	FileName   string   `json:"file_name"`
+	Doc        *string  `json:"doc,omitempty"`
+	Directives []string `json:"directives,omitempty"`
 }
 
 // CreateFileInput creates one or more files in one transaction, one
@@ -24,6 +24,7 @@ type CreateFileInput struct {
 
 type CreatePackageEntry struct {
 	PkgPath string  `json:"pkg_path"`
+	IsXTest *bool   `json:"is_xtest,omitempty"`
 	Name    *string `json:"name,omitempty"`
 }
 
@@ -59,10 +60,8 @@ func createPackage(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[CreatePa
 				if err != nil {
 					return batchErr("creates", i, n, err)
 				}
-				if pkg.Kind() != workspace.KindProd {
-					return batchErr("creates", i, n, fmt.Errorf("%q names an XTest half: create_packages always creates the Prod half — call create_files or create_symbols with this address instead, it creates the Prod package too if the whole package is new", entry.PkgPath))
-				}
-				if err := tx.CreatePackage(pkg.Base(), optStr(entry.Name)); err != nil {
+				isXTest := entry.IsXTest != nil && *entry.IsXTest
+				if err := tx.CreatePackage(pkg, optStr(entry.Name), isXTest); err != nil {
 					return batchErr("creates", i, n, err)
 				}
 			}
@@ -83,7 +82,8 @@ func createFile(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[CreateFileI
 				if err != nil {
 					return batchErr("creates", i, n, err)
 				}
-				if err := tx.CreateFile(pkg, entry.FileName, optStr(entry.Doc)); err != nil {
+				isXTest := entry.IsXTest != nil && *entry.IsXTest
+				if err := tx.CreateFile(pkg, isXTest, entry.FileName, optStr(entry.Doc), entry.Directives); err != nil {
 					return batchErr("creates", i, n, err)
 				}
 			}

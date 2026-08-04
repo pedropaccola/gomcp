@@ -261,3 +261,34 @@ func TestValidateNewNameAllowsSafeUnexport(t *testing.T) {
 		t.Errorf("ValidateNewName(Box, box) = %q, %v, want box, nil (no external references)", got, err)
 	}
 }
+
+// TestResolveSymbolInDisambiguatesCollidingNames confirms two files
+// legitimately sharing a top-level name — one active, one Ignored, the
+// only way this can happen since real compiled siblings never collide
+// — both stay reachable by their own file, and that ResolveSymbolIn
+// never falls back to a guess when the given file doesn't match.
+func TestResolveSymbolInDisambiguatesCollidingNames(t *testing.T) {
+	w := simpleFixture(t, "package pkg\n\nfunc Bar() {}\n")
+	if err := w.SwapFile("test.mod/pkg", KindProd, true, "test.mod/pkg/other.go", []byte("package pkg\n\nfunc Bar() {}\n")); err != nil {
+		t.Fatalf("SwapFile: %v", err)
+	}
+
+	sym, _, ok := w.ResolveSymbolIn("test.mod/pkg", "Bar", "pkg.go")
+	if !ok || sym.File.Base() != "pkg.go" || sym.Ignored {
+		t.Errorf("ResolveSymbolIn(..., pkg.go) = %+v, %v, want the active pkg.go declaration", sym, ok)
+	}
+
+	sym2, _, ok := w.ResolveSymbolIn("test.mod/pkg", "Bar", "other.go")
+	if !ok || sym2.File.Base() != "other.go" || !sym2.Ignored {
+		t.Errorf("ResolveSymbolIn(..., other.go) = %+v, %v, want the Ignored other.go declaration", sym2, ok)
+	}
+
+	if _, _, ok := w.ResolveSymbolIn("test.mod/pkg", "Bar", "nosuch.go"); ok {
+		t.Error("ResolveSymbolIn must not fall back to a guess when the given file doesn't match")
+	}
+
+	primary, _, ok := w.ResolveSymbol("test.mod/pkg", "Bar")
+	if !ok || primary.File.Base() != "pkg.go" {
+		t.Errorf("ResolveSymbol (primary) = %+v, want the active declaration to win", primary)
+	}
+}

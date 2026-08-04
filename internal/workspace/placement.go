@@ -131,11 +131,7 @@ func findMergeableGroup(astFile *ast.File, tok token.Token) *ast.GenDecl {
 
 // resolveFile finds path within pkg's production or external-test half.
 func (w *Workspace) resolveFile(pkg PackagePath, path FilePath) (*File, *Package, bool) {
-	unit, ok := w.Unit(pkg)
-	if !ok {
-		return nil, nil, false
-	}
-	for _, p := range unit.Members() {
+	for _, p := range w.MembersOf(pkg) {
 		if file, ok := p.File(path); ok {
 			return file, p, true
 		}
@@ -221,15 +217,14 @@ func (w *Workspace) MergeableGroupInsertOffset(pkg PackagePath, fileName FilePat
 	return sp.Start, true
 }
 
-// CreateSymbol adds one new top-level declaration to a file of an existing
-// package, at its canonical position. pkg may name a unit's XTest half
-// via its own "_test"-suffixed address (EnsurePackage), installing that
-// half — and a fresh Prod sibling too, if the whole package is new — the
-// first time something targets it. The file is required, never inferred
-// — but a missing file inside the package is created implicitly, since
-// creation cannot destroy. A new plain (non-position-dependent) const or
-// var merges into the file's existing grouped block of the same kind, if
-// one already exists — keeping placement decisions meaningful instead of
+// CreateSymbol adds one new top-level declaration to an existing file of
+// an existing package, at its canonical position. The file is required,
+// and must already exist — create_files creates it first; this verb
+// never creates a package or file implicitly, since a missing target
+// might mean the agent asked for the wrong one, not that gomcp should
+// guess which to make. A new plain (non-position-dependent) const or var
+// merges into the file's existing grouped block of the same kind, if one
+// already exists — keeping placement decisions meaningful instead of
 // proliferating interchangeable, unaddressable group shells; a new group
 // is only created when none exists yet, and a standalone declaration is
 // never retroactively converted into one. A new iota (position-dependent)
@@ -237,24 +232,24 @@ func (w *Workspace) MergeableGroupInsertOffset(pkg PackagePath, fileName FilePat
 // its shared type's own declaration when typed and that type is in this
 // file, the same clustering declPrecedes already gives methods with
 // their receiver; otherwise it falls to the standard const/var region,
-// same as an untyped iota group always does. Returns every file touched
-// (the fresh Prod stub, if any, plus the target file), for the caller's
-// own change-tracking.
-func (w *Workspace) CreateSymbol(pkg PackageID, fileName, src string) ([]FilePath, error) {
-	p, freshProd, err := w.EnsureXTest(pkg)
+// same as an untyped iota group always does. An existing declaration that
+// is itself Ignored never blocks the create — it can never build
+// alongside the new one regardless of name, so it isn't a real
+// collision. Returns the file touched, for the caller's own
+// change-tracking.
+func (w *Workspace) CreateSymbol(pkg PackagePath, fileName, src string) ([]FilePath, error) {
+	if !w.hasUnit(pkg) {
+		return nil, NoPackageError(pkg)
+	}
+	path, err := NewFilePath(w.Module(), pkg, fileName)
 	if err != nil {
 		return nil, err
 	}
-	var touched []FilePath
-	if freshProd != nil {
-		stub := freshProd.ID.Base().File(freshProd.Name + ".go")
-		if err := w.SwapFile(freshProd.ID.Base(), false, stub, []byte("package "+freshProd.Name+"\n")); err != nil {
-			return nil, err
-		}
-		touched = append(touched, stub)
+	file, p, ok := w.resolveFile(pkg, path)
+	if !ok {
+		return nil, NoFileError(fileName, pkg)
 	}
-	canon := p.ID.Base()
-	isXTest := p.ID.Kind() == KindXTest
+	kind := p.ID.Kind()
 	frag, err := parseDeclFragment(src)
 	if err != nil {
 		return nil, err
@@ -263,21 +258,9 @@ func (w *Workspace) CreateSymbol(pkg PackageID, fileName, src string) ([]FilePat
 		if key == "init" {
 			continue // any number of init functions is legal
 		}
-		if _, exists := p.Symbol(key); exists {
+		if existing, exists := p.Symbol(key); exists && !existing.Ignored {
 			return nil, SymbolExistsError(key, pkg)
 		}
-	}
-	path, err := NewFilePath(w.Module(), canon, fileName)
-	if err != nil {
-		return nil, err
-	}
-	file, ok := p.File(path)
-	if !ok {
-		candidate := []byte("package " + p.Name + "\n\n" + src + "\n")
-		if err := w.SwapFile(canon, isXTest, path, candidate); err != nil {
-			return nil, err
-		}
-		return append(touched, path), nil
 	}
 
 	if (frag.Kind == KindConst || frag.Kind == KindVar) && !frag.UsesIota {
@@ -285,7 +268,7 @@ func (w *Workspace) CreateSymbol(pkg PackageID, fileName, src string) ([]FilePat
 		if frag.Kind == KindVar {
 			tok = token.VAR
 		}
-		if at, ok := w.MergeableGroupInsertOffset(canon, path, tok); ok {
+		if at, ok := w.MergeableGroupInsertOffset(pkg, path, tok); ok {
 			specs, _, err := constVarEntries(src)
 			if err != nil {
 				return nil, err
@@ -294,20 +277,20 @@ func (w *Workspace) CreateSymbol(pkg PackageID, fileName, src string) ([]FilePat
 			if !ok {
 				return nil, NoInsertionPointError(path)
 			}
-			if err := w.SwapFile(canon, isXTest, path, ByteSplices{sp}.Apply(file.Src())); err != nil {
+			if err := w.SwapFile(pkg, kind, file.Ignored, path, ByteSplices{sp}.Apply(file.Src())); err != nil {
 				return nil, err
 			}
-			return append(touched, path), nil
+			return []FilePath{path}, nil
 		}
 	}
 
-	at, ok := w.InsertOffset(canon, path, frag.Kind, frag.Recv)
+	at, ok := w.InsertOffset(pkg, path, frag.Kind, frag.Recv)
 	if !ok {
 		return nil, NoInsertionPointError(path)
 	}
 	if frag.Kind == KindConst && frag.UsesIota {
 		if _, typeName, terr := constVarEntries(src); terr == nil && typeName != "" {
-			if anchor, ok := w.TypeDeclOffset(canon, path, typeName); ok {
+			if anchor, ok := w.TypeDeclOffset(pkg, path, typeName); ok {
 				at = anchor
 			}
 		}
@@ -316,8 +299,8 @@ func (w *Workspace) CreateSymbol(pkg PackageID, fileName, src string) ([]FilePat
 	if !ok {
 		return nil, NoInsertionPointError(path)
 	}
-	if err := w.SwapFile(canon, isXTest, path, ByteSplices{sp}.Apply(file.Src())); err != nil {
+	if err := w.SwapFile(pkg, kind, file.Ignored, path, ByteSplices{sp}.Apply(file.Src())); err != nil {
 		return nil, err
 	}
-	return append(touched, path), nil
+	return []FilePath{path}, nil
 }

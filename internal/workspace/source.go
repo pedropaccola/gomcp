@@ -8,8 +8,20 @@ import (
 // DeclSource extracts the exact source of key's whole top-level
 // declaration, doc comment included. For a symbol inside a grouped decl
 // this is the entire group; see SpecSource for the narrow slice.
-func (w *Workspace) DeclSource(pkg PackagePath, key string) (string, bool) {
-	sym, owner, ok := w.ResolveSymbol(pkg, key)
+// fileName, when non-empty, is an assertion: resolution is scoped
+// exactly to that file (ResolveSymbolIn), never falling back to a
+// primary-preference guess — the only way to reach a declaration a
+// same-named sibling elsewhere would otherwise shadow. Empty fileName
+// keeps today's primary-preference resolution (ResolveSymbol).
+func (w *Workspace) DeclSource(pkg PackagePath, key, fileName string) (string, bool) {
+	var sym *Symbol
+	var owner *Package
+	var ok bool
+	if fileName != "" {
+		sym, owner, ok = w.ResolveSymbolIn(pkg, key, fileName)
+	} else {
+		sym, owner, ok = w.ResolveSymbol(pkg, key)
+	}
 	if !ok {
 		return "", false
 	}

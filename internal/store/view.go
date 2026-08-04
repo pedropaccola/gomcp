@@ -1,10 +1,12 @@
 package store
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"go/token"
 	"regexp"
+	"slices"
 
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
@@ -23,7 +25,7 @@ func (v *View) Symbol(pkg workspace.PackagePath, key string) (Symbol, bool) {
 	if !ok {
 		return Symbol{}, false
 	}
-	return Symbol{Key: sym.Key(), Kind: sym.Kind.String(), File: sym.File, Owner: owner.ID}, true
+	return Symbol{Key: sym.Key(), Kind: sym.Kind.String(), File: sym.File, Owner: owner.ID, Ignored: sym.Ignored, Directives: slices.Clone(sym.Directives)}, true
 }
 
 // Module is the workspace's module path: the prefix of every workspace
@@ -32,16 +34,19 @@ func (v *View) Module() workspace.PackagePath {
 	return v.ws.Module()
 }
 
-// Methods enumerates the methods declared on typeName in one package.
-func (v *View) Methods(pkg workspace.PackageID, typeName string) []Symbol {
-	p, ok := v.resolvePkg(pkg)
+// Methods enumerates the methods declared on typeName across every one
+// of pkg's members (Prod, XTest, Ignored).
+func (v *View) Methods(pkg workspace.PackagePath, typeName string) []Symbol {
+	members, ok := v.resolveMembers(pkg)
 	if !ok {
 		return nil
 	}
 	var out []Symbol
-	for _, s := range p.Symbols() {
-		if s.Kind == workspace.KindMethod && s.Recv == typeName {
-			out = append(out, Symbol{Key: s.Key(), Kind: s.Kind.String(), File: s.File, Owner: p.ID})
+	for _, p := range members {
+		for _, s := range p.Symbols() {
+			if s.Kind == workspace.KindMethod && s.Recv == typeName {
+				out = append(out, Symbol{Key: s.Key(), Kind: s.Kind.String(), File: s.File, Owner: p.ID})
+			}
 		}
 	}
 	return out
@@ -52,12 +57,8 @@ func (v *View) Methods(pkg workspace.PackageID, typeName string) []Symbol {
 func (v *View) Packages() []workspace.PackageID {
 	var out []workspace.PackageID
 	for _, addr := range v.ws.UnitKeys() {
-		unit, _ := v.ws.Unit(addr)
-		if prod := unit.Prod(); prod != nil {
-			out = append(out, prod.ID)
-		}
-		if xtest := unit.XTest(); xtest != nil {
-			out = append(out, xtest.ID)
+		for _, pkg := range v.ws.MembersOf(addr) {
+			out = append(out, pkg.ID)
 		}
 	}
 	return out
@@ -118,8 +119,10 @@ func (v *View) SymbolsRegexp(re *regexp.Regexp) []Symbol {
 // DeclSource extracts the exact source of the symbol's whole top-level
 // declaration, doc comment included. For a symbol inside a grouped decl
 // this is the entire group; see SpecSource for the narrow slice.
-func (v *View) DeclSource(pkg workspace.PackagePath, key string) (string, bool) {
-	return v.ws.DeclSource(pkg, key)
+// fileName, when non-empty, scopes resolution exactly to that file
+// rather than a primary-preference guess.
+func (v *View) DeclSource(pkg workspace.PackagePath, key, fileName string) (string, bool) {
+	return v.ws.DeclSource(pkg, key, fileName)
 }
 
 // SpecSource extracts the exact source of the symbol's own spec, doc
@@ -142,24 +145,24 @@ func (v *View) fsetOf(pkg *workspace.Package) *token.FileSet {
 	return v.ws.FsetOf(pkg)
 }
 
-// resolvePkg resolves pkg to its owning *workspace.Package — the
-// workspace, then the external cache — the one private door every
-// package-fact method below composes on.
-func (v *View) resolvePkg(pkg workspace.PackageID) (*workspace.Package, bool) {
-	if p, ok := v.ws.ResolvePackage(pkg); ok {
-		return p, true
+// resolveMembers resolves pkg to every one of its member packages (Prod,
+// XTest, Ignored, Prod-before-XTest-before-Ignored order) — the workspace
+// first, then the external cache as a last resort — the one private
+// door every package-fact method below composes on.
+func (v *View) resolveMembers(pkg workspace.PackagePath) ([]*workspace.Package, bool) {
+	if members := v.ws.MembersOf(pkg); len(members) > 0 {
+		return members, true
 	}
-	if p, ok := v.ws.LookupExternal(pkg.Base()); ok {
-		return p, true
+	if p, ok := v.ws.LookupExternal(pkg); ok {
+		return []*workspace.Package{p}, true
 	}
 	return nil, false
 }
 
 // HasPackage reports whether pkg names a package in the workspace —
 // never the external cache, see HasExternalPackage.
-func (v *View) HasPackage(pkg workspace.PackageID) bool {
-	_, ok := v.ws.ResolvePackage(pkg)
-	return ok
+func (v *View) HasPackage(pkg workspace.PackagePath) bool {
+	return len(v.ws.MembersOf(pkg)) > 0
 }
 
 // HasExternalPackage reports whether pkg is resident in the external
@@ -169,74 +172,103 @@ func (v *View) HasExternalPackage(pkg workspace.PackagePath) bool {
 	return ok
 }
 
-// PackageDoc is pkg's own package-level doc comment.
-func (v *View) PackageDoc(pkg workspace.PackageID) (string, bool) {
-	p, ok := v.resolvePkg(pkg)
+// PackageDoc is pkg's own package-level doc comment — its Prod half's,
+// specifically, since XTest/Ignored halves don't carry the package's own
+// canonical doc.
+func (v *View) PackageDoc(pkg workspace.PackagePath) (string, bool) {
+	members, ok := v.resolveMembers(pkg)
 	if !ok {
 		return "", false
 	}
-	return p.Doc(), true
+	return members[0].Doc(), true
 }
 
-// PackageFiles is pkg's files, path-sorted.
-func (v *View) PackageFiles(pkg workspace.PackageID) ([]workspace.FilePath, bool) {
-	p, ok := v.resolvePkg(pkg)
+// PackageFiles is pkg's files across every one of its members (Prod,
+// XTest), path-sorted — an agent addresses the one canonical package,
+// never a specific internal kind, and a file's own basename is already
+// unique per directory regardless of which kind loaded it.
+func (v *View) PackageFiles(pkg workspace.PackagePath) ([]workspace.FilePath, bool) {
+	members, ok := v.resolveMembers(pkg)
 	if !ok {
 		return nil, false
 	}
-	files := p.Files()
-	out := make([]workspace.FilePath, len(files))
-	for i, f := range files {
-		out[i] = f.Path
-	}
-	return out, true
-}
-
-// PackageSymbols is pkg's own top-level symbols, key-sorted.
-func (v *View) PackageSymbols(pkg workspace.PackageID) ([]Symbol, bool) {
-	p, ok := v.resolvePkg(pkg)
-	if !ok {
-		return nil, false
-	}
-	syms := p.Symbols()
-	out := make([]Symbol, len(syms))
-	for i, s := range syms {
-		out[i] = Symbol{Key: s.Key(), Kind: s.Kind.String(), File: s.File, Owner: p.ID}
-	}
-	return out, true
-}
-
-// ResolveType resolves pkg+key the same way Symbol does, refusing (with
-// a ready-to-use error) unless the result is a type — the one gate-check
-// the implementor-search flow needs before SymbolsImplementing.
-func (v *View) ResolveType(pkg workspace.PackagePath, key string) (workspace.PackageID, error) {
-	sym, owner, ok := v.ws.ResolveSymbol(pkg, key)
-	if !ok {
-		if _, ok := v.ws.LookupExternal(pkg); ok {
-			return workspace.PackageID{}, fmt.Errorf("%q is a dependency: read-only, semantic search stays scoped to the workspace", pkg)
+	var out []workspace.FilePath
+	for _, p := range members {
+		for _, f := range p.Files() {
+			out = append(out, f.Path)
 		}
-		return workspace.PackageID{}, workspace.NoSymbolError(key, pkg)
 	}
-	if sym.Kind != workspace.KindType {
+	slices.Sort(out)
+	return out, true
+}
+
+// PackageSymbols is pkg's own top-level symbols across every one of its
+// members (Prod, XTest, Ignored), key-sorted.
+func (v *View) PackageSymbols(pkg workspace.PackagePath) ([]Symbol, bool) {
+	members, ok := v.resolveMembers(pkg)
+	if !ok {
+		return nil, false
+	}
+	var out []Symbol
+	for _, p := range members {
+		for _, s := range p.Symbols() {
+			out = append(out, Symbol{Key: s.Key(), Kind: s.Kind.String(), File: s.File, Owner: p.ID})
+		}
+	}
+	slices.SortFunc(out, func(a, b Symbol) int { return cmp.Compare(a.Key, b.Key) })
+	return out, true
+}
+
+// ResolveType resolves addr+key the same way Symbol/SymbolIn does,
+// refusing (with a ready-to-use error) unless the result is a type —
+// the one gate-check the implementor-search flow needs before
+// SymbolsImplementing. fileName, when non-empty, scopes resolution
+// exactly to that file rather than a primary-preference guess.
+func (v *View) ResolveType(addr, key, fileName string) (workspace.PackageID, error) {
+	pkg, err := workspace.NewPackagePath(v.Module(), addr)
+	if err != nil {
+		return workspace.PackageID{}, err
+	}
+	var sym Symbol
+	var ok bool
+	if fileName != "" {
+		sym, ok = v.SymbolIn(pkg, key, fileName)
+	} else {
+		sym, ok = v.Symbol(pkg, key)
+	}
+	if !ok {
+		if v.HasExternalPackage(workspace.PackagePath(addr)) {
+			return workspace.PackageID{}, fmt.Errorf("%q is a dependency: read-only, semantic search stays scoped to the workspace", addr)
+		}
+		return workspace.PackageID{}, workspace.NoSymbolError(key, addr)
+	}
+	if sym.Kind != workspace.KindType.String() {
 		return workspace.PackageID{}, fmt.Errorf("%q is a %s, not a %s", key, sym.Kind, workspace.KindType)
 	}
-	return owner.ID, nil
+	return sym.Owner, nil
 }
 
-// ResolveFile resolves a bare filename against pkg's own files.
-func (v *View) ResolveFile(pkg workspace.PackageID, fileName string) (workspace.FilePath, error) {
-	p, ok := v.resolvePkg(pkg)
+// ResolveFile resolves a bare filename against pkg's own files, checking
+// every one of its members (Prod, XTest, Ignored) — a file's basename is
+// already unique per directory, so at most one member can ever hold it.
+// Returns the file's owner alongside its resolved path, so a caller
+// holding only the bare canonical pkg can still tell which kind actually
+// owns it.
+func (v *View) ResolveFile(pkg workspace.PackagePath, fileName string) (workspace.FilePath, workspace.PackageID, error) {
+	members, ok := v.resolveMembers(pkg)
 	if !ok {
-		return "", workspace.NoPackageError(pkg)
+		return "", workspace.PackageID{}, workspace.NoPackageError(pkg)
 	}
-	fp, err := workspace.NewFilePath(v.ws.Module(), p.ID.Base(), fileName)
+	fp, err := workspace.NewFilePath(v.ws.Module(), pkg, fileName)
 	if err != nil {
-		return "", err
+		return "", workspace.PackageID{}, err
 	}
-	if _, ok := p.File(fp); !ok {
-		return "", errNoFile(fp.Base(), pkg)
+	for _, p := range members {
+		if _, ok := p.File(fp); ok {
+			return fp, p.ID, nil
+		}
 	}
-	return fp, nil
+	return "", workspace.PackageID{}, errNoFile(fp.Base(), pkg)
 }
 
 // FileDoc is path's own package-doc comment.
@@ -260,20 +292,77 @@ func (v *View) ExternalPackageID(pkg workspace.PackagePath) (workspace.PackageID
 	return p.ID, true
 }
 
+// FileDirectives is path's own leading compiler directives.
+func (v *View) FileDirectives(path workspace.FilePath) ([]string, bool) {
+	file, _, ok := v.ws.ResolveFileByPath(path)
+	if !ok {
+		return nil, false
+	}
+	return slices.Clone(file.Directives), true
+}
+
+// SymbolIn resolves a canonical package address, symbol key, and file
+// name to the symbol — fileName is an assertion, not a hint: only a
+// declaration whose own file matches exactly is returned, searched
+// across every member (Prod and XTest alike), never falling back to a
+// primary-preference guess when it doesn't match anything. The only way
+// to reach a declaration a same-named sibling elsewhere would otherwise
+// shadow.
+func (v *View) SymbolIn(pkg workspace.PackagePath, key, fileName string) (Symbol, bool) {
+	sym, owner, ok := v.ws.ResolveSymbolIn(pkg, key, fileName)
+	if !ok {
+		return Symbol{}, false
+	}
+	return Symbol{Key: sym.Key(), Kind: sym.Kind.String(), File: sym.File, Owner: owner.ID, Ignored: sym.Ignored, Directives: slices.Clone(sym.Directives)}, true
+}
+
+// FileIgnored reports whether path's own build constraint excludes it
+// from the current build.
+func (v *View) FileIgnored(path workspace.FilePath) (bool, bool) {
+	file, _, ok := v.ws.ResolveFileByPath(path)
+	if !ok {
+		return false, false
+	}
+	return file.Ignored, true
+}
+
+// FileGenerated reports whether path carries a generated-file marker
+// among its leading comment/blank lines — checked fresh against its
+// current bytes every call, never cached.
+func (v *View) FileGenerated(path workspace.FilePath) (bool, bool) {
+	file, _, ok := v.ws.ResolveFileByPath(path)
+	if !ok {
+		return false, false
+	}
+	return workspace.IsGenerated(file.Src()), true
+}
+
+// FileKind is path's own owning package's shape (Prod or XTest) —
+// omitted (empty) for the common Prod case, present only for XTest.
+func (v *View) FileKind(path workspace.FilePath) (string, bool) {
+	_, owner, ok := v.ws.ResolveFileByPath(path)
+	if !ok {
+		return "", false
+	}
+	if owner.ID.Kind() == workspace.KindProd {
+		return "", true
+	}
+	return owner.ID.Kind().String(), true
+}
+
 // Symbol is store's read-only view of one addressable top-level
 // declaration: the key, its kind (pre-rendered to a string — nothing in
 // internal/tools ever needs to compare kinds as a type, only print or
-// gate-check them, and the gate-check has its own narrow method,
-// ResolveType), its owning file, and Owner — the specific package
-// variant (Prod or XTest) it was found in. Owner is what used to need a
-// separate Match type to carry: a scan hit's owning package can be the
-// XTest half, which File's canonical-only derivation can't distinguish
-// on its own.
+// compare it), the file it lives in, which package owns it (Prod or
+// XTest, distinguished by PackageID.Kind), and whether its own file is
+// excluded from the current build.
 type Symbol struct {
-	Key   string
-	Kind  string
-	File  workspace.FilePath
-	Owner workspace.PackageID
+	Key        string
+	Kind       string
+	File       workspace.FilePath
+	Owner      workspace.PackageID
+	Ignored    bool
+	Directives []string
 }
 
 // IsType reports whether s is a type declaration — the one place

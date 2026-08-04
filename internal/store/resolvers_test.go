@@ -8,7 +8,7 @@ import (
 
 func TestViewPackage(t *testing.T) {
 	v := viewFixture(t, "package pkg\n\nfunc Foo() {}\n")
-	if !v.HasPackage(tpkgID("pkg")) {
+	if !v.HasPackage(tpkgPath("pkg")) {
 		t.Fatal("Package(test.mod/pkg) not found")
 	}
 	if _, ok := v.Symbol("test.mod/pkg", "Foo"); !ok {
@@ -18,7 +18,7 @@ func TestViewPackage(t *testing.T) {
 
 func TestViewPackageNotFound(t *testing.T) {
 	v := viewFixture(t, "package pkg\n")
-	if v.HasPackage(tpkgID("nosuch")) {
+	if v.HasPackage(tpkgPath("nosuch")) {
 		t.Error("Package(test.mod/nosuch) = ok, want not found")
 	}
 }

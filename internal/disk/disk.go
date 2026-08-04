@@ -9,6 +9,7 @@ package disk
 import (
 	"context"
 	"fmt"
+	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
@@ -29,7 +30,7 @@ type Loader struct {
 
 // Load runs the full pipeline against disk plus an optional overlay of
 // in-memory contents, for the whole module.
-func (l *Loader) Load(ctx context.Context, overlay map[string][]byte) (*token.FileSet, workspace.PackagePath, map[workspace.PackagePath]*workspace.Unit, error) {
+func (l *Loader) Load(ctx context.Context, overlay map[string][]byte) (*token.FileSet, workspace.PackagePath, map[workspace.PackagePath]*workspace.Package, map[workspace.PackagePath]*workspace.Package, error) {
 	return l.LoadInto(ctx, token.NewFileSet(), overlay, "./...")
 }
 
@@ -39,8 +40,9 @@ func (l *Loader) Load(ctx context.Context, overlay map[string][]byte) (*token.Fi
 // already hold entries from a previous call: packages.Load always
 // appends new entries via fset.Base(), which is past the end of
 // whatever's already registered, so existing and freshly parsed entries
-// never collide.
-func (l *Loader) LoadInto(ctx context.Context, fset *token.FileSet, overlay map[string][]byte, patterns ...string) (*token.FileSet, workspace.PackagePath, map[workspace.PackagePath]*workspace.Unit, error) {
+// never collide. Returns the Prod and XTest packages built, each keyed
+// by canonical package address.
+func (l *Loader) LoadInto(ctx context.Context, fset *token.FileSet, overlay map[string][]byte, patterns ...string) (*token.FileSet, workspace.PackagePath, map[workspace.PackagePath]*workspace.Package, map[workspace.PackagePath]*workspace.Package, error) {
 	loadStart := time.Now()
 	srcPkgs, err := packages.Load(&packages.Config{
 		Mode:    packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
@@ -52,7 +54,7 @@ func (l *Loader) LoadInto(ctx context.Context, fset *token.FileSet, overlay map[
 		Overlay: overlay,
 	}, patterns...)
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("workspace loading failure: %w", err)
+		return nil, "", nil, nil, fmt.Errorf("workspace loading failure: %w", err)
 	}
 	if l.Logf != nil {
 		l.Logf("load: go/packages took %v for %d package variants (overlay: %d files)",
@@ -98,14 +100,15 @@ func (l *Loader) LoadInto(ctx context.Context, fset *token.FileSet, overlay map[
 	// an external-test-only unit answers to its production sibling's path.
 	// canonicalPkg (never a variant's own srcPkg.PkgPath, which for the
 	// XTest half carries its own distinct "_test"-suffixed identity) is
-	// resolved once per candidate and threaded into buildPackage so every
-	// file constructed from either half addresses through the same package
-	// key Workspace.units is keyed by. Both halves are built before NewUnit
-	// assembles them, so a Unit is never observed half-built.
-	units := make(map[workspace.PackagePath]*workspace.Unit)
+	// resolved once per candidate and threaded into buildPackage — and into
+	// absorbIgnoredFiles, for the same candidate's combined IgnoredFiles —
+	// so every file constructed from either half addresses through the
+	// same package key the Prod/XTest maps are keyed by.
+	prodOut := make(map[workspace.PackagePath]*workspace.Package)
+	xtestOut := make(map[workspace.PackagePath]*workspace.Package)
 	for _, cand := range selected {
 		if ctx.Err() != nil {
-			return nil, "", nil, fmt.Errorf("workspace load aborted by context cancellation: %w", ctx.Err())
+			return nil, "", nil, nil, fmt.Errorf("workspace load aborted by context cancellation: %w", ctx.Err())
 		}
 		var canonicalPkg workspace.PackagePath
 		switch {
@@ -114,24 +117,41 @@ func (l *Loader) LoadInto(ctx context.Context, fset *token.FileSet, overlay map[
 		case cand.xtest != nil:
 			canonicalPkg = workspace.PackagePath(strings.TrimSuffix(cand.xtest.PkgPath, "_test"))
 		}
+		var ignoredPaths []string
 		var prod, xtest *workspace.Package
-		var err error
 		if cand.prod != nil {
-			if prod, err = l.buildPackage(cand.prod, canonicalPkg, fset, overlay); err != nil {
-				return nil, "", nil, err
+			prod, err = l.buildPackage(cand.prod, canonicalPkg, fset, overlay)
+			if err != nil {
+				return nil, "", nil, nil, err
 			}
+			prodOut[canonicalPkg] = prod
+			ignoredPaths = append(ignoredPaths, cand.prod.IgnoredFiles...)
 		}
 		if cand.xtest != nil {
-			if xtest, err = l.buildPackage(cand.xtest, canonicalPkg, fset, overlay); err != nil {
-				return nil, "", nil, err
+			xtest, err = l.buildPackage(cand.xtest, canonicalPkg, fset, overlay)
+			if err != nil {
+				return nil, "", nil, nil, err
+			}
+			xtestOut[canonicalPkg] = xtest
+			ignoredPaths = append(ignoredPaths, cand.xtest.IgnoredFiles...)
+		}
+		if len(ignoredPaths) > 0 {
+			prod, xtest, err = l.absorbIgnoredFiles(canonicalPkg, ignoredPaths, fset, overlay, prod, xtest)
+			if err != nil {
+				return nil, "", nil, nil, err
+			}
+			if prod != nil {
+				prodOut[canonicalPkg] = prod
+			}
+			if xtest != nil {
+				xtestOut[canonicalPkg] = xtest
 			}
 		}
-		units[canonicalPkg] = workspace.NewUnit(prod, xtest)
 	}
 	if l.Logf != nil {
-		l.Logf("load: select+build took %v for %d units", time.Since(buildStart), len(units))
+		l.Logf("load: select+build took %v for %d prod + %d xtest packages", time.Since(buildStart), len(prodOut), len(xtestOut))
 	}
-	return fset, module, units, nil
+	return fset, module, prodOut, xtestOut, nil
 }
 
 // buildPackage turns one selected load variant into the store's Package:
@@ -144,7 +164,11 @@ func (l *Loader) LoadInto(ctx context.Context, fset *token.FileSet, overlay map[
 // shared unit key (see LoadInto). Prod vs XTest is derived from
 // srcPkg.Name here, the same rule LoadInto's own Pass 1 already
 // classified by — nothing for the caller to separately track and pass in
-// sync.
+// sync. Its own build-excluded siblings (srcPkg.IgnoredFiles) are not
+// this function's concern — LoadInto's caller absorbs them afterward,
+// once, across both the Prod and XTest variants together (see
+// absorbIgnoredFiles), since a single variant's own IgnoredFiles list
+// can't say which shape an excluded file actually belongs to.
 func (l *Loader) buildPackage(srcPkg *packages.Package, canonicalPkg workspace.PackagePath, fset *token.FileSet, overlay map[string][]byte) (*workspace.Package, error) {
 	kind := workspace.KindProd
 	if strings.HasSuffix(srcPkg.Name, "_test") {
@@ -172,7 +196,7 @@ func (l *Loader) buildPackage(srcPkg *packages.Package, canonicalPkg workspace.P
 			}
 		}
 		filePath := canonicalPkg.File(filepath.Base(absFilePath))
-		pkg.LoadFile(filePath, src, astFile)
+		pkg.LoadFile(filePath, src, astFile, false)
 	}
 	pkg.RebuildIndex()
 	l.ingestErrors(pkg, canonicalPkg, srcPkg.Errors)
@@ -255,7 +279,7 @@ func (l *Loader) buildExternal(srcPkg *packages.Package, fset *token.FileSet) (*
 			return nil, fmt.Errorf("failed to read dependency source %s: %w", abs, err)
 		}
 		path := pkgPath.File(filepath.Base(abs))
-		pkg.LoadFile(path, src, astFile)
+		pkg.LoadFile(path, src, astFile, false)
 	}
 	pkg.RebuildIndex()
 	return pkg, nil
@@ -297,6 +321,74 @@ func (l *Loader) RemoveEmptyAncestors(dir string) {
 			return
 		}
 	}
+}
+
+// absorbIgnoredFiles reads and parses each of a directory's own
+// build-excluded files directly — no further packages.Load call, since
+// go/packages already ran once, upstream, to determine these were
+// excluded — and merges each one into whichever of prod/xtest its own
+// declared package name actually matches (the same "_test"-suffix
+// convention go/packages itself classifies by), marked Ignored.
+// Synthesizes an empty shell for a shape that had no active variant at
+// all — a directory can be entirely build-excluded on this host. A file
+// that fails to parse is recorded as a diagnostic against prod (there's
+// no declared name to pick a shape from) and skipped, same posture as
+// buildPackage's own outside-workspace skip. Both packages' indices are
+// rebuilt once, at the end, to fold in whatever was absorbed; returns
+// the (possibly newly created) prod and xtest.
+func (l *Loader) absorbIgnoredFiles(canonicalPkg workspace.PackagePath, absPaths []string, fset *token.FileSet, overlay map[string][]byte, prod, xtest *workspace.Package) (*workspace.Package, *workspace.Package, error) {
+	seen := make(map[string]bool, len(absPaths))
+	prodTouched, xtestTouched := false, false
+	for _, absFilePath := range absPaths {
+		if seen[absFilePath] {
+			continue
+		}
+		seen[absFilePath] = true
+		relFilePath, err := l.relativePath(absFilePath)
+		if err != nil || workspace.IsOutsideRoot(relFilePath) {
+			continue
+		}
+		src, ok := overlay[absFilePath]
+		if !ok {
+			if src, err = os.ReadFile(absFilePath); err != nil {
+				return nil, nil, fmt.Errorf("failed to read source of %s: %w", absFilePath, err)
+			}
+		}
+		filePath := canonicalPkg.File(filepath.Base(absFilePath))
+		astFile, perr := parser.ParseFile(fset, absFilePath, src, parser.ParseComments)
+		if perr != nil {
+			if prod == nil {
+				prod = workspace.NewPackage(canonicalPkg.Base(), canonicalPkg, workspace.KindProd, nil, nil)
+			}
+			prod.Diags = append(prod.Diags, workspace.Diagnostic{
+				File: filePath,
+				Kind: workspace.DiagParse,
+				Msg:  perr.Error(),
+			})
+			prodTouched = true
+			continue
+		}
+		if strings.HasSuffix(astFile.Name.Name, "_test") {
+			if xtest == nil {
+				xtest = workspace.NewPackage(astFile.Name.Name, canonicalPkg, workspace.KindXTest, nil, nil)
+			}
+			xtest.LoadFile(filePath, src, astFile, true)
+			xtestTouched = true
+		} else {
+			if prod == nil {
+				prod = workspace.NewPackage(astFile.Name.Name, canonicalPkg, workspace.KindProd, nil, nil)
+			}
+			prod.LoadFile(filePath, src, astFile, true)
+			prodTouched = true
+		}
+	}
+	if prodTouched {
+		prod.RebuildIndex()
+	}
+	if xtestTouched {
+		xtest.RebuildIndex()
+	}
+	return prod, xtest, nil
 }
 
 // splitPos parses the "file:line:col" / "file:line" / "file" position string

@@ -34,7 +34,7 @@ func TestListSymbolsAndFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list_files: %v", err)
 	}
-	if !slices.Contains(files.Files, "groups.go") {
+	if !slices.ContainsFunc(files.Files, func(f FileEntry) bool { return f.Name == "groups.go" }) {
 		t.Errorf("list_files missing groups.go: %v", files.Files)
 	}
 

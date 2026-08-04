@@ -1,65 +1,34 @@
 package workspace
 
-import (
-	"go/token"
-)
-
 // ResolvePackage resolves id to the specific package it names — Prod or
-// XTest, per id.Kind() — within its unit.
+// XTest, per id.Kind().
 func (w *Workspace) ResolvePackage(id PackageID) (*Package, bool) {
-	unit, ok := w.Unit(id.Base())
-	if !ok {
-		return nil, false
-	}
-	if id.Kind() == KindXTest {
-		if p := unit.XTest(); p != nil {
-			return p, true
-		}
-		return nil, false
-	}
-	if p := unit.Prod(); p != nil {
-		return p, true
-	}
-	return nil, false
+	p := w.packageAt(id.Base(), id.Kind())
+	return p, p != nil
 }
 
-// EnsureXTest is ResolvePackage's create-side sibling: when id names
-// a unit's XTest half that doesn't exist yet, it installs a fresh XTest
-// package — and, if the unit doesn't exist at all yet, a fresh Prod
-// sibling too, so a create verb never needs the destination package to
-// already exist first just to target a brand-new package's XTest half.
-// freshProd is non-nil exactly when a Prod shell had to be originated
-// here: the caller (which alone can install real file content) must
-// give it a stub file within the same transaction, the same way
-// CreatePackage always pairs a fresh shell with a real file. The one
-// door a create verb is allowed to originate a package that isn't there
-// yet, mirroring CreatePackage's own shell construction for a brand new
-// unit.
-func (w *Workspace) EnsureXTest(id PackageID) (pkg, freshProd *Package, err error) {
-	if p, ok := w.ResolvePackage(id); ok {
-		return p, nil, nil
+// packageAt resolves addr's package for a specific kind — the shared
+// lookup ResolvePackage and RelocateFile both compose on.
+func (w *Workspace) packageAt(addr PackagePath, kind PackageKind) *Package {
+	switch kind {
+	case KindXTest:
+		return w.xtest[addr]
+	default:
+		return w.prod[addr]
 	}
-	if id.Kind() != KindXTest {
-		return nil, nil, NoPackageError(id)
+}
+
+// candidatePackages returns every package address for pkg, in resolution
+// order: workspace members first (Prod, then XTest), the external
+// dependency cache last as the final fallback. The one place this order
+// is written — ResolveSymbol, ResolveSymbolIn, and any future resolver
+// needing the same "workspace, then dependency" fallback compose on this
+// instead of each re-deriving it by hand, which is what let
+// ResolveSymbolIn ship without the external half in the first place.
+func (w *Workspace) candidatePackages(pkg PackagePath) []*Package {
+	members := w.MembersOf(pkg)
+	if p, ok := w.LookupExternal(pkg); ok {
+		return append(members, p)
 	}
-	base := id.Base()
-	if base == w.module {
-		return nil, nil, OutsideModuleCreateError(base, w.module)
-	}
-	unit, ok := w.Unit(base)
-	var prod *Package
-	if ok {
-		prod = unit.Prod()
-	}
-	if prod == nil {
-		name := base.Base()
-		if !token.IsIdentifier(name) {
-			return nil, nil, InvalidPackageNameError(name)
-		}
-		prod = NewPackage(name, base, KindProd, nil, nil)
-		freshProd = prod
-	}
-	fresh := NewPackage(prod.Name+"_test", base, KindXTest, nil, nil)
-	w.InstallUnit(base, NewUnit(prod, fresh))
-	return fresh, freshProd, nil
+	return members
 }

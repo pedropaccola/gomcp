@@ -12,24 +12,33 @@ import (
 )
 
 // Fragment is a validated piece of agent-supplied source: the symbol keys
-// it declares, its placement classification, and whether it references
-// iota (only meaningful for a const-group fragment).
+// it declares, its placement classification, whether it references iota
+// (only meaningful for a const-group fragment), and each declared key's
+// own directive lines as parsed straight out of the fragment's source —
+// the "new" side of a symbol-level directive diff, computed once here
+// rather than by re-parsing src a second time.
 type Fragment struct {
-	Keys     []string
-	Kind     SymbolKind
-	Recv     string
-	UsesIota bool
+	Keys             []string
+	Kind             SymbolKind
+	Recv             string
+	UsesIota         bool
+	SymbolDirectives map[string][]string
 }
 
 // classifyFragment derives keys and placement class by reusing the same
-// indexer that builds the real symbol tables.
+// indexer that builds the real symbol tables. A single agent-supplied
+// fragment never legitimately declares the same name twice, so taking
+// the first (only) entry per key is always correct here — the
+// multi-entry case IndexAST's shared map type accommodates is a
+// RebuildIndex-only concern (multiple files), not a fragment one.
 func classifyFragment(astFile *ast.File) Fragment {
-	symbols := make(map[string]*Symbol)
+	symbols := make(map[string][]*Symbol)
 	inits := IndexAST("fragment.go", astFile, symbols)
-	frag := Fragment{Keys: slices.Sorted(maps.Keys(symbols))}
+	frag := Fragment{Keys: slices.Sorted(maps.Keys(symbols)), SymbolDirectives: make(map[string][]string, len(symbols))}
 	for _, key := range frag.Keys {
-		frag.Kind = symbols[key].Kind
-		frag.Recv = symbols[key].Recv
+		frag.Kind = symbols[key][0].Kind
+		frag.Recv = symbols[key][0].Recv
+		frag.SymbolDirectives[key] = symbols[key][0].Directives
 	}
 	for range inits {
 		frag.Keys = append(frag.Keys, "init")

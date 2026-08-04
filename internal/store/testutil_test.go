@@ -109,11 +109,19 @@ func assertModelEqualsDisk(tb testing.TB, e *Store) {
 	if !slices.Equal(gotKeys, wantKeys) {
 		tb.Fatalf("unit set diverged: got %v, want %v", gotKeys, wantKeys)
 	}
+	xtestOf := func(ws *workspace.Workspace, addr workspace.PackagePath) *workspace.Package {
+		for _, p := range ws.MembersOf(addr) {
+			if p.ID.Kind() == workspace.KindXTest {
+				return p
+			}
+		}
+		return nil
+	}
 	for _, addr := range wantKeys {
-		gotUnit, _ := got.Unit(addr)
-		wantUnit, _ := want.Unit(addr)
-		diffPackagePair(tb, gotView, wantView, addr, "Prod", gotUnit.Prod(), wantUnit.Prod())
-		diffPackagePair(tb, gotView, wantView, addr, "XTest", gotUnit.XTest(), wantUnit.XTest())
+		gotProd, _ := got.ProdPackage(addr)
+		wantProd, _ := want.ProdPackage(addr)
+		diffPackagePair(tb, gotView, wantView, addr, "Prod", gotProd, wantProd)
+		diffPackagePair(tb, gotView, wantView, addr, "XTest", xtestOf(got, addr), xtestOf(want, addr))
 	}
 
 	if gotDiags, wantDiags := gotView.AllDiagnostics(), wantView.AllDiagnostics(); !slices.Equal(gotDiags, wantDiags) {
@@ -156,8 +164,8 @@ func diffPackagePair(tb testing.TB, gotView, wantView *View, addr workspace.Pack
 	}
 	for i, wantSym := range wantSyms {
 		_ = i
-		gotSrc, _ := gotView.DeclSource(addr, wantSym.Key())
-		wantSrc, _ := wantView.DeclSource(addr, wantSym.Key())
+		gotSrc, _ := gotView.DeclSource(addr, wantSym.Key(), "")
+		wantSrc, _ := wantView.DeclSource(addr, wantSym.Key(), "")
 		if gotSrc != wantSrc {
 			tb.Errorf("%s.%s: declaration source diverged:\ngot:\n%s\nwant:\n%s", addr, wantSym.Key(), gotSrc, wantSrc)
 		}
@@ -184,16 +192,10 @@ func symbolKeys(symbols []*workspace.Symbol) []string {
 // pointers, which View's own public API doesn't expose (it returns
 // dto.File, not *workspace.File).
 func resolveFile(e *Store, path workspace.FilePath) (*workspace.File, *workspace.Package, bool) {
-	ws := e.ws
 	pkgPath := workspace.PackagePath(filepath.Dir(string(path)))
-	if unit, ok := ws.Unit(pkgPath); ok {
-		for _, pkg := range []*workspace.Package{unit.Prod(), unit.XTest()} {
-			if pkg == nil {
-				continue
-			}
-			if file, ok := pkg.File(path); ok {
-				return file, pkg, true
-			}
+	for _, pkg := range e.ws.MembersOf(pkgPath) {
+		if file, ok := pkg.File(path); ok {
+			return file, pkg, true
 		}
 	}
 	return nil, nil, false
@@ -202,21 +204,18 @@ func resolveFile(e *Store, path workspace.FilePath) (*workspace.File, *workspace
 // resolvePackage gives tests raw access to a package's underlying
 // workspace pointer, which View's own public API doesn't expose.
 func resolvePackage(e *Store, pkg workspace.PackagePath) (*workspace.Package, bool) {
-	unit, ok := e.ws.Unit(pkg)
-	if !ok || unit.Prod() == nil {
-		return nil, false
-	}
-	return unit.Prod(), true
+	return e.ws.ProdPackage(pkg)
 }
 
 // resolveXTest gives tests raw access to an XTest package's underlying
 // workspace pointer, which View's own public API doesn't expose.
 func resolveXTest(e *Store, pkg workspace.PackagePath) (*workspace.Package, bool) {
-	unit, ok := e.ws.Unit(pkg)
-	if !ok || unit.XTest() == nil {
-		return nil, false
+	for _, p := range e.ws.MembersOf(pkg) {
+		if p.ID.Kind() == workspace.KindXTest {
+			return p, true
+		}
 	}
-	return unit.XTest(), true
+	return nil, false
 }
 
 // resolveSymbol looks up pkg's key through View's own public Symbol
@@ -258,31 +257,29 @@ func sfile(dir, name string) workspace.FilePath {
 	return workspace.FilePath("example.com/sandbox/" + dir + "/" + name)
 }
 
-// spkgID addresses a sandbox package as a resolved identity — dir may
-// carry the "_test" suffix to name the XTest half, same as spkg.
-func spkgID(dir string) workspace.PackageID {
-	id, err := workspace.NewPackageID("example.com/sandbox", dir)
+// spkgPath addresses a sandbox package as a canonical address.
+func spkgPath(dir string) workspace.PackagePath {
+	id, err := workspace.NewPackagePath("example.com/sandbox", dir)
 	if err != nil {
 		panic(err)
 	}
 	return id
 }
 
-// tpkgID addresses a package in the "test.mod"-module unit fixtures
-// (viewFixture/testutil.SimpleFixture) as a resolved identity — dir may
-// carry the "_test" suffix to name the XTest half.
-func tpkgID(dir string) workspace.PackageID {
-	id, err := workspace.NewPackageID("test.mod", dir)
+// tpkgPath addresses a package in the "test.mod"-module unit fixtures
+// (viewFixture/testutil.SimpleFixture) as a canonical address.
+func tpkgPath(dir string) workspace.PackagePath {
+	id, err := workspace.NewPackagePath("test.mod", dir)
 	if err != nil {
 		panic(err)
 	}
 	return id
 }
 
-// pkgID builds a resolved identity for an ad-hoc module+address pair —
-// the general form spkgID/tpkgID specialize.
-func pkgID(module, addr string) workspace.PackageID {
-	id, err := workspace.NewPackageID(workspace.PackagePath(module), addr)
+// pkgPath builds a canonical address for an ad-hoc module+address pair —
+// the general form spkgPath/tpkgPath specialize.
+func pkgPath(module, addr string) workspace.PackagePath {
+	id, err := workspace.NewPackagePath(workspace.PackagePath(module), addr)
 	if err != nil {
 		panic(err)
 	}

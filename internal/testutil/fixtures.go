@@ -25,9 +25,9 @@ func (f funcImporter) Import(path string) (*types.Package, error) { return f(pat
 func SimpleFixture(tb testing.TB, src string) *workspace.Workspace {
 	tb.Helper()
 	w := workspace.NewWorkspace()
-	w.Reset("test.mod", token.NewFileSet(), map[workspace.PackagePath]*workspace.Unit{})
-	w.InstallUnit("test.mod/pkg", workspace.NewUnit(workspace.NewPackage("pkg", "test.mod/pkg", workspace.KindProd, nil, nil), nil))
-	if err := w.SwapFile("test.mod/pkg", false, "test.mod/pkg/pkg.go", []byte(src)); err != nil {
+	w.Reset("test.mod", token.NewFileSet(), map[workspace.PackagePath]*workspace.Package{}, map[workspace.PackagePath]*workspace.Package{})
+	w.InstallProd("test.mod/pkg", workspace.NewPackage("pkg", "test.mod/pkg", workspace.KindProd, nil, nil))
+	if err := w.SwapFile("test.mod/pkg", workspace.KindProd, false, "test.mod/pkg/pkg.go", []byte(src)); err != nil {
 		tb.Fatalf("SimpleFixture: SwapFile: %v", err)
 	}
 	return w
@@ -82,7 +82,7 @@ func TypesFixture(tb testing.TB, srcs map[string]string) *workspace.Workspace {
 	}
 
 	w := workspace.NewWorkspace()
-	w.Reset("test.mod", fset, map[workspace.PackagePath]*workspace.Unit{})
+	w.Reset("test.mod", fset, map[workspace.PackagePath]*workspace.Package{}, map[workspace.PackagePath]*workspace.Package{})
 	for path := range srcs {
 		if _, err := doImport(path); err != nil {
 			tb.Fatalf("TypesFixture: %v", err)
@@ -91,9 +91,9 @@ func TypesFixture(tb testing.TB, srcs map[string]string) *workspace.Workspace {
 	for path, src := range srcs {
 		name := files[path].Name.Name
 		wp := workspace.NewPackage(name, workspace.PackagePath(path), workspace.KindProd, checked[path], infos[path])
-		wp.LoadFile(workspace.FilePath(path+"/file.go"), []byte(src), files[path])
+		wp.LoadFile(workspace.FilePath(path+"/file.go"), []byte(src), files[path], false)
 		wp.RebuildIndex()
-		w.InstallUnit(workspace.PackagePath(path), workspace.NewUnit(wp, nil))
+		w.InstallProd(workspace.PackagePath(path), wp)
 	}
 	return w
 }

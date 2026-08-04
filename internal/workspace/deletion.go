@@ -74,10 +74,18 @@ func (w *Workspace) trimSpecName(owner *Package, sym *Symbol, spec *ast.ValueSpe
 // together. A name sharing a spec with other real names is trimmed from
 // it instead of taking the others down with it (trimSpecName). found
 // false means key doesn't exist — deletion is idempotent, a caller should
-// treat that as success, not an error. Aggregate-owned analysis, same
-// rationale as DetectMoveConflicts: key is resolved fresh here.
-func (w *Workspace) ComputeDeletionSplices(pkg PackagePath, key string) (splices ByteSplices, found bool, err error) {
-	sym, owner, ok := w.ResolveSymbol(pkg, key)
+// treat that as success, not an error. fileName follows DeclSource's own
+// assertion-vs-primary-preference convention. Aggregate-owned analysis,
+// same rationale as DetectMoveConflicts: key is resolved fresh here.
+func (w *Workspace) ComputeDeletionSplices(pkg PackagePath, key, fileName string) (splices ByteSplices, found bool, err error) {
+	var sym *Symbol
+	var owner *Package
+	var ok bool
+	if fileName != "" {
+		sym, owner, ok = w.ResolveSymbolIn(pkg, key, fileName)
+	} else {
+		sym, owner, ok = w.ResolveSymbol(pkg, key)
+	}
 	if !ok {
 		return nil, false, nil
 	}
@@ -106,8 +114,10 @@ func (w *Workspace) ComputeDeletionSplices(pkg PackagePath, key string) (splices
 // DeleteSymbol removes key's declaration — its spec alone when it lives in
 // a grouped declaration with siblings, unless its value is derived from
 // its position (iota, or inheriting the previous spec's expression), in
-// which case the whole group is removed together. Deleting one member of
-// a position-dependent group and leaving the rest as-is has no single
+// which case the whole group is removed together. fileName scopes
+// resolution exactly to that file (an assertion, never a hint); empty
+// keeps primary-preference resolution. Deleting one member of a
+// position-dependent group and leaving the rest as-is has no single
 // correct resolution (keep everyone else's original values? renumber
 // them?) — a whole-group replacement states explicitly what the agent
 // wants, not a guess this verb would have to make.
@@ -119,8 +129,8 @@ func (w *Workspace) ComputeDeletionSplices(pkg PackagePath, key string) (splices
 //
 // Deletion is idempotent: a missing symbol is a noop, not a failure.
 // Returns the file touched and whether key was actually found.
-func (w *Workspace) DeleteSymbol(pkg PackagePath, key string) (FilePath, bool, error) {
-	splices, found, err := w.ComputeDeletionSplices(pkg, key)
+func (w *Workspace) DeleteSymbol(pkg PackagePath, key, fileName string) (FilePath, bool, error) {
+	splices, found, err := w.ComputeDeletionSplices(pkg, key, fileName)
 	if err != nil {
 		return "", false, err
 	}
@@ -132,7 +142,7 @@ func (w *Workspace) DeleteSymbol(pkg PackagePath, key string) (FilePath, bool, e
 	if !ok {
 		return "", false, VanishedError(path, fmt.Sprintf("while deleting %q", key))
 	}
-	if err := w.SwapFile(pkg, owner.ID.Kind() == KindXTest, path, splices.Apply(file.Src())); err != nil {
+	if err := w.SwapFile(pkg, owner.ID.Kind(), file.Ignored, path, splices.Apply(file.Src())); err != nil {
 		return "", false, err
 	}
 	return path, true, nil

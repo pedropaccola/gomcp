@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"cmp"
 	"fmt"
 	"go/ast"
 	"go/token"
@@ -24,13 +25,18 @@ var packageKindNames = [...]string{"prod", "xtest", "external"}
 // the type checker's output are unexported with sorted-only or gated
 // accessors — determinism and containment by construction; they change
 // only through the Workspace primitives, RebuildIndex, and NewPackage.
+// symbols is keyed by name (or Recv.Name for methods) but multi-valued:
+// two files can legitimately declare the same top-level name when at
+// least one is Ignored — a real build would never let both survive, but
+// this model has to represent both to avoid silently losing one. See
+// RebuildIndex for the resolution order within each key's slice.
 type Package struct {
 	Name string
 	ID   PackageID // identity: canonical path plus Prod/XTest/External
 
 	files   map[FilePath]*File
-	symbols map[string]*Symbol // derived index; see RebuildIndex
-	Diags   []Diagnostic       // package-scoped: no usable file position
+	symbols map[string][]*Symbol // derived index; see RebuildIndex
+	Diags   []Diagnostic         // package-scoped: no usable file position
 
 	// Type information for the whole package, nil when type-checking could
 	// not run at all. Populated per load; a broken package still gets
@@ -59,11 +65,11 @@ func NewPackage(name string, path PackagePath, kind PackageKind, typesPkg *types
 // LoadFile installs bytes with the loader's AST as a clean file — the
 // load path's door for content, where the AST is the one the type checker
 // saw and is stored as-is; SwapFile is the mutation path's door.
-func (p *Package) LoadFile(path FilePath, src []byte, astFile *ast.File) {
+func (p *Package) LoadFile(path FilePath, src []byte, astFile *ast.File, ignored bool) {
 	if p.files == nil {
 		p.files = make(map[FilePath]*File)
 	}
-	p.files[path] = newFile(path, src, astFile, false)
+	p.files[path] = newFile(path, p.ID, src, astFile, false, ignored)
 }
 
 // Clone copies the package shallowly with fresh maps; File values are
@@ -81,7 +87,7 @@ func (p *Package) Clone() *Package {
 func (p *Package) cloneShell() *Package {
 	shell := *p
 	shell.files = make(map[FilePath]*File, len(p.files))
-	shell.symbols = make(map[string]*Symbol)
+	shell.symbols = make(map[string][]*Symbol)
 	return &shell
 }
 
@@ -101,41 +107,84 @@ func (p *Package) Files() []*File {
 }
 
 // RebuildIndex re-derives symbols and every file's Inits from the current
-// ASTs. Call after any file's ast is replaced; nothing is patched in
-// place. For an external (dependency) package, this also strips every
-// symbol from the result that isn't reachable from outside the package:
-// an unexported symbol by its own name, or a method whose name is
-// exported but whose receiver type isn't — the receiver type can't be
-// named from outside the package, so no external caller could ever hold
-// a value to call the method on. A dependency is API surface only, never
-// editable code, so nothing outside that reachable surface is indexed at
-// all.
+// ASTs, and stamps each symbol's Owner and Ignored — the constructing
+// Package's own ID and the symbol's own owning File's Ignored bit —
+// since IndexAST itself stays reusable on bare, unowned ASTs
+// (classifyFragment's scratch parsing has no real owner/file to give
+// it). Then, within each name's slice, sorts active (non-Ignored)
+// entries before Ignored ones, and by file path as a deterministic
+// tiebreak within either group — the resolution order Package.Symbol's
+// single-result lookup relies on: slice[0] is always the entry an active
+// build would actually keep, when one exists. Call after any file's ast
+// is replaced; nothing is patched in place. For an external (dependency)
+// package, this also strips every symbol from the result that isn't
+// reachable from outside the package: an unexported symbol by its own
+// name, or a method whose name is exported but whose receiver type
+// isn't — the receiver type can't be named from outside the package, so
+// no external caller could ever hold a value to call the method on. A
+// dependency is API surface only, never editable code, so nothing
+// outside that reachable surface is indexed at all.
 func (p *Package) RebuildIndex() {
-	p.symbols = make(map[string]*Symbol)
+	p.symbols = make(map[string][]*Symbol)
 	for _, file := range p.files {
 		file.Inits = IndexAST(file.Path, file.ast, p.symbols)
+	}
+	for _, syms := range p.symbols {
+		for _, sym := range syms {
+			sym.Owner = p.ID
+			if file, ok := p.files[sym.File]; ok {
+				sym.Ignored = file.Ignored
+			}
+		}
+		slices.SortFunc(syms, func(a, b *Symbol) int {
+			if a.Ignored != b.Ignored {
+				if a.Ignored {
+					return 1
+				}
+				return -1
+			}
+			return cmp.Compare(a.File, b.File)
+		})
 	}
 	if p.ID.Kind() != KindExternal {
 		return
 	}
-	for key, sym := range p.symbols {
-		if !token.IsExported(sym.Name) || (sym.Recv != "" && !token.IsExported(sym.Recv)) {
+	for key, syms := range p.symbols {
+		var kept []*Symbol
+		for _, sym := range syms {
+			if token.IsExported(sym.Name) && (sym.Recv == "" || token.IsExported(sym.Recv)) {
+				kept = append(kept, sym)
+			}
+		}
+		if len(kept) == 0 {
 			delete(p.symbols, key)
+		} else {
+			p.symbols[key] = kept
 		}
 	}
 }
 
-// Symbol resolves one symbol by key ("Name" or "Recv.Name").
+// Symbol resolves one symbol by key ("Name" or "Recv.Name") to its
+// primary declaration — the one an active build would actually keep, per
+// RebuildIndex's own sort. For internal, non-file-aware callers (finders,
+// move/rename logic) that have no way to disambiguate a same-keyed
+// collision themselves; a caller with a specific file in hand should
+// resolve through Workspace.ResolveSymbolIn instead.
 func (p *Package) Symbol(key string) (*Symbol, bool) {
-	sym, ok := p.symbols[key]
-	return sym, ok
+	syms, ok := p.symbols[key]
+	if !ok || len(syms) == 0 {
+		return nil, false
+	}
+	return syms[0], true
 }
 
-// Symbols enumerates the package's symbols in key order.
+// Symbols enumerates every declaration in the package, in key order —
+// every entry under a colliding key included, not just the primary, so a
+// full scan never silently under-reports a real declaration.
 func (p *Package) Symbols() []*Symbol {
-	out := make([]*Symbol, 0, len(p.symbols))
+	var out []*Symbol
 	for _, key := range slices.Sorted(maps.Keys(p.symbols)) {
-		out = append(out, p.symbols[key])
+		out = append(out, p.symbols[key]...)
 	}
 	return out
 }
@@ -148,13 +197,18 @@ func (p *Package) Types() *types.Package { return p.typesPkg }
 // type-checking could not run at all.
 func (p *Package) TypesInfo() *types.Info { return p.typesInfo }
 
-// Doc returns the package's godoc: every file's own doc comment,
+// Doc returns the package's godoc: every active file's own doc comment,
 // concatenated in file order — documentation lives distributed across a
-// package's files, not centralized in one.
+// package's files, not centralized in one. An Ignored file's own doc
+// comment is excluded: it's not part of the package's real, buildable
+// documented surface.
 func (p *Package) Doc() string {
 	files := p.Files()
 	parts := make([]string, 0, len(files))
 	for _, f := range files {
+		if f.Ignored {
+			continue
+		}
 		if doc := f.Doc(); doc != "" {
 			parts = append(parts, doc)
 		}
@@ -326,30 +380,29 @@ func (k PackageKind) String() string {
 	return packageKindNames[k]
 }
 
-// NewPackageID narrows addr, an untrusted agent-supplied package
+// NewPackagePath narrows addr, an untrusted agent-supplied package
 // address, against module: module-prefixed addresses pass through, bare
-// workspace directories gain the prefix, and go/packages' own "_test"
-// suffix convention for an external-test half is split off into Kind
-// here, once, so path and kind can never independently drift apart
-// afterward. File names are refused — packages are directories, always
-// spelled alone.
-func NewPackageID(module PackagePath, addr string) (PackageID, error) {
+// workspace directories gain the prefix. Returns the canonical address
+// alone — an agent never specifies which internal kind (Prod/XTest/
+// Ignored) it means; resolution across all three happens internally
+// (Workspace.MembersOf and its callers), and a file name is already
+// unique per directory regardless of which kind loaded it, so no suffix
+// is needed to disambiguate anywhere on this side of the boundary. File
+// names are refused here — packages are directories, always spelled
+// alone.
+func NewPackagePath(module PackagePath, addr string) (PackagePath, error) {
 	rel, ok := cleanRelative(module, addr)
 	if !ok {
-		return PackageID{}, fmt.Errorf("invalid package path %q", addr)
+		return "", fmt.Errorf("invalid package path %q", addr)
 	}
 	if strings.HasSuffix(rel, ".go") {
-		return PackageID{}, fmt.Errorf("%q names a file: a package address must name a directory alone", addr)
+		return "", fmt.Errorf("%q names a file: a package address must name a directory alone", addr)
 	}
 	full := string(module)
 	if rel != "." {
 		full = string(module) + "/" + rel
 	}
-	kind := KindProd
-	if trimmed, isXTest := strings.CutSuffix(full, "_test"); isXTest {
-		full, kind = trimmed, KindXTest
-	}
-	return PackageID{path: PackagePath(full), kind: kind}, nil
+	return PackagePath(full), nil
 }
 
 // newPackageID builds an already-validated identity directly from a

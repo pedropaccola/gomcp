@@ -29,7 +29,7 @@ func (e *Store) Flush() (written, removed []workspace.FilePath, err error) {
 		if err := e.WriteFile(abs, file.Src()); err != nil {
 			return written, removed, err
 		}
-		candidate.MarkFlushed(ref.Pkg, ref.IsXTest, file.Path)
+		candidate.MarkFlushed(ref.Pkg, ref.Kind, file.Path)
 		written = append(written, file.Path)
 	}
 	for _, path := range candidate.Tombstones() {
@@ -50,7 +50,7 @@ func (e *Store) Flush() (written, removed []workspace.FilePath, err error) {
 // in-memory state was lost — dirty files and pending removals. An error
 // means the previous state is untouched.
 func (e *Store) Reload(ctx context.Context) ([]workspace.FilePath, error) {
-	fset, module, units, err := e.Load(ctx, nil)
+	fset, module, prod, xtest, err := e.Load(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func (e *Store) Reload(ctx context.Context) ([]workspace.FilePath, error) {
 	discarded = slices.Compact(discarded)
 
 	ws := workspace.NewWorkspace()
-	ws.Reset(module, fset, units)
+	ws.Reset(module, fset, prod, xtest)
 	e.ws = ws
 	return discarded, nil
 }

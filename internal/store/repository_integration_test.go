@@ -17,7 +17,10 @@ func TestFlushWritesAndUnlinks(t *testing.T) {
 		t.Fatalf("Bootstrap: %v", err)
 	}
 	mustEdit(t, e, func(tx *Tx) error {
-		if err := tx.CreateSymbol(spkgID("shapes"), "extra.go", "func Twice(x float64) float64 { return 2 * x }"); err != nil {
+		if err := tx.CreateFile(spkgPath("shapes"), false, "extra.go", "", nil); err != nil {
+			return err
+		}
+		if err := tx.CreateSymbol(spkgPath("shapes"), "extra.go", "func Twice(x float64) float64 { return 2 * x }"); err != nil {
 			return err
 		}
 		return tx.DeleteFile(spkg("broken"), "broken.go")
@@ -90,7 +93,10 @@ func TestModelMatchesDiskAfterFlush(t *testing.T) {
 		t.Fatalf("Bootstrap: %v", err)
 	}
 	mustEdit(t, e, func(tx *Tx) error {
-		if err := tx.CreateSymbol(spkgID("shapes"), "extra.go", "func Twice(x float64) float64 { return 2 * x }"); err != nil {
+		if err := tx.CreateFile(spkgPath("shapes"), false, "extra.go", "", nil); err != nil {
+			return err
+		}
+		if err := tx.CreateSymbol(spkgPath("shapes"), "extra.go", "func Twice(x float64) float64 { return 2 * x }"); err != nil {
 			return err
 		}
 		if err := tx.MoveFile(spkg("shapes"), "groups.go", "", "extras.go"); err != nil {
@@ -121,7 +127,7 @@ func TestModelMatchesDiskAfterGroupAndMethodMutations(t *testing.T) {
 			return err
 		}
 		if err := tx.EditSymbol(spkg("shapes"), "KindSquare",
-			"// KindCircle is the round one.\nKindCircle Kind = iota\nKindSquare\nKindTriangle"); err != nil {
+			"// KindCircle is the round one.\nKindCircle Kind = iota\nKindSquare\nKindTriangle", ""); err != nil {
 			return err
 		}
 		return tx.MoveSymbol(spkg("shapes"), "Circle.Area", "", "shapes_extra.go", "")
@@ -135,7 +141,10 @@ func TestModelMatchesDiskAfterGroupAndMethodMutations(t *testing.T) {
 func TestReloadDiscards(t *testing.T) {
 	e := sandboxStore(t)
 	mustEdit(t, e, func(tx *Tx) error {
-		if err := tx.CreateSymbol(spkgID("shapes"), "extra.go", "func Extra() {}"); err != nil {
+		if err := tx.CreateFile(spkgPath("shapes"), false, "extra.go", "", nil); err != nil {
+			return err
+		}
+		if err := tx.CreateSymbol(spkgPath("shapes"), "extra.go", "func Extra() {}"); err != nil {
 			return err
 		}
 		return tx.DeleteFile(spkg("use"), "alias.go")
@@ -188,10 +197,10 @@ func TestMoveFileAndFlush(t *testing.T) {
 func TestCreatePackageThroughRecheck(t *testing.T) {
 	e := sandboxStore(t)
 	report := mustEdit(t, e, func(tx *Tx) error {
-		if err := tx.CreatePackage(spkg("util"), ""); err != nil {
+		if err := tx.CreatePackage(spkg("util"), "", false); err != nil {
 			return err
 		}
-		return tx.CreateSymbol(spkgID("util"), "util.go", "func Half(x float64) float64 { return x / 2 }")
+		return tx.CreateSymbol(spkgPath("util"), "util.go", "func Half(x float64) float64 { return x / 2 }")
 	})
 	if len(report.Delta) != 0 {
 		t.Errorf("new package produced diagnostics: %v", deltaStrings(report))

@@ -35,31 +35,30 @@ func TestRecheckScopeCarriesForwardUnaffectedPackages(t *testing.T) {
 		t.Fatalf("Bootstrap: %v", err)
 	}
 
-	cUnit, ok := e.ws.Unit("example.com/recheck/c")
-	if !ok || cUnit.Prod() == nil {
-		t.Fatal("c unit missing after bootstrap")
+	cBefore, ok := e.ws.ProdPackage("example.com/recheck/c")
+	if !ok || cBefore == nil {
+		t.Fatal("c package missing after bootstrap")
 	}
-	cBefore := cUnit.Prod()
 
 	if _, err := e.Edit(context.Background(), func(tx *Tx) error {
-		return tx.EditSymbol("example.com/recheck/a", "X", "func X() int { return 2 }")
+		return tx.EditSymbol("example.com/recheck/a", "X", "func X() int { return 2 }", "")
 	}); err != nil {
 		t.Fatalf("Edit: %v", err)
 	}
 
-	cAfter, ok := e.ws.Unit("example.com/recheck/c")
-	if !ok || cAfter.Prod() != cBefore {
+	cAfter, ok := e.ws.ProdPackage("example.com/recheck/c")
+	if !ok || cAfter != cBefore {
 		t.Error("c's Package was rebuilt: Recheck v2 did not narrow the recheck")
 	}
 	if !e.ws.NarrowlyChecked() {
 		t.Error("generation should be marked narrowlyChecked after a scoped recheck")
 	}
 
-	bUnit, ok := e.ws.Unit("example.com/recheck/b")
-	if !ok || bUnit.Prod() == nil {
-		t.Fatal("b unit missing after edit")
+	bProd, ok := e.ws.ProdPackage("example.com/recheck/b")
+	if !ok || bProd == nil {
+		t.Fatal("b package missing after edit")
 	}
-	if _, ok := bUnit.Prod().Symbol("Y"); !ok {
+	if _, ok := bProd.Symbol("Y"); !ok {
 		t.Error("b's own symbol missing after being swept into the recheck scope")
 	}
 
@@ -76,7 +75,7 @@ func TestEnsureFullyCheckedClearsNarrowFlag(t *testing.T) {
 	st := sandboxStore(t)
 
 	if _, err := st.Edit(context.Background(), func(tx *Tx) error {
-		return tx.EditSymbol("example.com/sandbox/mvdest", "Existing", "func Existing() int { return 1 }")
+		return tx.EditSymbol("example.com/sandbox/mvdest", "Existing", "func Existing() int { return 1 }", "")
 	}); err != nil {
 		t.Fatalf("Edit(mvdest): %v", err)
 	}
@@ -104,7 +103,7 @@ func TestAbortedEditThenSuccessfulEditIsClean(t *testing.T) {
 
 	sentinel := errors.New("forced abort after a real splice")
 	_, err := e.Edit(context.Background(), func(tx *Tx) error {
-		if err := tx.EditSymbol(spkg("shapes"), "NotShape", "type NotShape struct{ aborted bool }"); err != nil {
+		if err := tx.EditSymbol(spkg("shapes"), "NotShape", "type NotShape struct{ aborted bool }", ""); err != nil {
 			t.Fatalf("EditSymbol before abort: %v", err)
 		}
 		return sentinel
@@ -115,7 +114,7 @@ func TestAbortedEditThenSuccessfulEditIsClean(t *testing.T) {
 
 	// error means nothing happened: the published workspace must still
 	// show the pre-abort source, not the splice the aborted fn(tx) applied.
-	src, ok := e.ws.DeclSource(spkg("shapes"), "NotShape")
+	src, ok := e.ws.DeclSource(spkg("shapes"), "NotShape", "")
 	if !ok {
 		t.Fatal("NotShape missing after aborted edit")
 	}
@@ -124,11 +123,11 @@ func TestAbortedEditThenSuccessfulEditIsClean(t *testing.T) {
 	}
 
 	if _, err := e.Edit(context.Background(), func(tx *Tx) error {
-		return tx.EditSymbol(spkg("shapes"), "NotShape", "type NotShape struct{ recovered bool }")
+		return tx.EditSymbol(spkg("shapes"), "NotShape", "type NotShape struct{ recovered bool }", "")
 	}); err != nil {
 		t.Fatalf("Edit after abort: %v", err)
 	}
-	src, ok = e.ws.DeclSource(spkg("shapes"), "NotShape")
+	src, ok = e.ws.DeclSource(spkg("shapes"), "NotShape", "")
 	if !ok || !strings.Contains(src, "recovered") {
 		t.Errorf("NotShape = %q, want the post-abort edit to apply cleanly", src)
 	}

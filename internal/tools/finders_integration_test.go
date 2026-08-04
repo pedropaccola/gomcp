@@ -13,7 +13,7 @@ func TestSemanticFinders(t *testing.T) {
 	st := sandboxStore(t)
 
 	_, impl, err := searchImplementors(st)(context.Background(), nil, SearchImplementorsInput{
-		PkgPath: "shapes", SymbolKey: "Shape",
+		PkgPath: "shapes", SymbolKey: "Shape", FileName: "shapes.go",
 	})
 	if err != nil {
 		t.Fatalf("search_implementors: %v", err)
@@ -23,7 +23,7 @@ func TestSemanticFinders(t *testing.T) {
 	}
 
 	_, refs, err := searchReferences(st)(context.Background(), nil, SearchReferencesInput{
-		PkgPath: "shapes", SymbolKey: "Circle",
+		PkgPath: "shapes", SymbolKey: "Circle", FileName: "shapes.go",
 	})
 	if err != nil {
 		t.Fatalf("search_references: %v", err)
@@ -35,7 +35,7 @@ func TestSemanticFinders(t *testing.T) {
 	}
 
 	if _, _, err := searchImplementors(st)(context.Background(), nil, SearchImplementorsInput{
-		PkgPath: "shapes", SymbolKey: "Circle",
+		PkgPath: "shapes", SymbolKey: "Circle", FileName: "shapes.go",
 	}); err == nil || !strings.Contains(err.Error(), "interface") {
 		t.Errorf("search_implementors on a struct must error mentioning interface, got %v", err)
 	}
@@ -84,13 +84,13 @@ func TestSearchImplementorsSurvivesNarrowRecheck(t *testing.T) {
 	st := sandboxStore(t)
 
 	if _, err := st.Edit(context.Background(), func(tx *store.Tx) error {
-		return tx.EditSymbol("example.com/sandbox/mvdest", "Existing", "func Existing() int { return 1 }")
+		return tx.EditSymbol("example.com/sandbox/mvdest", "Existing", "func Existing() int { return 1 }", "")
 	}); err != nil {
 		t.Fatalf("Edit(mvdest): %v", err)
 	}
 
 	_, impl, err := searchImplementors(st)(context.Background(), nil, SearchImplementorsInput{
-		PkgPath: "shapes", SymbolKey: "Shape",
+		PkgPath: "shapes", SymbolKey: "Shape", FileName: "shapes.go",
 	})
 	if err != nil {
 		t.Fatalf("search_implementors after narrow recheck: %v", err)

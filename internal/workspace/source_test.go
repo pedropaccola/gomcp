@@ -7,7 +7,7 @@ import (
 
 func TestDeclSourceUngrouped(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\n// Foo does something.\nfunc Foo() {}\n")
-	got, ok := w.DeclSource("test.mod/pkg", "Foo")
+	got, ok := w.DeclSource("test.mod/pkg", "Foo", "")
 	if !ok {
 		t.Fatal("DeclSource must find Foo")
 	}
@@ -19,7 +19,7 @@ func TestDeclSourceUngrouped(t *testing.T) {
 
 func TestDeclSourceGroupedReturnsWholeGroup(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\n// Values used elsewhere.\nconst (\n\tA = 1\n\tB = 2\n)\n")
-	got, ok := w.DeclSource("test.mod/pkg", "A")
+	got, ok := w.DeclSource("test.mod/pkg", "A", "")
 	if !ok {
 		t.Fatal("DeclSource must find A")
 	}
@@ -44,7 +44,7 @@ func TestSpecSourceNarrowsToOwnSpec(t *testing.T) {
 
 func TestSpecSourceFallsBackToDeclSourceUngrouped(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\n// Foo does something.\nfunc Foo() {}\n")
-	decl, ok := w.DeclSource("test.mod/pkg", "Foo")
+	decl, ok := w.DeclSource("test.mod/pkg", "Foo", "")
 	if !ok {
 		t.Fatal("DeclSource must find Foo")
 	}

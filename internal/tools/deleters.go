@@ -35,6 +35,7 @@ type DeletePackageInput struct {
 type DeleteSymbolEntry struct {
 	PkgPath   string `json:"pkg_path"`
 	SymbolKey string `json:"symbol_key"`
+	FileName  string `json:"file_name"`
 }
 
 // DeleteSymbolInput deletes one or more symbols in one transaction, one
@@ -57,7 +58,7 @@ func deleteSymbol(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeleteSym
 				if err != nil {
 					return batchErr("deletes", i, n, err)
 				}
-				if err := tx.DeleteSymbol(pkg.Base(), entry.SymbolKey); err != nil {
+				if err := tx.DeleteSymbol(pkg, entry.SymbolKey, entry.FileName); err != nil {
 					return batchErr("deletes", i, n, err)
 				}
 			}
@@ -78,7 +79,7 @@ func deleteFile(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeleteFileI
 				if err != nil {
 					return batchErr("deletes", i, n, err)
 				}
-				if err := tx.DeleteFile(pkg.Base(), entry.FileName); err != nil {
+				if err := tx.DeleteFile(pkg, entry.FileName); err != nil {
 					return batchErr("deletes", i, n, err)
 				}
 			}
@@ -99,7 +100,7 @@ func deletePackage(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[DeletePa
 				if err != nil {
 					return batchErr("deletes", i, n, err)
 				}
-				if err := tx.DeletePackage(pkg.Base()); err != nil {
+				if err := tx.DeletePackage(pkg); err != nil {
 					return batchErr("deletes", i, n, err)
 				}
 			}

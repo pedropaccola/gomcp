@@ -15,13 +15,17 @@ import (
 // nothing to report, not an empty block), how many pre-existing
 // diagnostics it left untouched — always present, since zero is itself
 // meaningful and must stay distinguishable from "not computed" — and
-// whether those two diagnostics blocks can be trusted at all.
+// whether those two diagnostics blocks can be trusted at all. Any
+// directive lines an edit added or removed report separately from
+// diagnostics entirely, since they're not a compiler-sourced problem to
+// fix, just a heads-up about what changed.
 type WriteOutput struct {
 	Files                     map[string][]string   `json:"files"`
 	IntroducedDiagnostics     *DiagnosticsTruncated `json:"introduced_diagnostics,omitempty"`
 	ResolvedDiagnostics       *DiagnosticsTruncated `json:"resolved_diagnostics,omitempty"`
 	UnrelatedDiagnosticsCount int                   `json:"unrelated_diagnostics_count"`
 	DiagnosticsUnavailable    *bool                 `json:"diagnostics_unavailable,omitempty"`
+	DirectiveChanges          []DirectiveChange     `json:"directive_changes,omitempty"`
 }
 
 // runEdit is the composite every write handler flows through: one
@@ -44,6 +48,12 @@ func runEdit(ctx context.Context, st *store.Store, cfg *toolConfig, fn func(*sto
 		out.DiagnosticsUnavailable = new(report.Stale)
 		out.IntroducedDiagnostics = &DiagnosticsTruncated{Diagnostics: []DiagnosticEntry{{Message: "diagnostics unavailable: " + report.Note}}}
 	}
+	if len(report.DirectiveDeltas) > 0 {
+		out.DirectiveChanges = make([]DirectiveChange, len(report.DirectiveDeltas))
+		for i, d := range report.DirectiveDeltas {
+			out.DirectiveChanges[i] = newDirectiveChange(d)
+		}
+	}
 	return nil, out, nil
 }
 
@@ -51,16 +61,14 @@ func runEdit(ctx context.Context, st *store.Store, cfg *toolConfig, fn func(*sto
 // mutation handlers — the write-side check: dependencies are refused, the
 // workspace is the only mutable world. Takes a *store.View (never
 // *store.Store directly) so it's safe to call from inside a Read/Edit
-// closure too — View never acquires the store lock itself. Returns the
-// full kind-aware identity: CreateFile/CreateSymbol need it as-is, every
-// other verb narrows it with .Base().
-func writeWorkspacePkg(v *store.View, addr string) (workspace.PackageID, error) {
-	canon, err := workspace.NewPackageID(v.Module(), addr)
+// closure too — View never acquires the store lock itself.
+func writeWorkspacePkg(v *store.View, addr string) (workspace.PackagePath, error) {
+	canon, err := workspace.NewPackagePath(v.Module(), addr)
 	if err != nil {
-		return workspace.PackageID{}, err
+		return "", err
 	}
 	if v.HasExternalPackage(workspace.PackagePath(addr)) {
-		return workspace.PackageID{}, fmt.Errorf("%q is a dependency: writes stay scoped to the workspace", addr)
+		return "", fmt.Errorf("%q is a dependency: writes stay scoped to the workspace", addr)
 	}
 	return canon, nil
 }
@@ -95,20 +103,24 @@ func batchErr(field string, i, n int, err error) error {
 }
 
 // resolveBatchTargets resolves each batch entry's package address and
-// rejects a batch that addresses the same (package, key) pair twice — the
-// invariant editFile and editSymbol both need, each keyed by a different
-// notion of "key" (a file name, a symbol key).
-func resolveBatchTargets(v *store.View, n int, field, noun string, target func(i int) (pkgPath, key string)) ([]workspace.PackagePath, error) {
+// rejects a batch that addresses the same (package, key, fileName) triple
+// twice — the invariant editFile and editSymbol both need, each keyed by
+// a different notion of "key" (a file name, a symbol key); fileName is
+// always empty for editFile (a file name already fully addresses its own
+// target) and the entry's own file discriminant for editSymbol, where two
+// same-keyed entries scoped to different files are legitimately distinct
+// targets, not a duplicate.
+func resolveBatchTargets(v *store.View, n int, field, noun string, target func(i int) (pkgPath, key, fileName string)) ([]workspace.PackagePath, error) {
 	pkgs := make([]workspace.PackagePath, n)
 	seen := make(map[string]bool, n)
 	for i := 0; i < n; i++ {
-		pkgPath, key := target(i)
+		pkgPath, key, fileName := target(i)
 		pkg, err := writeWorkspacePkg(v, pkgPath)
 		if err != nil {
 			return nil, batchErr(field, i, n, err)
 		}
-		pkgs[i] = pkg.Base()
-		addr := pkgs[i].String() + "\x00" + key
+		pkgs[i] = pkg
+		addr := pkgs[i].String() + "\x00" + key + "\x00" + fileName
 		if seen[addr] {
 			return nil, fmt.Errorf("%s[%d]: duplicate target %q in %q — a batch must address each %s once", field, i, key, pkg, noun)
 		}

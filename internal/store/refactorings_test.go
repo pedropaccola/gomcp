@@ -28,10 +28,10 @@ func TestTxMovePackage(t *testing.T) {
 	if err := tx.MovePackage("test.mod/pkg", "test.mod/moved"); err != nil {
 		t.Fatalf("MovePackage: %v", err)
 	}
-	if v.HasPackage(tpkgID("pkg")) {
+	if v.HasPackage(tpkgPath("pkg")) {
 		t.Error("test.mod/pkg must be gone after MovePackage")
 	}
-	id, err := workspace.NewPackageID("test.mod", "moved")
+	id, err := workspace.NewPackagePath("test.mod", "moved")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestTxMoveSymbolRenamesInPlace(t *testing.T) {
 	if _, ok := v.Symbol("test.mod/pkg", "Bar"); !ok {
 		t.Error("Bar must exist after renaming Foo")
 	}
-	src, ok := v.DeclSource("test.mod/pkg", "UseFoo")
+	src, ok := v.DeclSource("test.mod/pkg", "UseFoo", "")
 	if !ok || !strings.Contains(src, "Bar()") {
 		t.Errorf("UseFoo's call site = %q, want it repointed to Bar()", src)
 	}

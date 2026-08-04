@@ -22,3 +22,14 @@ func sandboxStore(tb testing.TB) *store.Store {
 	tb.Helper()
 	return storefixture.SandboxStore(tb)
 }
+
+// findFileEntry finds name's own FileEntry within files, for tests that
+// need to inspect more than just presence.
+func findFileEntry(files []FileEntry, name string) (FileEntry, bool) {
+	for _, f := range files {
+		if f.Name == name {
+			return f, true
+		}
+	}
+	return FileEntry{}, false
+}

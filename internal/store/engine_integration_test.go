@@ -26,10 +26,9 @@ func TestBootstrapLiveRepo(t *testing.T) {
 	if e.ws.Module() != "github.com/pedropaccola/gomcp" {
 		t.Errorf("Module = %q, module path not learned at bootstrap", e.ws.Module())
 	}
-	unit, ok := e.ws.Unit("github.com/pedropaccola/gomcp/internal/store")
-	prod := unit.Prod()
+	prod, ok := e.ws.ProdPackage("github.com/pedropaccola/gomcp/internal/store")
 	if !ok || prod == nil {
-		t.Fatal("internal/store unit missing after bootstrap")
+		t.Fatal("internal/store package missing after bootstrap")
 	}
 	if prod.ID.String() != "github.com/pedropaccola/gomcp/internal/store" {
 		t.Errorf("unexpected ID %q", prod.ID)
@@ -44,10 +43,9 @@ func TestBootstrapSandbox(t *testing.T) {
 	if e.ws.Module() != "example.com/sandbox" {
 		t.Errorf("Module = %q, module path not learned at bootstrap", e.ws.Module())
 	}
-	unit, ok := e.ws.Unit(spkg("shapes"))
-	pkg := unit.Prod()
+	pkg, ok := e.ws.ProdPackage(spkg("shapes"))
 	if !ok || pkg == nil {
-		t.Fatal("shapes unit missing")
+		t.Fatal("shapes package missing")
 	}
 
 	if pkg.Name != "shapes" || pkg.ID.String() != "example.com/sandbox/shapes" {
@@ -63,7 +61,12 @@ func TestBootstrapSandbox(t *testing.T) {
 
 	// External test package lands in XTest with its own namespace, under
 	// its production sibling's address.
-	xtest := unit.XTest()
+	var xtest *workspace.Package
+	for _, p := range e.ws.MembersOf(spkg("shapes")) {
+		if p.ID.Kind() == workspace.KindXTest {
+			xtest = p
+		}
+	}
 	if xtest == nil || xtest.Name != "shapes_test" {
 		t.Fatalf("XTest missing or misnamed: %+v", xtest)
 	}
@@ -90,11 +93,7 @@ func TestBootstrapSandbox(t *testing.T) {
 
 	ws := e.ws
 	for _, addr := range ws.UnitKeys() {
-		u, _ := ws.Unit(addr)
-		for _, p := range []*workspace.Package{u.Prod(), u.XTest()} {
-			if p == nil {
-				continue
-			}
+		for _, p := range ws.MembersOf(addr) {
 			for _, f := range p.Files() {
 				if len(f.Src()) == 0 {
 					t.Errorf("%s: empty Src, canonical-bytes invariant broken", f.Path)
@@ -133,8 +132,7 @@ func TestIngestErrorsOnBrokenFile(t *testing.T) {
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatalf("Bootstrap must not fail on diagnostics: %v", err)
 	}
-	unit, ok := e.ws.Unit("example.com/broken")
-	prod := unit.Prod()
+	prod, ok := e.ws.ProdPackage("example.com/broken")
 	if !ok || prod == nil {
 		t.Fatal("broken package missing from state")
 	}
@@ -163,11 +161,11 @@ func TestExternalLoading(t *testing.T) {
 		if _, ok := v.Symbol("io", "Reader"); !ok {
 			t.Fatal("io.Reader not indexed")
 		}
-		src, ok := v.DeclSource("io", "Reader")
+		src, ok := v.DeclSource("io", "Reader", "")
 		if !ok || !strings.Contains(src, "Read(p []byte) (n int, err error)") {
 			t.Errorf("DeclSource(io.Reader) = %q, %v", src, ok)
 		}
-		syms, ok := v.PackageSymbols(pkgID("io", "io"))
+		syms, ok := v.PackageSymbols(pkgPath("io", "io"))
 		if !ok {
 			t.Fatal("io package symbols not found")
 		}
@@ -196,7 +194,7 @@ func TestExternalRefusalsAndReset(t *testing.T) {
 	}
 	// Dependencies are read-only: mutation verbs never see them.
 	if _, err := e.Edit(context.Background(), func(tx *Tx) error {
-		return tx.CreateSymbol(pkgID("io", "io"), "extra.go", "func Nope() {}")
+		return tx.CreateSymbol(pkgPath("io", "io"), "extra.go", "func Nope() {}")
 	}); err == nil || !strings.Contains(err.Error(), "no package") {
 		t.Errorf("mutating a dependency must fail, got %v", err)
 	}
@@ -302,7 +300,7 @@ func TestConcurrentReadEditStress(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < editIterations; j++ {
 				if _, err := e.Edit(ctx, func(tx *Tx) error {
-					return tx.EditSymbol(ed.pkg, ed.key, ed.bodies[j%2])
+					return tx.EditSymbol(ed.pkg, ed.key, ed.bodies[j%2], "")
 				}); err != nil {
 					errs <- err
 					return

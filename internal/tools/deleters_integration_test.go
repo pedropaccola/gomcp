@@ -25,7 +25,7 @@ func TestDeleteFileBatchAbortsWhollyOnFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list_files: %v", err)
 	}
-	if !slices.Contains(out.Files, "shapes.go") {
+	if !slices.ContainsFunc(out.Files, func(f FileEntry) bool { return f.Name == "shapes.go" }) {
 		t.Errorf("Error must mean untouched: shapes.go was deleted despite the batch failing, got %v", out.Files)
 	}
 }
@@ -37,8 +37,8 @@ func TestDeleteSymbolBatchDuplicateIsHarmless(t *testing.T) {
 	st := sandboxStore(t)
 	_, out, err := deleteSymbol(st, testCfg())(context.Background(), nil, DeleteSymbolInput{
 		Deletes: []DeleteSymbolEntry{
-			{PkgPath: "shapes", SymbolKey: "KindSquare"},
-			{PkgPath: "shapes", SymbolKey: "KindCircle"},
+			{PkgPath: "shapes", SymbolKey: "KindSquare", FileName: "groups.go"},
+			{PkgPath: "shapes", SymbolKey: "KindCircle", FileName: "groups.go"},
 		},
 	})
 	if err != nil {
@@ -53,7 +53,7 @@ func TestDeleteTools(t *testing.T) {
 	st := sandboxStore(t)
 
 	_, out, err := deleteSymbol(st, testCfg())(context.Background(), nil, DeleteSymbolInput{
-		Deletes: []DeleteSymbolEntry{{PkgPath: "shapes", SymbolKey: "Circle"}},
+		Deletes: []DeleteSymbolEntry{{PkgPath: "shapes", SymbolKey: "Circle", FileName: "shapes.go"}},
 	})
 	if err != nil {
 		t.Fatalf("delete_symbol: %v", err)
@@ -63,7 +63,7 @@ func TestDeleteTools(t *testing.T) {
 	}
 
 	_, noop, err := deleteSymbol(st, testCfg())(context.Background(), nil, DeleteSymbolInput{
-		Deletes: []DeleteSymbolEntry{{PkgPath: "shapes", SymbolKey: "Circle"}},
+		Deletes: []DeleteSymbolEntry{{PkgPath: "shapes", SymbolKey: "Circle", FileName: "shapes.go"}},
 	})
 	if err != nil {
 		t.Fatalf("delete_symbol (already gone): %v", err)

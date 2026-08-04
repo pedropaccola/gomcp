@@ -23,9 +23,9 @@ func (f funcImporter) Import(path string) (*types.Package, error) { return f(pat
 func simpleFixture(tb testing.TB, src string) *Workspace {
 	tb.Helper()
 	w := NewWorkspace()
-	w.Reset("test.mod", token.NewFileSet(), map[PackagePath]*Unit{})
-	w.InstallUnit("test.mod/pkg", NewUnit(&Package{Name: "pkg", ID: newPackageID("test.mod/pkg", KindProd)}, nil))
-	if err := w.SwapFile("test.mod/pkg", false, "test.mod/pkg/pkg.go", []byte(src)); err != nil {
+	w.Reset("test.mod", token.NewFileSet(), map[PackagePath]*Package{}, map[PackagePath]*Package{})
+	w.InstallProd("test.mod/pkg", &Package{Name: "pkg", ID: newPackageID("test.mod/pkg", KindProd)})
+	if err := w.SwapFile("test.mod/pkg", KindProd, false, "test.mod/pkg/pkg.go", []byte(src)); err != nil {
 		tb.Fatalf("fixture SwapFile: %v", err)
 	}
 	return w
@@ -78,7 +78,7 @@ func typesFixture(tb testing.TB, srcs map[string]string) *Workspace {
 	}
 
 	w := NewWorkspace()
-	w.Reset("test.mod", fset, map[PackagePath]*Unit{})
+	w.Reset("test.mod", fset, map[PackagePath]*Package{}, map[PackagePath]*Package{})
 	for path := range srcs {
 		if _, err := doImport(path); err != nil {
 			tb.Fatalf("typesFixture: %v", err)
@@ -87,9 +87,9 @@ func typesFixture(tb testing.TB, srcs map[string]string) *Workspace {
 	for path, src := range srcs {
 		name := files[path].Name.Name
 		wp := NewPackage(name, PackagePath(path), KindProd, checked[path], infos[path])
-		wp.LoadFile(FilePath(path+"/file.go"), []byte(src), files[path])
+		wp.LoadFile(FilePath(path+"/file.go"), []byte(src), files[path], false)
 		wp.RebuildIndex()
-		w.InstallUnit(PackagePath(path), NewUnit(wp, nil))
+		w.InstallProd(PackagePath(path), wp)
 	}
 	return w
 }

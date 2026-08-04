@@ -45,8 +45,17 @@ func (d Diagnostic) String() string {
 // whose position falls inside its declaration span, doc comment
 // included. A positional view, never the inventory: diagnostics outside
 // every declaration remain visible only at file scope and coarser.
-func (w *Workspace) SymbolDiagnostics(pkg PackagePath, key string) []Diagnostic {
-	sym, owner, ok := w.ResolveSymbol(pkg, key)
+// fileName follows DeclSource's own assertion-vs-primary-preference
+// convention.
+func (w *Workspace) SymbolDiagnostics(pkg PackagePath, key, fileName string) []Diagnostic {
+	var sym *Symbol
+	var owner *Package
+	var ok bool
+	if fileName != "" {
+		sym, owner, ok = w.ResolveSymbolIn(pkg, key, fileName)
+	} else {
+		sym, owner, ok = w.ResolveSymbol(pkg, key)
+	}
 	if !ok {
 		return nil
 	}

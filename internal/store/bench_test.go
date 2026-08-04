@@ -34,7 +34,7 @@ func BenchmarkEditRoundTrip(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, err := e.Edit(context.Background(), func(tx *Tx) error {
-			return tx.EditSymbol(spkg("shapes"), "NotShape", bodies[i%2])
+			return tx.EditSymbol(spkg("shapes"), "NotShape", bodies[i%2], "")
 		})
 		if err != nil {
 			b.Fatal(err)
@@ -158,7 +158,7 @@ func BenchmarkEditRoundTripManyPackages(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, err := e.Edit(context.Background(), func(tx *Tx) error {
-			return tx.EditSymbol("example.com/manypkgs/pkg0", "X", bodies[i%2])
+			return tx.EditSymbol("example.com/manypkgs/pkg0", "X", bodies[i%2], "")
 		})
 		if err != nil {
 			b.Fatal(err)

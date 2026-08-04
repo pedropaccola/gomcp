@@ -58,3 +58,8 @@ func errNotInSource(key string) error {
 func SymbolExistsError(key string, pkg any) error {
 	return fmt.Errorf("symbol %q already exists in %q", key, pkg)
 }
+
+// NoFileError reports that name names no file in pkg.
+func NoFileError(name string, pkg any) error {
+	return fmt.Errorf("no file %q in %q", name, pkg)
+}

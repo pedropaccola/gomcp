@@ -12,14 +12,20 @@ import (
 // exactly src. Both are unexported so the compiler enforces it: content
 // enters through Workspace.SwapFile (mutation path, parse-enforcing) or
 // Package.LoadFile (load path, the type checker's own AST) — never by
-// assignment.
+// assignment. Ignored reports whether this file's own build constraint
+// excludes it from the current build — a fact about this one file,
+// independent of its declared shape (Prod- or XTest-named) and
+// independent of every other file in its owning Package.
 type File struct {
-	Path  FilePath
-	src   []byte
-	ast   *ast.File
-	Inits []*ast.FuncDecl
-	Diags []Diagnostic
-	dirty bool
+	Path       FilePath
+	Owner      PackageID
+	Ignored    bool
+	src        []byte
+	ast        *ast.File
+	Inits      []*ast.FuncDecl
+	Diags      []Diagnostic
+	Directives []string
+	dirty      bool
 }
 
 // Ast returns the parse of exactly Src.
@@ -84,17 +90,18 @@ func (f FilePath) String() string { return string(f) }
 // newFile builds a File from already-parsed content — the one construction
 // point behind File's two legitimate doors, Workspace.SwapFile and
 // Package.LoadFile, so a future field never has to be kept in sync by
-// hand between them.
-func newFile(path FilePath, src []byte, astFile *ast.File, dirty bool) *File {
-	return &File{Path: path, src: src, ast: astFile, dirty: dirty}
+// hand between them. owner is the constructing Package's own ID, so a
+// File is self-describing without needing a separately-threaded owner
+// alongside it wherever it's resolved.
+func newFile(path FilePath, owner PackageID, src []byte, astFile *ast.File, dirty, ignored bool) *File {
+	return &File{Path: path, Owner: owner, Ignored: ignored, src: src, ast: astFile, Directives: fileDirectives(astFile), dirty: dirty}
 }
 
 // NewFilePath narrows raw, an untrusted agent-supplied file address,
 // against module and pkg: a bare *.go name is accepted outright and
 // joined onto pkg; a path is accepted only when its directory agrees
 // with pkg, then narrowed to pkg plus its bare name. pkg is always the
-// canonical, kind-stripped form — PackageID.Base() when the caller holds
-// a resolved identity — since a file's address never carries the XTest
+// canonical package address — a file's address never carries a kind
 // distinction. Contradictions are refused, never guessed.
 func NewFilePath(module, pkg PackagePath, raw string) (FilePath, error) {
 	name := raw
@@ -103,8 +110,8 @@ func NewFilePath(module, pkg PackagePath, raw string) (FilePath, error) {
 		if !ok {
 			return "", fmt.Errorf("invalid file path %q", raw)
 		}
-		declaredPkg, err := NewPackageID(module, filepath.Dir(rel))
-		if err != nil || declaredPkg.Base() != pkg {
+		declaredPkg, err := NewPackagePath(module, filepath.Dir(rel))
+		if err != nil || declaredPkg != pkg {
 			return "", fmt.Errorf("file %q does not live in package %q", raw, pkg)
 		}
 		name = filepath.Base(rel)

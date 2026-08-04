@@ -8,9 +8,10 @@ import (
 )
 
 type EditFileEntry struct {
-	PkgPath  string  `json:"pkg_path"`
-	FileName string  `json:"file_name"`
-	Doc      *string `json:"doc,omitempty"`
+	PkgPath    string   `json:"pkg_path"`
+	FileName   string   `json:"file_name"`
+	Doc        *string  `json:"doc,omitempty"`
+	Directives []string `json:"directives,omitempty"`
 }
 
 // EditFileInput edits one or more files' package doc comments in one
@@ -25,6 +26,7 @@ type EditFileInput struct {
 type EditSymbolEntry struct {
 	PkgPath   string `json:"pkg_path"`
 	SymbolKey string `json:"symbol_key"`
+	FileName  string `json:"file_name"`
 	Source    string `json:"source"`
 }
 
@@ -44,14 +46,14 @@ func editFile(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[EditFileInput
 		}
 		n := len(in.Edits)
 		return runEdit(ctx, st, cfg, func(tx *store.Tx) error {
-			pkgs, err := resolveBatchTargets(tx.View, n, "edits", "file", func(i int) (string, string) {
-				return in.Edits[i].PkgPath, in.Edits[i].FileName
+			pkgs, err := resolveBatchTargets(tx.View, n, "edits", "file", func(i int) (string, string, string) {
+				return in.Edits[i].PkgPath, in.Edits[i].FileName, ""
 			})
 			if err != nil {
 				return err
 			}
 			for i, entry := range in.Edits {
-				if err := tx.EditFile(pkgs[i], entry.FileName, optStr(entry.Doc)); err != nil {
+				if err := tx.EditFile(pkgs[i], entry.FileName, entry.Doc, entry.Directives); err != nil {
 					return batchErr("edits", i, n, err)
 				}
 			}
@@ -67,14 +69,14 @@ func editSymbol(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[EditSymbolI
 		}
 		n := len(in.Edits)
 		return runEdit(ctx, st, cfg, func(tx *store.Tx) error {
-			pkgs, err := resolveBatchTargets(tx.View, n, "edits", "symbol", func(i int) (string, string) {
-				return in.Edits[i].PkgPath, in.Edits[i].SymbolKey
+			pkgs, err := resolveBatchTargets(tx.View, n, "edits", "symbol", func(i int) (string, string, string) {
+				return in.Edits[i].PkgPath, in.Edits[i].SymbolKey, in.Edits[i].FileName
 			})
 			if err != nil {
 				return err
 			}
 			for i, entry := range in.Edits {
-				if err := tx.EditSymbol(pkgs[i], entry.SymbolKey, entry.Source); err != nil {
+				if err := tx.EditSymbol(pkgs[i], entry.SymbolKey, entry.Source, entry.FileName); err != nil {
 					return batchErr("edits", i, n, err)
 				}
 			}

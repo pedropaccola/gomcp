@@ -55,6 +55,21 @@ type DiagnosticEntry struct {
 	Message   string `json:"message"`
 }
 
+// DirectiveChange reports directive lines a single edit added or removed,
+// relative to the target's state before the edit — never emitted by a
+// create, since there's nothing yet to compare against. SymbolKey is
+// empty for a file-level directive change (edit_files), populated for a
+// symbol-level one (edit_symbols); unlike DiagnosticEntry, FileName is
+// never omitted — a directive change is always attributable to exactly
+// one file, whichever level it was made at.
+type DirectiveChange struct {
+	PkgPath   string   `json:"pkg_path"`
+	FileName  string   `json:"file_name"`
+	SymbolKey string   `json:"symbol_key,omitempty"`
+	Added     []string `json:"added,omitempty"`
+	Removed   []string `json:"removed,omitempty"`
+}
+
 // optStr collapses an optional input pointer to its plain value — nil (the
 // field was omitted) and a pointer to "" (the field was explicitly sent
 // empty) are treated identically as "not given," matching every optional
@@ -96,4 +111,16 @@ func newDiagnosticsTruncated(diags []store.Diagnostic, limit int) DiagnosticsTru
 		block.Truncated = new(len(diags) - limit)
 	}
 	return block
+}
+
+// newDirectiveChange renders one directive delta into its wire-facing
+// shape.
+func newDirectiveChange(d store.DirectiveDelta) DirectiveChange {
+	return DirectiveChange{
+		PkgPath:   string(d.Package),
+		FileName:  d.File.Base(),
+		SymbolKey: d.Key,
+		Added:     d.Added,
+		Removed:   d.Removed,
+	}
 }

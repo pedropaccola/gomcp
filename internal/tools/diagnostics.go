@@ -51,6 +51,7 @@ type DiagnosticsFilesOutput struct {
 type DiagnosticsSymbolEntry struct {
 	PkgPath   string `json:"pkg_path"`
 	SymbolKey string `json:"symbol_key"`
+	FileName  string `json:"file_name"`
 }
 
 // DiagnosticsSymbolsInput batches DiagnosticsSymbolEntry addresses — the
@@ -89,8 +90,8 @@ func diagnosticsPackages(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[Di
 		n := len(in.Diagnoses)
 		out := DiagnosticsPackagesOutput{Results: make([]DiagnosticsTruncated, n)}
 		for i, entry := range in.Diagnoses {
-			err := readPackage(ctx, st, entry.PkgPath, func(v *store.View, pkg workspace.PackageID) error {
-				out.Results[i] = newDiagnosticsTruncated(v.Diagnostics(pkg.Base()), cfg.diagLimit)
+			err := readPackage(ctx, st, entry.PkgPath, func(v *store.View, pkg workspace.PackagePath) error {
+				out.Results[i] = newDiagnosticsTruncated(v.Diagnostics(pkg), cfg.diagLimit)
 				return nil
 			})
 			if err != nil {
@@ -109,8 +110,8 @@ func diagnosticsFiles(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[Diagn
 		n := len(in.Diagnoses)
 		out := DiagnosticsFilesOutput{Results: make([]DiagnosticsTruncated, n)}
 		for i, entry := range in.Diagnoses {
-			err := readFile(ctx, st, entry.PkgPath, entry.FileName, func(v *store.View, fp workspace.FilePath, pkg workspace.PackageID) error {
-				out.Results[i] = newDiagnosticsTruncated(v.FileDiagnostics(pkg.Base(), fp), cfg.diagLimit)
+			err := readFile(ctx, st, entry.PkgPath, entry.FileName, func(v *store.View, fp workspace.FilePath, owner workspace.PackageID) error {
+				out.Results[i] = newDiagnosticsTruncated(v.FileDiagnostics(owner.Base(), fp), cfg.diagLimit)
 				return nil
 			})
 			if err != nil {
@@ -129,8 +130,8 @@ func diagnosticsSymbols(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[Dia
 		n := len(in.Diagnoses)
 		out := DiagnosticsSymbolsOutput{Results: make([]DiagnosticsTruncated, n)}
 		for i, entry := range in.Diagnoses {
-			err := readSymbol(ctx, st, entry.PkgPath, entry.SymbolKey, func(v *store.View, sym store.Symbol, owner workspace.PackageID) error {
-				out.Results[i] = newDiagnosticsTruncated(v.SymbolDiagnostics(owner.Base(), sym.Key), cfg.diagLimit)
+			err := readSymbol(ctx, st, entry.PkgPath, entry.SymbolKey, entry.FileName, func(v *store.View, sym store.Symbol, owner workspace.PackageID) error {
+				out.Results[i] = newDiagnosticsTruncated(v.SymbolDiagnostics(owner.Base(), sym.Key, sym.File.Base()), cfg.diagLimit)
 				return nil
 			})
 			if err != nil {

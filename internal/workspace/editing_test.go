@@ -9,7 +9,7 @@ import (
 
 func TestEditPlanUngrouped(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\nfunc Foo() {}\n")
-	wasPositionDependent, groupTok, target, err := w.ComputeEditPlan("test.mod/pkg", "Foo")
+	wasPositionDependent, groupTok, target, err := w.ComputeEditPlan("test.mod/pkg", "Foo", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestEditPlanUngrouped(t *testing.T) {
 
 func TestEditPlanGroupedNonPositionDependent(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\nconst (\n\tA = 1\n\tB = 2\n)\n")
-	wasPositionDependent, groupTok, target, err := w.ComputeEditPlan("test.mod/pkg", "A")
+	wasPositionDependent, groupTok, target, err := w.ComputeEditPlan("test.mod/pkg", "A", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestEditPlanPositionDependent(t *testing.T) {
 	// An iota group's target is the whole group: a single member can't be
 	// replaced without breaking the positions of the rest.
 	w := simpleFixture(t, "package pkg\n\nconst (\n\tA = iota\n\tB\n)\n")
-	wasPositionDependent, groupTok, target, err := w.ComputeEditPlan("test.mod/pkg", "A")
+	wasPositionDependent, groupTok, target, err := w.ComputeEditPlan("test.mod/pkg", "A", "")
 	if err != nil {
 		t.Fatal(err)
 	}

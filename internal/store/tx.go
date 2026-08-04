@@ -8,43 +8,51 @@ import (
 	"github.com/pedropaccola/gomcp/internal/workspace"
 )
 
-// CreateFile adds an empty file to an existing package, optionally seeded
-// with a package doc comment. pkg may name a unit's XTest half via its
-// own "_test"-suffixed address (workspace.Workspace.EnsureXTest),
-// installing that half — and a fresh Prod sibling too, if the whole
-// package is new — the first time something targets it.
-func (tx *Tx) CreateFile(pkg workspace.PackageID, name, doc string) error {
-	p, freshProd, err := tx.ws.EnsureXTest(pkg)
-	if err != nil {
-		return err
+// CreateFile adds an empty file to an existing package half (Prod, or
+// XTest when isXTest), optionally seeded with a package doc comment
+// and/or leading compiler directives (//go:build, //go:generate,
+// //go:embed — no space after "//"). The target half must already exist
+// — create_packages creates it first; this verb creates only the file,
+// never a whole package implicitly. A //go:build directive that
+// excludes the new file from the current build lands it directly in the
+// Ignored half instead of the requested one — see
+// Workspace.InstallFileAtDirectiveKind.
+func (tx *Tx) CreateFile(pkg workspace.PackagePath, isXTest bool, name, doc string, directives []string) error {
+	kind := workspace.KindProd
+	if isXTest {
+		kind = workspace.KindXTest
 	}
-	if freshProd != nil {
-		stub := freshProd.ID.Base().File(freshProd.Name + ".go")
-		if err := tx.ws.SwapFile(freshProd.ID.Base(), false, stub, []byte("package "+freshProd.Name+"\n")); err != nil {
-			return err
+	var target *workspace.Package
+	for _, p := range tx.ws.MembersOf(pkg) {
+		if p.ID.Kind() == kind {
+			target = p
+			break
 		}
-		tx.markChanged(stub)
 	}
-	path, err := workspace.NewFilePath(tx.ws.Module(), p.ID.Base(), name)
+	if target == nil {
+		return workspace.NoPackageError(pkg)
+	}
+	path, err := workspace.NewFilePath(tx.ws.Module(), pkg, name)
 	if err != nil {
 		return err
 	}
 	if _, _, exists := tx.ws.ResolveFileByPath(path); exists {
 		return fmt.Errorf("file %q already exists", path)
 	}
-	content := string(workspace.RenderDocComment(doc)) + "package " + p.Name + "\n"
-	if err := tx.ws.SwapFile(p.ID.Base(), p.ID.Kind() == workspace.KindXTest, path, []byte(content)); err != nil {
+	content := string(workspace.RenderDirectives(directives)) + string(workspace.RenderDocComment(doc)) + "package " + target.Name + "\n"
+	if err := tx.ws.InstallFileAtDirectiveKind(pkg, path, kind, target.Name, directives, []byte(content)); err != nil {
 		return err
 	}
 	tx.markChanged(path)
 	return nil
 }
 
-// CreatePackage creates a new package at a module-prefixed address with one
-// file named after the package. name defaults to the address base. Fails if
-// the address already holds a package; the directory is created at Flush.
-func (tx *Tx) CreatePackage(pkg workspace.PackagePath, name string) error {
-	path, err := tx.ws.CreatePackage(pkg, name)
+// CreatePackage creates a new package half (Prod, or XTest when isXTest)
+// at a module-prefixed address with one file named after the package.
+// name defaults to the address base. Fails if that half already exists
+// at the address; the directory is created at Flush.
+func (tx *Tx) CreatePackage(pkg workspace.PackagePath, name string, isXTest bool) error {
+	path, err := tx.ws.CreatePackage(pkg, name, isXTest)
 	if err != nil {
 		return err
 	}
@@ -55,7 +63,7 @@ func (tx *Tx) CreatePackage(pkg workspace.PackagePath, name string) error {
 // CreateSymbol adds one new top-level declaration to a file of an existing
 // package, at its canonical position. See Workspace.CreateSymbol for the
 // full placement policy.
-func (tx *Tx) CreateSymbol(pkg workspace.PackageID, fileName, src string) error {
+func (tx *Tx) CreateSymbol(pkg workspace.PackagePath, fileName, src string) error {
 	touched, err := tx.ws.CreateSymbol(pkg, fileName, src)
 	if err != nil {
 		return err
@@ -69,11 +77,11 @@ func (tx *Tx) CreateSymbol(pkg workspace.PackageID, fileName, src string) error 
 // noop, not a failure — the file being gone is the success condition,
 // whoever caused it.
 func (tx *Tx) DeleteFile(pkg workspace.PackagePath, name string) error {
-	unit, ok := tx.ws.Unit(pkg)
-	if !ok {
+	members := tx.ws.MembersOf(pkg)
+	if len(members) == 0 {
 		return nil
 	}
-	for _, owner := range unit.Members() {
+	for _, owner := range members {
 		path, err := workspace.NewFilePath(tx.ws.Module(), owner.ID.Base(), name)
 		if err != nil {
 			return err
@@ -81,7 +89,7 @@ func (tx *Tx) DeleteFile(pkg workspace.PackagePath, name string) error {
 		if _, ok := owner.File(path); !ok {
 			continue
 		}
-		tx.ws.DropFile(pkg, owner.ID.Kind() == workspace.KindXTest, path)
+		tx.ws.DropFile(pkg, owner.ID.Kind(), path)
 		tx.markChanged(path)
 		return nil
 	}
@@ -95,11 +103,12 @@ func (tx *Tx) DeletePackage(pkg workspace.PackagePath) error {
 	return nil
 }
 
-// DeleteSymbol removes key's declaration. Idempotent: a missing symbol is
-// a noop, not a failure. See Workspace.DeleteSymbol for the full removal
-// policy.
-func (tx *Tx) DeleteSymbol(pkg workspace.PackagePath, key string) error {
-	path, found, err := tx.ws.DeleteSymbol(pkg, key)
+// DeleteSymbol removes key's declaration, scoped to fileName (an
+// assertion: resolution never falls back to a primary-preference
+// guess). Idempotent: a missing symbol is a noop, not a failure. See
+// Workspace.DeleteSymbol for the full removal policy.
+func (tx *Tx) DeleteSymbol(pkg workspace.PackagePath, key, fileName string) error {
+	path, found, err := tx.ws.DeleteSymbol(pkg, key, fileName)
 	if err != nil {
 		return err
 	}
@@ -109,46 +118,77 @@ func (tx *Tx) DeleteSymbol(pkg workspace.PackagePath, key string) error {
 	return nil
 }
 
-// EditFile replaces or clears a file's package doc comment — the comment
-// block directly above the package clause — leaving the rest of the file
-// untouched. The one sanctioned door into floating-comment space: every
+// EditFile replaces a file's leading region — its compiler directives and
+// its package doc comment, the whole span from the first leading comment
+// through the package clause — leaving the rest of the file untouched.
+// doc == nil leaves the doc comment as-is; a non-nil doc (even "") sets
+// or clears it. directives == nil leaves the directive block as-is; a
+// non-nil directives (even empty) sets or clears it, and — when doing so
+// actually changes the set — records the delta for the report. Resolves
+// across every one of pkg's members (Prod, XTest) — editing a file's
+// directives to add or remove a build-excluding one updates its Ignored
+// bit in place (Workspace.ReclassifyFile); its shape (Prod/XTest) never
+// changes, since a directive edit never changes a file's own package
+// clause. The one sanctioned door into floating-comment space: every
 // other comment stays unaddressable by design.
-func (tx *Tx) EditFile(pkg workspace.PackagePath, name, doc string) error {
-	p, ok := tx.ws.ProdPackage(pkg)
-	if !ok {
-		return workspace.NoPackageError(pkg)
-	}
-	path, err := workspace.NewFilePath(tx.ws.Module(), p.ID.Base(), name)
+func (tx *Tx) EditFile(pkg workspace.PackagePath, name string, doc *string, directives []string) error {
+	path, err := workspace.NewFilePath(tx.ws.Module(), pkg, name)
 	if err != nil {
 		return err
 	}
-	file, _, ok := tx.ws.ResolveFileByPath(path)
+	file, owner, ok := tx.ws.ResolveFileByPath(path)
 	if !ok {
 		return errNoFile(name, pkg)
 	}
 	astFile := file.Ast()
-	docPos, docEnd := astFile.Package, astFile.Package
-	if astFile.Doc != nil {
-		docPos = astFile.Doc.Pos()
+
+	newDoc := file.Doc()
+	if doc != nil {
+		newDoc = *doc
 	}
-	sp, ok := tx.ws.NewSpliceAtPos(p, path, docPos, docEnd, workspace.RenderDocComment(doc))
+	oldDirectives := file.Directives
+	newDirectives := oldDirectives
+	if directives != nil {
+		newDirectives = directives
+	}
+
+	leadPos := astFile.Package
+	for _, cg := range astFile.Comments {
+		if cg.Pos() < astFile.Package {
+			leadPos = cg.Pos()
+			break
+		}
+	}
+	replacement := append(workspace.RenderDirectives(newDirectives), workspace.RenderDocComment(newDoc)...)
+	sp, ok := tx.ws.NewSpliceAtPos(owner, path, leadPos, astFile.Package, replacement)
 	if !ok {
-		return fmt.Errorf("cannot locate doc comment span in %q", path)
+		return fmt.Errorf("cannot locate leading comment span in %q", path)
 	}
 	candidate := workspace.ByteSplices{sp}.Apply(file.Src())
-	if err := tx.ws.SwapFile(pkg, false, path, candidate); err != nil {
+	if _, err := tx.ws.ReclassifyFile(pkg, path, owner.ID.Kind(), newDirectives, candidate); err != nil {
 		return err
+	}
+	if directives != nil {
+		if added, removed := workspace.DiffDirectives(oldDirectives, newDirectives); len(added) > 0 || len(removed) > 0 {
+			tx.recordDirectiveDelta(pkg, path, "", added, removed)
+		}
 	}
 	tx.markChanged(path)
 	return nil
 }
 
-// EditSymbol replaces key's whole declaration with src. See
-// Workspace.EditSymbol for the full replacement policy.
-func (tx *Tx) EditSymbol(pkg workspace.PackagePath, key, src string) error {
-	path, err := tx.ws.EditSymbol(pkg, key, src)
+// EditSymbol replaces key's whole declaration with src, scoped to
+// fileName (an assertion: resolution never falls back to a
+// primary-preference guess). See Workspace.EditSymbol for the full
+// replacement policy. When the edit changes key's own directive lines,
+// records the delta for the report.
+func (tx *Tx) EditSymbol(pkg workspace.PackagePath, key, src, fileName string) error {
+	path, added, removed, err := tx.ws.EditSymbol(pkg, key, src, fileName)
 	if err != nil {
 		return err
+	}
+	if len(added) > 0 || len(removed) > 0 {
+		tx.recordDirectiveDelta(pkg, path, key, added, removed)
 	}
 	tx.markChanged(path)
 	return nil
@@ -169,12 +209,12 @@ func (tx *Tx) MoveFile(pkg workspace.PackagePath, fileName string, newPkgPath wo
 	if newPkgPath == "" && newName == "" {
 		return fmt.Errorf("nothing to do for %q: give newPkgPath and/or newName", fileName)
 	}
-	unit, ok := tx.ws.Unit(pkg)
-	if !ok {
+	members := tx.ws.MembersOf(pkg)
+	if len(members) == 0 {
 		return workspace.NoPackageError(pkg)
 	}
-	for _, owner := range unit.Members() {
-		isXTest := owner.ID.Kind() == workspace.KindXTest
+	for _, owner := range members {
+		kind := owner.ID.Kind()
 		path, err := workspace.NewFilePath(tx.ws.Module(), owner.ID.Base(), fileName)
 		if err != nil {
 			return err
@@ -184,6 +224,7 @@ func (tx *Tx) MoveFile(pkg workspace.PackagePath, fileName string, newPkgPath wo
 		}
 		destOwner := owner
 		if newPkgPath != "" {
+			var ok bool
 			destOwner, ok = tx.ws.ProdPackage(newPkgPath)
 			if !ok {
 				return workspace.NoPackageError(newPkgPath)
@@ -201,11 +242,11 @@ func (tx *Tx) MoveFile(pkg workspace.PackagePath, fileName string, newPkgPath wo
 			return errFileExists(newPath)
 		}
 		if destOwner == owner {
-			tx.ws.MoveFile(pkg, isXTest, path, newPath)
+			tx.ws.MoveFile(pkg, kind, path, newPath)
 			tx.markChanged(path, newPath)
 			return nil
 		}
-		touched, err := tx.ws.RelocateFile(pkg, path, isXTest, newPkgPath, newPath)
+		touched, err := tx.ws.RelocateFile(pkg, path, kind, newPkgPath, newPath)
 		if err != nil {
 			return err
 		}
@@ -227,15 +268,15 @@ func (tx *Tx) MovePackage(oldPkg, newPkg workspace.PackagePath) error {
 	if newPkg == tx.ws.Module() {
 		return workspace.OutsideModuleCreateError(newPkg, tx.ws.Module())
 	}
-	unit, ok := tx.ws.Unit(oldPkg)
-	if !ok {
+	if len(tx.ws.MembersOf(oldPkg)) == 0 {
 		return workspace.NoPackageError(oldPkg)
 	}
-	if _, exists := tx.ws.Unit(newPkg); exists {
+	if len(tx.ws.MembersOf(newPkg)) != 0 {
 		return workspace.PackageExistsError(newPkg)
 	}
 	oldBase, newBase := oldPkg.Base(), newPkg.Base()
-	renameName := unit.Prod() != nil && unit.Prod().Name == oldBase && oldBase != newBase
+	prod, _ := tx.ws.ProdPackage(oldPkg)
+	renameName := prod != nil && prod.Name == oldBase && oldBase != newBase
 	if renameName && !token.IsIdentifier(newBase) {
 		return workspace.InvalidPackageNameError(newBase)
 	}
@@ -409,8 +450,7 @@ func (tx *Tx) RepairMissingImports() bool {
 	candidates := make(map[string]workspace.PackagePath) // package name -> import path
 	ambiguous := make(map[string]bool)
 	for _, addr := range tx.ws.UnitKeys() {
-		unit, _ := tx.ws.Unit(addr)
-		pkg := unit.Prod()
+		pkg, _ := tx.ws.ProdPackage(addr)
 		if pkg == nil || pkg.ID.Base() == "" || pkg.Name == "main" {
 			continue
 		}
@@ -462,7 +502,7 @@ func (tx *Tx) RepairMissingImports() bool {
 		}
 		candidate := workspace.ByteSplices{sp}.Apply(file.Src())
 		addr := filePath.PackagePath()
-		if err := tx.ws.SwapFile(addr, owner.ID.Kind() == workspace.KindXTest, filePath, candidate); err != nil {
+		if err := tx.ws.SwapFile(addr, owner.ID.Kind(), file.Ignored, filePath, candidate); err != nil {
 			continue // repair is best-effort; the diagnostic stays visible
 		}
 		tx.markChanged(filePath)
@@ -477,4 +517,10 @@ func (tx *Tx) markChanged(paths ...workspace.FilePath) {
 	for _, path := range paths {
 		tx.changed[path] = true
 	}
+}
+
+// recordDirectiveDelta records one directive-line change for this
+// transaction's report; called only when added or removed is non-empty.
+func (tx *Tx) recordDirectiveDelta(pkg workspace.PackagePath, file workspace.FilePath, key string, added, removed []string) {
+	tx.directiveDeltas = append(tx.directiveDeltas, DirectiveDelta{Package: pkg, File: file, Key: key, Added: added, Removed: removed})
 }

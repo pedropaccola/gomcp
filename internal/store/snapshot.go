@@ -42,7 +42,8 @@ type View struct {
 // Store, one layer up.
 type Tx struct {
 	*View
-	changed map[workspace.FilePath]bool // paths this transaction touched
+	changed         map[workspace.FilePath]bool // paths this transaction touched
+	directiveDeltas []DirectiveDelta            // directive changes recorded by this transaction, in call order
 }
 
 // ChangedKeys is the sorted set of paths this transaction touched, for

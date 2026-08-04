@@ -7,13 +7,13 @@ import (
 
 func TestRecheckScopeIsTransitive(t *testing.T) {
 	w := NewWorkspace()
-	w.Reset("test.mod", token.NewFileSet(), map[PackagePath]*Unit{})
+	w.Reset("test.mod", token.NewFileSet(), map[PackagePath]*Package{}, map[PackagePath]*Package{})
 	for _, name := range []string{"a", "b", "c", "d"} {
-		w.InstallUnit(PackagePath("test.mod/"+name), NewUnit(&Package{Name: name, ID: newPackageID(PackagePath("test.mod/"+name), KindProd)}, nil))
+		w.InstallProd(PackagePath("test.mod/"+name), &Package{Name: name, ID: newPackageID(PackagePath("test.mod/"+name), KindProd)})
 	}
 	mustSwap := func(pkg PackagePath, dir, src string) {
 		t.Helper()
-		if err := w.SwapFile(pkg, false, FilePath(string(pkg)+"/"+dir+".go"), []byte(src)); err != nil {
+		if err := w.SwapFile(pkg, KindProd, false, FilePath(string(pkg)+"/"+dir+".go"), []byte(src)); err != nil {
 			t.Fatalf("SwapFile(%s): %v", pkg, err)
 		}
 	}
@@ -35,9 +35,9 @@ func TestRecheckScopeIsTransitive(t *testing.T) {
 
 func TestRecheckScopeIgnoresExternalImports(t *testing.T) {
 	w := NewWorkspace()
-	w.Reset("test.mod", token.NewFileSet(), map[PackagePath]*Unit{})
-	w.InstallUnit("test.mod/a", NewUnit(&Package{Name: "a", ID: newPackageID("test.mod/a", KindProd)}, nil))
-	if err := w.SwapFile("test.mod/a", false, "a/a.go", []byte("package a\n\nimport \"fmt\"\n\nvar _ = fmt.Sprint\n")); err != nil {
+	w.Reset("test.mod", token.NewFileSet(), map[PackagePath]*Package{}, map[PackagePath]*Package{})
+	w.InstallProd("test.mod/a", &Package{Name: "a", ID: newPackageID("test.mod/a", KindProd)})
+	if err := w.SwapFile("test.mod/a", KindProd, false, "a/a.go", []byte("package a\n\nimport \"fmt\"\n\nvar _ = fmt.Sprint\n")); err != nil {
 		t.Fatalf("SwapFile: %v", err)
 	}
 

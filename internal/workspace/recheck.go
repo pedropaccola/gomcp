@@ -28,8 +28,7 @@ var ErrNarrowlyChecked = errors.New("workspace was narrowly rechecked: SymbolsIm
 func (w *Workspace) ComputeRecheckScope(dirty map[PackagePath]bool) map[PackagePath]bool {
 	importedBy := make(map[PackagePath][]PackagePath) // imported -> importing unit addresses
 	for _, addr := range w.UnitKeys() {
-		unit, _ := w.Unit(addr)
-		for _, pkg := range unit.Members() {
+		for _, pkg := range w.MembersOf(addr) {
 			for _, file := range pkg.Files() {
 				for _, imp := range file.Ast().Imports {
 					path, err := strconv.Unquote(imp.Path.Value)
@@ -37,7 +36,7 @@ func (w *Workspace) ComputeRecheckScope(dirty map[PackagePath]bool) map[PackageP
 						continue
 					}
 					target := PackagePath(path)
-					if _, ok := w.Unit(target); !ok {
+					if !w.hasUnit(target) {
 						continue // external dependency, not a workspace package
 					}
 					importedBy[target] = append(importedBy[target], addr)

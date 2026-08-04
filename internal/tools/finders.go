@@ -14,12 +14,14 @@ import (
 type MatchEntry struct {
 	PkgPath   string `json:"pkg_path"`
 	SymbolKey string `json:"symbol_key"`
+	FileName  string `json:"file_name"`
 	Kind      string `json:"kind"`
 }
 
 type SearchImplementorsInput struct {
 	PkgPath   string `json:"pkg_path"`
 	SymbolKey string `json:"symbol_key"`
+	FileName  string `json:"file_name"`
 }
 
 type SearchLikeInput struct {
@@ -33,6 +35,7 @@ type SearchOutput struct {
 type SearchReferencesInput struct {
 	PkgPath   string `json:"pkg_path"`
 	SymbolKey string `json:"symbol_key"`
+	FileName  string `json:"file_name"`
 }
 
 type SearchSourceInput struct {
@@ -70,11 +73,7 @@ func searchImplementors(st *store.Store) mcp.ToolHandlerFor[SearchImplementorsIn
 		var out SearchOutput
 		search := func() error {
 			return st.Read(ctx, func(v *store.View) error {
-				pkg, err := workspace.NewPackageID(v.Module(), in.PkgPath)
-				if err != nil {
-					return err
-				}
-				owner, err := v.ResolveType(pkg.Base(), in.SymbolKey)
+				owner, err := v.ResolveType(in.PkgPath, in.SymbolKey, in.FileName)
 				if err != nil {
 					return err
 				}
@@ -104,7 +103,7 @@ func searchReferences(st *store.Store) mcp.ToolHandlerFor[SearchReferencesInput,
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in SearchReferencesInput) (*mcp.CallToolResult, SearchOutput, error) {
 		var out SearchOutput
 		err := st.Read(ctx, func(v *store.View) error {
-			sym, err := resolveAnySymbol(v, in.PkgPath, in.SymbolKey)
+			sym, err := resolveAnySymbol(v, in.PkgPath, in.SymbolKey, in.FileName)
 			if err != nil {
 				return err
 			}
@@ -119,15 +118,24 @@ func searchReferences(st *store.Store) mcp.ToolHandlerFor[SearchReferencesInput,
 	}
 }
 
-// resolveAnySymbol resolves a workspace package address and symbol key —
-// the semantic finders' gate: dependencies are excluded, since their type
-// universe cannot be matched exactly against the workspace's.
-func resolveAnySymbol(v *store.View, addr, key string) (store.Symbol, error) {
-	pkg, err := workspace.NewPackageID(v.Module(), addr)
+// resolveAnySymbol resolves a workspace package address and symbol key,
+// scoped to fileName when non-empty (an assertion, never a hint, same
+// convention as describe/edit/delete_symbols) — the semantic finders'
+// gate: dependencies are excluded, since their type universe cannot be
+// matched exactly against the workspace's.
+func resolveAnySymbol(v *store.View, addr, key, fileName string) (store.Symbol, error) {
+	pkg, err := workspace.NewPackagePath(v.Module(), addr)
 	if err != nil {
 		return store.Symbol{}, err
 	}
-	if sym, ok := v.Symbol(pkg.Base(), key); ok {
+	var sym store.Symbol
+	var ok bool
+	if fileName != "" {
+		sym, ok = v.SymbolIn(pkg, key, fileName)
+	} else {
+		sym, ok = v.Symbol(pkg, key)
+	}
+	if ok {
 		return sym, nil
 	}
 	if v.HasExternalPackage(workspace.PackagePath(addr)) {
@@ -137,13 +145,14 @@ func resolveAnySymbol(v *store.View, addr, key string) (store.Symbol, error) {
 }
 
 // newMatchEntries renders scan hits for the search_* outputs: canonical
-// package address, key, kind.
+// package address, key, file, kind.
 func newMatchEntries(matches []store.Symbol) []MatchEntry {
 	out := make([]MatchEntry, 0, len(matches))
 	for _, m := range matches {
 		out = append(out, MatchEntry{
 			PkgPath:   m.Owner.String(),
 			SymbolKey: m.Key,
+			FileName:  m.File.Base(),
 			Kind:      m.Kind,
 		})
 	}

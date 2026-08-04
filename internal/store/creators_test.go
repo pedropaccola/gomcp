@@ -1,14 +1,19 @@
 package store
 
-import "testing"
+import (
+	"slices"
+	"testing"
+
+	"github.com/pedropaccola/gomcp/internal/workspace"
+)
 
 func TestTxCreateFile(t *testing.T) {
 	v := viewFixture(t, "package pkg\n\nfunc Foo() {}\n")
 	tx := NewTx(v)
-	if err := tx.CreateFile(tpkgID("pkg"), "extra.go", ""); err != nil {
+	if err := tx.CreateFile(tpkgPath("pkg"), false, "extra.go", "", nil); err != nil {
 		t.Fatalf("CreateFile: %v", err)
 	}
-	files, ok := v.PackageFiles(tpkgID("pkg"))
+	files, ok := v.PackageFiles(tpkgPath("pkg"))
 	if !ok {
 		t.Fatal("test.mod/pkg not found")
 	}
@@ -20,7 +25,7 @@ func TestTxCreateFile(t *testing.T) {
 func TestTxCreateFileRefusesExisting(t *testing.T) {
 	v := viewFixture(t, "package pkg\n\nfunc Foo() {}\n")
 	tx := NewTx(v)
-	if err := tx.CreateFile(tpkgID("pkg"), "pkg.go", ""); err == nil {
+	if err := tx.CreateFile(tpkgPath("pkg"), false, "pkg.go", "", nil); err == nil {
 		t.Error("CreateFile must refuse a file that already exists")
 	}
 }
@@ -28,10 +33,10 @@ func TestTxCreateFileRefusesExisting(t *testing.T) {
 func TestTxCreatePackage(t *testing.T) {
 	v := viewFixture(t, "package pkg\n")
 	tx := NewTx(v)
-	if err := tx.CreatePackage("test.mod/newpkg", ""); err != nil {
+	if err := tx.CreatePackage("test.mod/newpkg", "", false); err != nil {
 		t.Fatalf("CreatePackage: %v", err)
 	}
-	files, ok := v.PackageFiles(tpkgID("newpkg"))
+	files, ok := v.PackageFiles(tpkgPath("newpkg"))
 	if !ok {
 		t.Fatal("newpkg not found after CreatePackage")
 	}
@@ -43,7 +48,7 @@ func TestTxCreatePackage(t *testing.T) {
 func TestTxCreatePackageRefusesExisting(t *testing.T) {
 	v := viewFixture(t, "package pkg\n")
 	tx := NewTx(v)
-	if err := tx.CreatePackage("test.mod/pkg", ""); err == nil {
+	if err := tx.CreatePackage("test.mod/pkg", "", false); err == nil {
 		t.Error("CreatePackage must refuse an address that already holds a package")
 	}
 }
@@ -51,7 +56,7 @@ func TestTxCreatePackageRefusesExisting(t *testing.T) {
 func TestTxCreateSymbolRefusesCollision(t *testing.T) {
 	v := viewFixture(t, "package pkg\n\nfunc Foo() {}\n")
 	tx := NewTx(v)
-	if err := tx.CreateSymbol(tpkgID("pkg"), "pkg.go", "func Foo() {}"); err == nil {
+	if err := tx.CreateSymbol(tpkgPath("pkg"), "pkg.go", "func Foo() {}"); err == nil {
 		t.Error("CreateSymbol must refuse a name already declared in the package")
 	}
 }
@@ -59,7 +64,7 @@ func TestTxCreateSymbolRefusesCollision(t *testing.T) {
 func TestTxCreateSymbolTouchesFile(t *testing.T) {
 	v := viewFixture(t, "package pkg\n\nfunc Foo() {}\n")
 	tx := NewTx(v)
-	if err := tx.CreateSymbol(tpkgID("pkg"), "pkg.go", "func Bar() {}"); err != nil {
+	if err := tx.CreateSymbol(tpkgPath("pkg"), "pkg.go", "func Bar() {}"); err != nil {
 		t.Fatalf("CreateSymbol: %v", err)
 	}
 	if _, ok := v.Symbol("test.mod/pkg", "Bar"); !ok {
@@ -74,21 +79,22 @@ func TestTxCreateSymbolTouchesFile(t *testing.T) {
 func TestTxCreateFileXTest(t *testing.T) {
 	v := viewFixture(t, "package pkg\n\nfunc Foo() {}\n")
 	tx := NewTx(v)
-	if err := tx.CreateFile(tpkgID("pkg_test"), "extra_test.go", ""); err != nil {
+	if err := tx.CreatePackage("test.mod/pkg", "", true); err != nil {
+		t.Fatalf("CreatePackage(isXTest): %v", err)
+	}
+	if err := tx.CreateFile("test.mod/pkg", true, "extra_test.go", "", nil); err != nil {
 		t.Fatalf("CreateFile: %v", err)
 	}
-	files, ok := v.PackageFiles(tpkgID("pkg"))
-	if !ok {
-		t.Fatal("test.mod/pkg not found")
+	prod, ok := v.ws.ProdPackage("test.mod/pkg")
+	if !ok || len(prod.Files()) != 1 {
+		t.Errorf("Prod = %+v, want the original file alone, untouched by the XTest creation", prod)
 	}
-	if len(files) != 1 {
-		t.Errorf("Prod files = %+v, want the original file alone", files)
+	var xtest *workspace.Package
+	for _, p := range v.ws.MembersOf("test.mod/pkg") {
+		if p.ID.Kind() == workspace.KindXTest {
+			xtest = p
+		}
 	}
-	unit, ok := v.ws.Unit("test.mod/pkg")
-	if !ok {
-		t.Fatal("test.mod/pkg unit not found")
-	}
-	xtest := unit.XTest()
 	if xtest == nil {
 		t.Fatal("XTest half not installed")
 	}
@@ -100,33 +106,59 @@ func TestTxCreateFileXTest(t *testing.T) {
 	}
 }
 
-// TestTxCreateFileXTestOriginatesProd targets a brand-new package's
-// XTest half directly, with no create_packages call first: EnsurePackage
-// must originate a Prod shell (one seeded file, same as CreatePackage's
-// own construction) alongside the requested XTest file, in one
-// transaction — no separate create_packages round trip needed.
-func TestTxCreateFileXTestOriginatesProd(t *testing.T) {
-	v := viewFixture(t, "package pkg\n")
+func TestTxCreateFileWithDirectives(t *testing.T) {
+	v := viewFixture(t, "package pkg\n\nfunc Foo() {}\n")
 	tx := NewTx(v)
-	if err := tx.CreateFile(tpkgID("missing_test"), "extra_test.go", ""); err != nil {
+	if err := tx.CreateFile(tpkgPath("pkg"), false, "gen.go", "Gen holds generated-shaped fixtures.", []string{"go:build linux", "go:generate mockgen -source=gen.go"}); err != nil {
 		t.Fatalf("CreateFile: %v", err)
 	}
-	unit, ok := v.ws.Unit("test.mod/missing")
+	file, _, ok := v.ws.ResolveFileByPath("test.mod/pkg/gen.go")
 	if !ok {
-		t.Fatal("test.mod/missing unit not found")
+		t.Fatal("gen.go not found")
 	}
-	prod := unit.Prod()
-	if prod == nil || prod.Name != "missing" {
-		t.Fatalf("Prod half not originated: %+v", prod)
+	want := []string{"go:build linux", "go:generate mockgen -source=gen.go"}
+	if !slices.Equal(file.Directives, want) {
+		t.Errorf("Directives = %v, want %v", file.Directives, want)
 	}
-	if _, ok := prod.File("test.mod/missing/missing.go"); !ok {
-		t.Error("Prod half missing its seeded stub file")
+	if file.Doc() != "Gen holds generated-shaped fixtures." {
+		t.Errorf("Doc() = %q", file.Doc())
 	}
-	xtest := unit.XTest()
-	if xtest == nil || xtest.Name != "missing_test" {
+}
+
+// TestTxCreateFileFailsIfPackageMissing confirms CreateFile no longer
+// implicitly originates a package or its XTest half — the target half
+// must already exist via CreatePackage first, in its own separate step.
+func TestTxCreateFileFailsIfPackageMissing(t *testing.T) {
+	v := viewFixture(t, "package pkg\n")
+	tx := NewTx(v)
+	if err := tx.CreateFile("test.mod/missing", true, "extra_test.go", "", nil); err == nil {
+		t.Error("CreateFile must fail when the target XTest half doesn't exist yet, not originate it implicitly")
+	}
+	if err := tx.CreateFile("test.mod/missing", false, "extra.go", "", nil); err == nil {
+		t.Error("CreateFile must fail when the target Prod half doesn't exist yet")
+	}
+}
+
+// TestTxCreatePackageXTestWithoutProd confirms the dirty-buffer principle
+// applies to package creation too: an agent may write the test before
+// the implementation, and CreatePackage must not assume the reverse
+// order or fabricate a Prod sibling to paper over it.
+func TestTxCreatePackageXTestWithoutProd(t *testing.T) {
+	v := viewFixture(t, "package pkg\n")
+	tx := NewTx(v)
+	if err := tx.CreatePackage("test.mod/fresh", "", true); err != nil {
+		t.Fatalf("CreatePackage(isXTest) with no Prod sibling: %v", err)
+	}
+	if _, ok := v.ws.ProdPackage("test.mod/fresh"); ok {
+		t.Error("CreatePackage(isXTest) must not fabricate a Prod sibling")
+	}
+	var xtest *workspace.Package
+	for _, p := range v.ws.MembersOf("test.mod/fresh") {
+		if p.ID.Kind() == workspace.KindXTest {
+			xtest = p
+		}
+	}
+	if xtest == nil || xtest.Name != "fresh_test" {
 		t.Fatalf("XTest half not installed: %+v", xtest)
-	}
-	if _, ok := xtest.File("test.mod/missing/extra_test.go"); !ok {
-		t.Error("extra_test.go not installed in the new XTest package")
 	}
 }

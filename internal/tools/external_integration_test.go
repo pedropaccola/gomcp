@@ -10,14 +10,14 @@ func TestExternalReadToolsAndRefusals(t *testing.T) {
 	st := sandboxStore(t)
 
 	_, out, err := describeSymbol(st, testCfg())(context.Background(), nil, DescribeSymbolInput{
-		Describes: []DescribeSymbolEntry{{PkgPath: "io", SymbolKey: "Reader"}},
+		Describes: []DescribeSymbolEntry{{PkgPath: "io", SymbolKey: "Reader", FileName: "io.go"}},
 	})
 	if err != nil {
 		t.Fatalf("describe_symbol(io.Reader): %v", err)
 	}
 	typ := out.Results[0]
-	if !strings.Contains(typ.Source, "type Reader interface") || typ.File != "io.go" {
-		t.Errorf("describe_symbol(io.Reader) wrong: file=%s", typ.File)
+	if !strings.Contains(typ.Source, "type Reader interface") {
+		t.Errorf("describe_symbol(io.Reader) wrong: source=%s", typ.Source)
 	}
 
 	_, syms, err := listSymbols(st, testCfg())(context.Background(), nil, ListSymbolsInput{PkgPath: "io"})
@@ -46,7 +46,7 @@ func TestExternalReadToolsAndRefusals(t *testing.T) {
 
 	// Semantic finders stay in the workspace.
 	if _, _, err := searchReferences(st)(context.Background(), nil, SearchReferencesInput{
-		PkgPath: "io", SymbolKey: "Reader",
+		PkgPath: "io", SymbolKey: "Reader", FileName: "io.go",
 	}); err == nil || !strings.Contains(err.Error(), "workspace") {
 		t.Errorf("semantic search on a dependency must steer, got %v", err)
 	}

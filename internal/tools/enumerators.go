@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -14,12 +15,19 @@ type ListFilesInput struct {
 }
 
 type ListFilesOutput struct {
-	Files []string `json:"files"`
+	Files []FileEntry `json:"files"`
 }
 
+// ListMethodsInput addresses one type. FileName resolves and confirms
+// the type declaration itself (an assertion, same convention as
+// describe/edit/delete_symbols) — it does not scope the returned
+// methods, which can live in any file (a method never has to share its
+// receiver type's own file) and are still gathered by receiver-name
+// match across every one of the package's members, as before.
 type ListMethodsInput struct {
 	PkgPath   string `json:"pkg_path"`
 	SymbolKey string `json:"symbol_key"`
+	FileName  string `json:"file_name"`
 }
 
 type ListMethodsOutput struct {
@@ -43,8 +51,20 @@ type ListSymbolsOutput struct {
 
 type SymbolEntry struct {
 	SymbolKey string `json:"symbol_key"`
+	FileName  string `json:"file_name"`
 	Kind      string `json:"kind"`
 	Summary   string `json:"summary"`
+}
+
+// FileEntry is one file's identifying metadata as list_files reports it.
+// PackageKind is omitted for the common Prod case, present only for
+// XTest. Ignored and Generated are independent, orthogonal signals —
+// either can land on either shape — each omitted when false.
+type FileEntry struct {
+	Name        string `json:"name"`
+	PackageKind string `json:"package_kind,omitempty"`
+	Ignored     bool   `json:"ignored,omitempty"`
+	Generated   bool   `json:"generated,omitempty"`
 }
 
 func listPackages(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListPackagesInput, ListPackagesOutput] {
@@ -65,11 +85,15 @@ func listPackages(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListPacka
 func listFiles(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListFilesInput, ListFilesOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListFilesInput) (*mcp.CallToolResult, ListFilesOutput, error) {
 		var out ListFilesOutput
-		err := readPackage(ctx, st, in.PkgPath, func(v *store.View, pkg workspace.PackageID) error {
+		err := readPackage(ctx, st, in.PkgPath, func(v *store.View, pkg workspace.PackagePath) error {
 			files, _ := v.PackageFiles(pkg)
-			out.Files = make([]string, 0, len(files))
+			out.Files = make([]FileEntry, 0, len(files))
 			for _, f := range files {
-				out.Files = append(out.Files, f.Base())
+				entry := FileEntry{Name: f.Base()}
+				entry.PackageKind, _ = v.FileKind(f)
+				entry.Ignored, _ = v.FileIgnored(f)
+				entry.Generated, _ = v.FileGenerated(f)
+				out.Files = append(out.Files, entry)
 			}
 			return nil
 		})
@@ -80,10 +104,10 @@ func listFiles(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListFilesInp
 func listSymbols(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListSymbolsInput, ListSymbolsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListSymbolsInput) (*mcp.CallToolResult, ListSymbolsOutput, error) {
 		var out ListSymbolsOutput
-		err := readPackage(ctx, st, in.PkgPath, func(v *store.View, pkg workspace.PackageID) error {
+		err := readPackage(ctx, st, in.PkgPath, func(v *store.View, pkg workspace.PackagePath) error {
 			var targetFile workspace.FilePath
 			if fileName := optStr(in.FileName); fileName != "" {
-				fp, err := v.ResolveFile(pkg, fileName)
+				fp, _, err := v.ResolveFile(pkg, fileName)
 				if err != nil {
 					return err
 				}
@@ -97,8 +121,9 @@ func listSymbols(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListSymbol
 				}
 				out.Symbols = append(out.Symbols, SymbolEntry{
 					SymbolKey: sym.Key,
+					FileName:  sym.File.Base(),
 					Kind:      sym.Kind,
-					Summary:   summarize(v, pkg.Base(), sym),
+					Summary:   summarize(v, pkg, sym),
 				})
 			}
 			return nil
@@ -110,7 +135,10 @@ func listSymbols(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListSymbol
 func listMethods(st *store.Store, cfg *toolConfig) mcp.ToolHandlerFor[ListMethodsInput, ListMethodsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListMethodsInput) (*mcp.CallToolResult, ListMethodsOutput, error) {
 		var out ListMethodsOutput
-		err := readPackage(ctx, st, in.PkgPath, func(v *store.View, pkg workspace.PackageID) error {
+		err := readPackage(ctx, st, in.PkgPath, func(v *store.View, pkg workspace.PackagePath) error {
+			if _, ok := v.SymbolIn(pkg, in.SymbolKey, in.FileName); !ok {
+				return fmt.Errorf("%s: call list_symbols for valid keys", workspace.NoSymbolError(in.SymbolKey, in.PkgPath))
+			}
 			out.Methods = methodSignatures(v, pkg, in.SymbolKey)
 			return nil
 		})

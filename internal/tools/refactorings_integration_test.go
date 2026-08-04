@@ -73,19 +73,19 @@ func TestMoveSymbolInputWiring(t *testing.T) {
 	st := sandboxStore(t)
 
 	if _, _, err := moveSymbol(st, testCfg())(context.Background(), nil, MoveSymbolInput{
-		PkgPath: "shapes", SymbolKey: "NotShape", NewSymbolKey: new("AlsoNotShape"),
+		PkgPath: "shapes", SymbolKey: "NotShape", FileName: "shapes.go", NewSymbolKey: new("AlsoNotShape"),
 	}); err != nil {
 		t.Fatalf("refactor_move_symbol rename: %v", err)
 	}
 
 	if _, _, err := moveSymbol(st, testCfg())(context.Background(), nil, MoveSymbolInput{
-		PkgPath: "shapes", SymbolKey: "Circle.Area", NewSymbolKey: new("Square.Extent"),
+		PkgPath: "shapes", SymbolKey: "Circle.Area", FileName: "shapes.go", NewSymbolKey: new("Square.Extent"),
 	}); err == nil || !strings.Contains(err.Error(), "cannot change") {
 		t.Errorf("mismatched receiver via refactor_move_symbol must be refused, got %v", err)
 	}
 
 	if _, _, err := moveSymbol(st, testCfg())(context.Background(), nil, MoveSymbolInput{
-		PkgPath: "shapes", SymbolKey: "Circle.Area", NewSymbolKey: new("Circle.Extent"),
+		PkgPath: "shapes", SymbolKey: "Circle.Area", FileName: "shapes.go", NewSymbolKey: new("Circle.Extent"),
 	}); err != nil {
 		t.Fatalf("refactor_move_symbol qualified method rename: %v", err)
 	}
@@ -95,14 +95,14 @@ func TestMoveSymbolInputWiringSymbolKeysBatch(t *testing.T) {
 	st := sandboxStore(t)
 
 	if _, _, err := moveSymbol(st, testCfg())(context.Background(), nil, MoveSymbolInput{
-		PkgPath: "mvsrc", SymbolKeys: []string{"Box", "Box.M", "Box.AreaOfBox"},
+		PkgPath: "mvsrc", SymbolKeys: []string{"Box", "Box.M", "Box.AreaOfBox"}, FileName: "mvsrc.go",
 		NewPkgPath: new("mvdest"), NewFileName: new("box.go"),
 	}); err != nil {
 		t.Fatalf("refactor_move_symbol symbol_keys batch: %v", err)
 	}
 
 	if _, _, err := moveSymbol(st, testCfg())(context.Background(), nil, MoveSymbolInput{
-		PkgPath: "shapes", SymbolKey: "NotShape", SymbolKeys: []string{"NotShape"},
+		PkgPath: "shapes", SymbolKey: "NotShape", SymbolKeys: []string{"NotShape"}, FileName: "shapes.go",
 	}); err == nil || !strings.Contains(err.Error(), "not both") {
 		t.Errorf("symbol_key and symbol_keys together must be refused, got %v", err)
 	}

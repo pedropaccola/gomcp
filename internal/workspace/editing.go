@@ -10,10 +10,18 @@ import (
 // declaration: whether it's part of a position-dependent group (in which
 // case a replacement must resubmit the whole group), the group's token
 // kind when grouped (token.ILLEGAL otherwise), and the ByteSplice the
-// replacement itself lands in. Aggregate-owned analysis, same rationale
-// as DetectMoveConflicts: key is resolved fresh here.
-func (w *Workspace) ComputeEditPlan(pkg PackagePath, key string) (wasPositionDependent bool, groupTok token.Token, target ByteSplice, err error) {
-	sym, owner, ok := w.ResolveSymbol(pkg, key)
+// replacement itself lands in. fileName follows DeclSource's own
+// assertion-vs-primary-preference convention. Aggregate-owned analysis,
+// same rationale as DetectMoveConflicts: key is resolved fresh here.
+func (w *Workspace) ComputeEditPlan(pkg PackagePath, key, fileName string) (wasPositionDependent bool, groupTok token.Token, target ByteSplice, err error) {
+	var sym *Symbol
+	var owner *Package
+	var ok bool
+	if fileName != "" {
+		sym, owner, ok = w.ResolveSymbolIn(pkg, key, fileName)
+	} else {
+		sym, owner, ok = w.ResolveSymbol(pkg, key)
+	}
 	if !ok {
 		return false, token.ILLEGAL, ByteSplice{}, NoSymbolError(key, pkg)
 	}
@@ -76,23 +84,40 @@ func (w *Workspace) DetectEditCollisions(pkg PackagePath, key string, newKeys []
 // EditSymbol replaces key's whole declaration with src — for members of
 // grouped declarations, src is the member's spec as written inside the
 // group. A replacement may rename; the new key must not collide.
-// For a member of a position-dependent const group (iota, or inheriting
-// the previous spec's expression), src must be the group's whole
-// intended state — every member's spec, not just key's own, still bare
-// (no group keyword/parens — those are reconstructed) — since a partial
-// replacement would silently drop whatever isn't mentioned; the
+// fileName scopes resolution exactly to that file (an assertion, never a
+// hint) — the only way to reach a declaration a same-named sibling
+// elsewhere would otherwise shadow; empty keeps primary-preference
+// resolution. For a member of a position-dependent const group (iota, or
+// inheriting the previous spec's expression), src must be the group's
+// whole intended state — every member's spec, not just key's own, still
+// bare (no group keyword/parens — those are reconstructed) — since a
+// partial replacement would silently drop whatever isn't mentioned; the
 // targeted key itself must still be present, or the edit is refused (use
 // MoveSymbol to rename a group member instead, which propagates
 // references correctly and is the only tool that can). Editing a
 // non-position-dependent group member to introduce iota is refused —
 // that converts the group's structure, not just one value, and isn't
 // supported through a single member's replacement. Returns the file
-// touched, for the caller's own change-tracking.
-func (w *Workspace) EditSymbol(pkg PackagePath, key, src string) (FilePath, error) {
-	wasPositionDependent, groupTok, target, err := w.ComputeEditPlan(pkg, key)
+// touched and key's own directive-line delta (added, then removed,
+// relative to key's directives before this edit — always computed, never
+// gated on whether src's comment happens to mention directives at all),
+// for the caller's own change-tracking and reporting. A rename looks up
+// the delta under whatever new name src declares — key itself won't be
+// in frag.SymbolDirectives anymore — which is safe even when a shared
+// spec declares several names at once, since they all inherit the same
+// spec-level doc comment and so carry identical directives.
+func (w *Workspace) EditSymbol(pkg PackagePath, key, src, fileName string) (path FilePath, added, removed []string, err error) {
+	wasPositionDependent, groupTok, target, err := w.ComputeEditPlan(pkg, key, fileName)
 	if err != nil {
-		return "", err
+		return "", nil, nil, err
 	}
+	var oldSym *Symbol
+	if fileName != "" {
+		oldSym, _, _ = w.ResolveSymbolIn(pkg, key, fileName) // known to exist: ComputeEditPlan just resolved it
+	} else {
+		oldSym, _, _ = w.ResolveSymbol(pkg, key)
+	}
+	oldDirectives := oldSym.Directives
 	var frag Fragment
 	replacement := src
 	switch {
@@ -108,21 +133,26 @@ func (w *Workspace) EditSymbol(pkg PackagePath, key, src string) (FilePath, erro
 		frag, err = parseDeclFragment(src)
 	}
 	if err != nil {
-		return "", err
+		return "", nil, nil, err
 	}
 	if wasPositionDependent && !slices.Contains(frag.Keys, key) {
-		return "", fmt.Errorf("%q is missing from the replacement: a position-dependent group member can't be renamed through a single member's replacement", key)
+		return "", nil, nil, fmt.Errorf("%q is missing from the replacement: a position-dependent group member can't be renamed through a single member's replacement", key)
 	}
 	if collisions := w.DetectEditCollisions(pkg, key, frag.Keys); len(collisions) > 0 {
-		return "", fmt.Errorf("replacement declares %q, which already exists in %q", collisions[0], pkg)
+		return "", nil, nil, fmt.Errorf("replacement declares %q, which already exists in %q", collisions[0], pkg)
 	}
 	file, owner, ok := w.ResolveFileByPath(target.Path)
 	if !ok {
-		return "", VanishedError(target.Path, fmt.Sprintf("while editing %q", key))
+		return "", nil, nil, VanishedError(target.Path, fmt.Sprintf("while editing %q", key))
 	}
 	target.Repl = []byte(replacement)
-	if err := w.SwapFile(pkg, owner.ID.Kind() == KindXTest, target.Path, ByteSplices{target}.Apply(file.Src())); err != nil {
-		return "", err
+	if err := w.SwapFile(pkg, owner.ID.Kind(), file.Ignored, target.Path, ByteSplices{target}.Apply(file.Src())); err != nil {
+		return "", nil, nil, err
 	}
-	return target.Path, nil
+	newKey := key
+	if _, ok := frag.SymbolDirectives[key]; !ok && len(frag.Keys) > 0 {
+		newKey = frag.Keys[0]
+	}
+	added, removed = DiffDirectives(oldDirectives, frag.SymbolDirectives[newKey])
+	return target.Path, added, removed, nil
 }

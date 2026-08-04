@@ -9,16 +9,18 @@ import (
 	"golang.org/x/tools/imports"
 )
 
-// Clone copies the mutable model for a transaction: units, packages, and
-// the tombstone map start shared with the original and fork lazily, only
-// for what this transaction actually touches (ensureUnitsForked,
-// ensureRemovedForked, ensurePackageForked) — position tables and the
-// dependency cache are shared outright (both are append-only within a
-// transaction's lifetime). Edit works on the clone and discards it on
-// error — error means nothing happened.
+// Clone copies the mutable model for a transaction: prod, xtest,
+// packages, and the tombstone map start shared with the original and
+// fork lazily, only for what this transaction actually touches
+// (ensureProdForked, ensureXTestForked, ensureRemovedForked,
+// ensurePackageForked) — position tables and the dependency cache are
+// shared outright (both are append-only within a transaction's
+// lifetime). Edit works on the clone and discards it on error — error
+// means nothing happened.
 func (w *Workspace) Clone() *Workspace {
 	cloned := *w
-	cloned.unitsForked = false
+	cloned.prodForked = false
+	cloned.xtestForked = false
 	cloned.removedForked = false
 	cloned.forkedPkgs = nil
 	return &cloned
@@ -31,9 +33,11 @@ func (w *Workspace) Clone() *Workspace {
 // result, install a fresh dirty File, clear any tombstone at newPath,
 // and rebuild the owner's index. Formatting happens here, not at the
 // caller — nothing outside workspace needs to know goimports exists.
-// Every fallible step precedes the swap — an error means the model is
-// untouched.
-func (w *Workspace) SwapFile(addr PackagePath, isXTest bool, newPath FilePath, src []byte) error {
+// ignored stamps the installed File's own Ignored bit; it never affects
+// which of Prod/XTest's own map the file lands in — kind (shape) and
+// ignored (build participation) are independent. Every fallible step
+// precedes the swap — an error means the model is untouched.
+func (w *Workspace) SwapFile(addr PackagePath, kind PackageKind, ignored bool, newPath FilePath, src []byte) error {
 	formatted, err := imports.Process(newPath.String(), src, nil)
 	if err != nil {
 		return fmt.Errorf("%s does not format: %w", newPath, err)
@@ -42,11 +46,11 @@ func (w *Workspace) SwapFile(addr PackagePath, isXTest bool, newPath FilePath, s
 	if err != nil {
 		return fmt.Errorf("%s does not parse: %w", newPath, err)
 	}
-	pkg := w.ensurePackageForked(addr, isXTest)
+	pkg := w.ensurePackageForked(addr, kind)
 	if pkg.files == nil {
 		pkg.files = make(map[FilePath]*File)
 	}
-	pkg.files[newPath] = newFile(newPath, formatted, astFile, true)
+	pkg.files[newPath] = newFile(newPath, pkg.ID, formatted, astFile, true, ignored)
 	w.ensureRemovedForked()
 	delete(w.removed, newPath)
 	pkg.RebuildIndex()
@@ -56,8 +60,8 @@ func (w *Workspace) SwapFile(addr PackagePath, isXTest bool, newPath FilePath, s
 // DropFile removes one file from its owner: tombstoned for the disk
 // boundary, index rebuilt, and the unit pruned once its last file is gone
 // — an address with no files is no address.
-func (w *Workspace) DropFile(addr PackagePath, isXTest bool, path FilePath) {
-	owner := w.ensurePackageForked(addr, isXTest)
+func (w *Workspace) DropFile(addr PackagePath, kind PackageKind, path FilePath) {
+	owner := w.ensurePackageForked(addr, kind)
 	delete(owner.files, path)
 	owner.RebuildIndex()
 	w.tombstone(addr, path, owner.Name)
@@ -67,8 +71,8 @@ func (w *Workspace) DropFile(addr PackagePath, isXTest bool, path FilePath) {
 // MoveFile relocates a file within its owner — semantically free in Go,
 // files are storage. The old path is tombstoned, the new one untombstoned,
 // and the moved copy marked dirty for the next flush.
-func (w *Workspace) MoveFile(addr PackagePath, isXTest bool, oldPath, newPath FilePath) {
-	owner := w.ensurePackageForked(addr, isXTest)
+func (w *Workspace) MoveFile(addr PackagePath, kind PackageKind, oldPath, newPath FilePath) {
+	owner := w.ensurePackageForked(addr, kind)
 	file := owner.files[oldPath]
 	moved := *file
 	moved.Path = newPath
@@ -80,12 +84,12 @@ func (w *Workspace) MoveFile(addr PackagePath, isXTest bool, oldPath, newPath Fi
 	owner.RebuildIndex()
 }
 
-// pruneEmptyUnit drops a unit's packages once their last file is deleted,
-// and the unit itself once both are gone.
+// pruneEmptyUnit drops pkg's Prod and XTest packages, independently,
+// once each is out of files — an address with no files in any map is no
+// address.
 func (w *Workspace) pruneEmptyUnit(pkg PackagePath) {
-	if unit, ok := w.units[pkg]; ok {
-		pruneIfEmpty(w.units, pkg, unit)
-	}
+	pruneIfEmpty(w.prod, pkg)
+	pruneIfEmpty(w.xtest, pkg)
 }
 
 // ForkExternal returns a shallow copy of w with fresh, independent
@@ -101,16 +105,16 @@ func (w *Workspace) ForkExternal() *Workspace {
 	return &forked
 }
 
-// ensureUnitsForked forks the unit map (one maps.Clone) the first time
-// this generation installs or removes a unit; idempotent after that.
-// Forking the map is separate from forking one package's own contents
-// (ensurePackageForked) — most mutations only need the latter.
-func (w *Workspace) ensureUnitsForked() {
-	if w.unitsForked {
+// ensureProdForked forks the Prod map (one maps.Clone) the first time
+// this generation installs or removes a Prod package; idempotent after
+// that. Forking the map is separate from forking one package's own
+// contents (ensurePackageForked) — most mutations only need the latter.
+func (w *Workspace) ensureProdForked() {
+	if w.prodForked {
 		return
 	}
-	w.units = maps.Clone(w.units)
-	w.unitsForked = true
+	w.prod = maps.Clone(w.prod)
+	w.prodForked = true
 }
 
 // ensureRemovedForked forks the tombstone map the first time this
@@ -124,29 +128,31 @@ func (w *Workspace) ensureRemovedForked() {
 }
 
 // ensurePackageForked returns the Prod or XTest package at addr, forking
-// it — and the Unit wrapper around it — the first time this generation
-// mutates it; every other package's pointer stays shared with whatever
-// generation this one was cloned from. addr must already be installed —
-// CreatePackage and MovePackage install an empty Unit before calling
-// this, precisely so it always is.
-func (w *Workspace) ensurePackageForked(addr PackagePath, isXTest bool) *Package {
-	w.ensureUnitsForked()
-	unit := w.units[addr]
-	pkg := unit.prod
-	if isXTest {
-		pkg = unit.xtest
+// it the first time this generation mutates it; every other package's
+// pointer stays shared with whatever generation this one was cloned
+// from. addr must already be installed in the relevant map —
+// CreatePackage and MovePackage install into it before calling this,
+// precisely so it always is.
+func (w *Workspace) ensurePackageForked(addr PackagePath, kind PackageKind) *Package {
+	switch kind {
+	case KindXTest:
+		w.ensureXTestForked()
+	default:
+		w.ensureProdForked()
 	}
+	var m map[PackagePath]*Package
+	switch kind {
+	case KindXTest:
+		m = w.xtest
+	default:
+		m = w.prod
+	}
+	pkg := m[addr]
 	if w.forkedPkgs[pkg] {
 		return pkg
 	}
 	forked := pkg.Clone()
-	next := *unit
-	if isXTest {
-		next.xtest = forked
-	} else {
-		next.prod = forked
-	}
-	w.units[addr] = &next
+	m[addr] = forked
 	if w.forkedPkgs == nil {
 		w.forkedPkgs = make(map[*Package]bool)
 	}
@@ -158,33 +164,49 @@ func (w *Workspace) ensurePackageForked(addr PackagePath, isXTest bool) *Package
 // half of the dirty lifecycle; SwapFile and MoveFile set the mark. Forks
 // the package first if this generation hasn't already, same as every
 // other mutating primitive.
-func (w *Workspace) MarkFlushed(addr PackagePath, isXTest bool, path FilePath) {
-	w.ensurePackageForked(addr, isXTest).MarkFlushed(path)
+func (w *Workspace) MarkFlushed(addr PackagePath, kind PackageKind, path FilePath) {
+	w.ensurePackageForked(addr, kind).MarkFlushed(path)
 }
 
-// CreatePackage creates a new package at a module-prefixed address with
-// one stub file named after the package (name defaults to the address
-// base) — the verb DeletePackage/DropPackage's own construction mirrors,
-// finally given a home here instead of being hand-assembled by callers
-// outside this package. Fails if the address already holds a package, is
-// outside the module, or name isn't a valid identifier. Returns the stub
-// file's path.
-func (w *Workspace) CreatePackage(pkg PackagePath, name string) (FilePath, error) {
+// CreatePackage creates a new package half (Prod, or XTest when isXTest)
+// at a module-prefixed address with one stub file named after the
+// package (name defaults to the address base, plus "_test" for the XTest
+// half). Fails if that specific half already exists at the address, is
+// outside the module, or name isn't a valid identifier — XTest can be
+// created with no Prod sibling present, and vice versa: an agent may
+// legitimately write the test before the implementation, and this verb
+// doesn't assume the reverse order or fabricate the other half to paper
+// over it. The stub file is never Ignored — a freshly created file has
+// no directives yet. Returns the stub file's path.
+func (w *Workspace) CreatePackage(pkg PackagePath, name string, isXTest bool) (FilePath, error) {
 	if pkg == w.module {
 		return "", OutsideModuleCreateError(pkg, w.module)
 	}
-	if _, exists := w.Unit(pkg); exists {
+	kind := KindProd
+	_, exists := w.prod[pkg]
+	if isXTest {
+		kind = KindXTest
+		_, exists = w.xtest[pkg]
+	}
+	if exists {
 		return "", PackageExistsError(pkg)
 	}
 	if name == "" {
 		name = pkg.Base()
+		if isXTest {
+			name += "_test"
+		}
 	}
 	if !token.IsIdentifier(name) {
 		return "", InvalidPackageNameError(name)
 	}
-	w.InstallUnit(pkg, NewUnit(NewPackage(name, pkg, KindProd, nil, nil), nil))
+	if isXTest {
+		w.InstallXTest(pkg, NewPackage(name, pkg, KindXTest, nil, nil))
+	} else {
+		w.InstallProd(pkg, NewPackage(name, pkg, KindProd, nil, nil))
+	}
 	path := pkg.File(name + ".go")
-	if err := w.SwapFile(pkg, false, path, []byte("package "+name+"\n")); err != nil {
+	if err := w.SwapFile(pkg, kind, false, path, []byte("package "+name+"\n")); err != nil {
 		return "", err
 	}
 	return path, nil
@@ -196,12 +218,12 @@ func (w *Workspace) CreatePackage(pkg PackagePath, name string) (FilePath, error
 // index and prune per file for a unit about to be discarded wholesale
 // regardless. Idempotent: a missing package is a noop, not a failure.
 func (w *Workspace) DropPackage(pkg PackagePath) []FilePath {
-	unit, ok := w.Unit(pkg)
-	if !ok {
+	members := w.MembersOf(pkg)
+	if len(members) == 0 {
 		return nil
 	}
 	var touched []FilePath
-	for _, p := range unit.Members() {
+	for _, p := range members {
 		for _, file := range p.Files() {
 			w.tombstone(pkg, file.Path, p.Name)
 			touched = append(touched, file.Path)
@@ -211,39 +233,59 @@ func (w *Workspace) DropPackage(pkg PackagePath) []FilePath {
 	return touched
 }
 
-// DropTombstonedFile removes path from a freshly loaded unit map — the load-path
-// counterpart of DropFile: overlays can only mask a deleted file as empty,
-// so the mask's residue must not survive as a real file. Emptied packages
-// and units are pruned the way pruneEmptyUnit prunes installed ones.
-func DropTombstonedFile(units map[PackagePath]*Unit, pkg PackagePath, path FilePath) {
-	unit, ok := units[pkg]
-	if !ok {
+// ensureXTestForked is ensureProdForked's XTest sibling, same rationale.
+func (w *Workspace) ensureXTestForked() {
+	if w.xtestForked {
 		return
 	}
-	for _, p := range []*Package{unit.prod, unit.xtest} {
-		if p == nil {
+	w.xtest = maps.Clone(w.xtest)
+	w.xtestForked = true
+}
+
+// DropTombstonedFile removes path from freshly loaded Prod/XTest maps —
+// the load-path counterpart of DropFile: overlays can only mask a
+// deleted file as empty, so the mask's residue must not survive as a
+// real file. Emptied packages are pruned the way pruneEmptyUnit prunes
+// installed ones.
+func DropTombstonedFile(prod, xtest map[PackagePath]*Package, pkg PackagePath, path FilePath) {
+	for _, m := range []map[PackagePath]*Package{prod, xtest} {
+		p, ok := m[pkg]
+		if !ok {
 			continue
 		}
 		if _, ok := p.files[path]; ok {
 			delete(p.files, path)
 			p.RebuildIndex()
 		}
+		pruneIfEmpty(m, pkg)
 	}
-	pruneIfEmpty(units, pkg, unit)
 }
 
-// pruneIfEmpty drops unit's Prod/XTest once each is out of files, and
-// removes it from units entirely once both are gone. Shared by
-// pruneEmptyUnit (an installed workspace) and DropTombstonedFile (a freshly
-// loaded unit map, before installation).
-func pruneIfEmpty(units map[PackagePath]*Unit, pkg PackagePath, unit *Unit) {
-	if unit.prod != nil && len(unit.prod.files) == 0 {
-		unit.prod = nil
+// pruneIfEmpty drops pkg from m once its package is out of files. Shared
+// by pruneEmptyUnit (an installed workspace) and DropTombstonedFile (a
+// freshly loaded map, before installation) — called once per map (Prod,
+// then XTest) by each.
+func pruneIfEmpty(m map[PackagePath]*Package, pkg PackagePath) {
+	if p, ok := m[pkg]; ok && len(p.files) == 0 {
+		delete(m, pkg)
 	}
-	if unit.xtest != nil && len(unit.xtest.files) == 0 {
-		unit.xtest = nil
-	}
-	if unit.prod == nil && unit.xtest == nil {
-		delete(units, pkg)
+}
+
+// MarkFileDirty re-marks path dirty in whichever of pkg's Prod/XTest
+// packages holds it, within freshly loaded (not yet installed) maps —
+// how dirty state survives a reload built from overlays. Replaces
+// rather than mutates in place, since a File may still be shared with
+// another Workspace generation via Clone.
+func MarkFileDirty(prod, xtest map[PackagePath]*Package, pkg PackagePath, path FilePath) {
+	for _, m := range []map[PackagePath]*Package{prod, xtest} {
+		p, ok := m[pkg]
+		if !ok {
+			continue
+		}
+		if file, ok := p.files[path]; ok {
+			cp := *file
+			cp.dirty = true
+			p.files[path] = &cp
+		}
 	}
 }

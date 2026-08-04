@@ -7,7 +7,7 @@ import (
 
 func TestViewDeclSource(t *testing.T) {
 	v := viewFixture(t, "package pkg\n\n// Foo does something.\nfunc Foo() {}\n")
-	src, ok := v.DeclSource("test.mod/pkg", "Foo")
+	src, ok := v.DeclSource("test.mod/pkg", "Foo", "")
 	if !ok || !strings.Contains(src, "Foo does something") {
 		t.Errorf("DeclSource(Foo) = %q, ok=%v, want the doc comment included", src, ok)
 	}

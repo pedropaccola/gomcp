@@ -43,11 +43,8 @@ func recvNameOfType(t types.Type) string {
 
 // ProdPackage resolves a workspace address to its production package.
 func (w *Workspace) ProdPackage(pkg PackagePath) (*Package, bool) {
-	unit, ok := w.Unit(pkg)
-	if !ok || unit.Prod() == nil {
-		return nil, false
-	}
-	return unit.Prod(), true
+	p, ok := w.prod[pkg]
+	return p, ok
 }
 
 // ResolveSymbol resolves a package address and symbol key ("Name" or
@@ -56,14 +53,7 @@ func (w *Workspace) ProdPackage(pkg PackagePath) (*Package, bool) {
 // resolver every address-based lookup in this package composes on, so
 // dependency symbols work everywhere a workspace symbol does.
 func (w *Workspace) ResolveSymbol(pkg PackagePath, key string) (*Symbol, *Package, bool) {
-	if unit, ok := w.Unit(pkg); ok {
-		for _, p := range unit.Members() {
-			if sym, ok := p.Symbol(key); ok {
-				return sym, p, true
-			}
-		}
-	}
-	if p, ok := w.LookupExternal(pkg); ok {
+	for _, p := range w.candidatePackages(pkg) {
 		if sym, ok := p.Symbol(key); ok {
 			return sym, p, true
 		}
@@ -76,13 +66,7 @@ func (w *Workspace) ResolveSymbol(pkg PackagePath, key string) (*Symbol, *Packag
 func (w *Workspace) allPackages() []*Package {
 	var out []*Package
 	for _, pkg := range w.UnitKeys() {
-		unit, _ := w.Unit(pkg)
-		if prod := unit.Prod(); prod != nil {
-			out = append(out, prod)
-		}
-		if xtest := unit.XTest(); xtest != nil {
-			out = append(out, xtest)
-		}
+		out = append(out, w.MembersOf(pkg)...)
 	}
 	return out
 }
@@ -521,9 +505,11 @@ func (w *Workspace) ValidateNewName(pkg PackagePath, key, newKey string) (newNam
 
 // ApplyFileSplices groups splices by file and installs each file's result
 // via SwapFile (parsed, goimports-formatted), deduplicating overlapping
-// gathers. Returns every path written, in address order — a caller's
-// material for its own change-tracking, since tracking what changed isn't
-// this method's own concern.
+// gathers. Preserves each file's own Ignored bit unchanged — a splice
+// never touches build-exclusion status, only EditFile's directive-driven
+// path does that. Returns every path written, in address order — a
+// caller's material for its own change-tracking, since tracking what
+// changed isn't this method's own concern.
 func (w *Workspace) ApplyFileSplices(splices ByteSplices) ([]FilePath, error) {
 	byPath := make(map[FilePath]ByteSplices)
 	for _, s := range splices {
@@ -544,7 +530,7 @@ func (w *Workspace) ApplyFileSplices(splices ByteSplices) ([]FilePath, error) {
 		slices.SortFunc(batch, func(a, b ByteSplice) int { return cmp.Compare(a.Start, b.Start) })
 		batch = slices.CompactFunc(batch, func(a, b ByteSplice) bool { return a.Start == b.Start && a.End == b.End })
 		addr := path.PackagePath()
-		if err := w.SwapFile(addr, owner.ID.Kind() == KindXTest, path, batch.Apply(file.Src())); err != nil {
+		if err := w.SwapFile(addr, owner.ID.Kind(), file.Ignored, path, batch.Apply(file.Src())); err != nil {
 			return nil, err
 		}
 		touched = append(touched, path)
@@ -581,7 +567,7 @@ func (w *Workspace) RelocateDeclaration(srcPkg, destPkg PackagePath, key string,
 	if strings.HasSuffix(destPath.String(), "_test.go") != strings.HasSuffix(sym.File.String(), "_test.go") {
 		return nil, fmt.Errorf("moving %q from %q to %q would cross the test build boundary", key, sym.File, destPath)
 	}
-	srcIsXTest := owner.ID.Kind() == KindXTest
+	srcKind := owner.ID.Kind()
 	kind, recv := sym.Kind, sym.Recv
 	src, extractSplice, err := w.ExtractDeclaration(srcPkg, key)
 	if err != nil {
@@ -592,11 +578,11 @@ func (w *Workspace) RelocateDeclaration(srcPkg, destPkg PackagePath, key string,
 		return nil, fmt.Errorf("file %q belongs to another package", destPath)
 	}
 	file, _ := owner.File(sym.File)
-	if err := w.SwapFile(srcPkg, srcIsXTest, sym.File, ByteSplices{extractSplice}.Apply(file.Src())); err != nil {
+	if err := w.SwapFile(srcPkg, srcKind, file.Ignored, sym.File, ByteSplices{extractSplice}.Apply(file.Src())); err != nil {
 		return nil, err
 	}
 	if !inDest {
-		if err := w.SwapFile(destPkg, false, destPath, []byte("package "+destOwner.Name+"\n\n"+src+"\n")); err != nil {
+		if err := w.SwapFile(destPkg, KindProd, false, destPath, []byte("package "+destOwner.Name+"\n\n"+src+"\n")); err != nil {
 			return nil, err
 		}
 		return []FilePath{sym.File, destPath}, nil
@@ -613,31 +599,28 @@ func (w *Workspace) RelocateDeclaration(srcPkg, destPkg PackagePath, key string,
 	if !ok {
 		return nil, NoInsertionPointError(destPath)
 	}
-	if err := w.SwapFile(destPkg, false, destPath, ByteSplices{sp}.Apply(dest.Src())); err != nil {
+	if err := w.SwapFile(destPkg, KindProd, dest.Ignored, destPath, ByteSplices{sp}.Apply(dest.Src())); err != nil {
 		return nil, err
 	}
 	return []FilePath{sym.File, destPath}, nil
 }
 
-// RelocateFile moves path from pkg's isXTest half to newPath in
-// newPkgPath (already resolved, already confirmed not to exist) — the
-// cross-package half of MoveFile, refused when DetectMoveConflicts can
-// prove in advance it would break the workspace. Every surviving
-// reference across the move boundary is fixed up first
-// (ComputeQualifierFixups/ApplyFileSplices) — external callers of the
-// file's exported declarations, and the file's own outbound references
-// to exported siblings staying behind, alike — with pkg's and
-// newPkgPath's packages re-resolved fresh afterward, since applying
-// those fixups may have forked either. Returns every path written, for
-// the caller's own change-tracking.
-func (w *Workspace) RelocateFile(pkg PackagePath, path FilePath, isXTest bool, newPkgPath PackagePath, newPath FilePath) ([]FilePath, error) {
-	unit, ok := w.Unit(pkg)
-	if !ok {
+// RelocateFile moves path from pkg's kind half to newPath in newPkgPath
+// (already resolved, already confirmed not to exist) — the cross-package
+// half of MoveFile, refused when DetectMoveConflicts can prove in advance
+// it would break the workspace. Every surviving reference across the
+// move boundary is fixed up first (ComputeQualifierFixups/
+// ApplyFileSplices) — external callers of the file's exported
+// declarations, and the file's own outbound references to exported
+// siblings staying behind, alike — with pkg's and newPkgPath's packages
+// re-resolved fresh afterward, since applying those fixups may have
+// forked either. The moved file's Ignored bit travels with it, same as a
+// same-package MoveFile. Returns every path written, for the caller's
+// own change-tracking.
+func (w *Workspace) RelocateFile(pkg PackagePath, path FilePath, kind PackageKind, newPkgPath PackagePath, newPath FilePath) ([]FilePath, error) {
+	owner := w.packageAt(pkg, kind)
+	if owner == nil {
 		return nil, NoPackageError(pkg)
-	}
-	owner := unit.Prod()
-	if isXTest {
-		owner = unit.XTest()
 	}
 	destOwner, ok := w.ProdPackage(newPkgPath)
 	if !ok {
@@ -667,14 +650,7 @@ func (w *Workspace) RelocateFile(pkg PackagePath, path FilePath, isXTest bool, n
 		// ApplyFileSplices may have forked owner's or destOwner's package if
 		// either had a file among the fixups — re-resolve both from their
 		// stable addresses rather than trust the pointers captured above.
-		unit, ok = w.Unit(pkg)
-		if !ok {
-			return nil, VanishedError(pkg, "after qualifier fixups")
-		}
-		owner = unit.Prod()
-		if isXTest {
-			owner = unit.XTest()
-		}
+		owner = w.packageAt(pkg, kind)
 		if owner == nil {
 			return nil, VanishedError(pkg, "after qualifier fixups")
 		}
@@ -688,9 +664,10 @@ func (w *Workspace) RelocateFile(pkg PackagePath, path FilePath, isXTest bool, n
 	if sp, ok := w.NewSpliceAtPos(owner, path, file.Ast().Name.Pos(), file.Ast().Name.End(), []byte(destOwner.Name)); ok {
 		candidate = ByteSplices{sp}.Apply(candidate)
 	}
-	w.DropFile(pkg, isXTest, path)
+	ignored := file.Ignored
+	w.DropFile(pkg, kind, path)
 	touched = append(touched, path)
-	if err := w.SwapFile(newPkgPath, false, newPath, candidate); err != nil {
+	if err := w.SwapFile(newPkgPath, KindProd, ignored, newPath, candidate); err != nil {
 		return nil, err
 	}
 	touched = append(touched, newPath)
@@ -700,19 +677,16 @@ func (w *Workspace) RelocateFile(pkg PackagePath, path FilePath, isXTest bool, n
 // MovePackage moves oldPkg to newPkg — rewriting the import path in every
 // importer, and (when renameName) the package clause, every unaliased
 // qualifier, and each file's own "Package oldBase" doc-comment opening.
-// oldPkg and its Unit are re-resolved fresh after applying the
+// oldPkg's members are re-resolved fresh after applying the
 // import-rewrite splices, since XTest imports its own Prod sibling and
-// so can itself be a splice target. Both halves' shells are built before
-// NewUnit assembles them atomically — there is no point where a
-// half-built Unit could be installed or observed, since NewUnit is the
-// only way to construct one at all. Returns every path written, for the
-// caller's own change-tracking.
+// so can itself be a splice target. Each file's own Ignored bit travels
+// with it unchanged. Returns every path written, for the caller's own
+// change-tracking.
 func (w *Workspace) MovePackage(oldPkg, newPkg PackagePath, renameName bool, oldBase, newBase string) ([]FilePath, error) {
-	unit, ok := w.Unit(oldPkg)
-	if !ok {
+	if len(w.MembersOf(oldPkg)) == 0 {
 		return nil, NoPackageError(oldPkg)
 	}
-	if _, exists := w.Unit(newPkg); exists {
+	if len(w.MembersOf(newPkg)) > 0 {
 		return nil, PackageExistsError(newPkg)
 	}
 
@@ -721,31 +695,36 @@ func (w *Workspace) MovePackage(oldPkg, newPkg PackagePath, renameName bool, old
 	if err != nil {
 		return nil, err
 	}
-	// ApplyFileSplices may have forked unit.XTest's package (it imports
-	// its own Prod sibling, so it's a splice target) — re-resolve the
-	// unit fresh rather than trust the pointer captured before the splice.
-	unit, ok = w.Unit(oldPkg)
-	if !ok {
+	// ApplyFileSplices may have forked the XTest half (it imports its own
+	// Prod sibling, so it's a splice target) — re-resolve members fresh
+	// rather than trust pointers captured before the splice.
+	members := w.MembersOf(oldPkg)
+	if len(members) == 0 {
 		return nil, VanishedError(oldPkg, "after import rewrites")
 	}
 
 	type half struct {
 		orig, moved *Package
-		isXTest     bool
+		kind        PackageKind
 	}
 	var halves []half
 	var prodMoved, xtestMoved *Package
-	for _, orig := range unit.Members() {
+	for _, orig := range members {
 		moved := orig.Relocated(newPkg, renameName)
-		isXTest := orig.ID.Kind() == KindXTest
-		halves = append(halves, half{orig: orig, moved: moved, isXTest: isXTest})
-		if isXTest {
+		kind := orig.ID.Kind()
+		halves = append(halves, half{orig: orig, moved: moved, kind: kind})
+		if kind == KindXTest {
 			xtestMoved = moved
 		} else {
 			prodMoved = moved
 		}
 	}
-	w.InstallUnit(newPkg, NewUnit(prodMoved, xtestMoved))
+	if prodMoved != nil {
+		w.InstallProd(newPkg, prodMoved)
+	}
+	if xtestMoved != nil {
+		w.InstallXTest(newPkg, xtestMoved)
+	}
 	for _, h := range halves {
 		for _, file := range h.orig.Files() {
 			newPath := newPkg.File(file.Path.Base())
@@ -766,7 +745,7 @@ func (w *Workspace) MovePackage(oldPkg, newPkg PackagePath, renameName bool, old
 				}
 				candidate = fileSplices.Apply(file.Src())
 			}
-			if err := w.SwapFile(newPkg, h.isXTest, newPath, candidate); err != nil {
+			if err := w.SwapFile(newPkg, h.kind, file.Ignored, newPath, candidate); err != nil {
 				return nil, err
 			}
 		}
@@ -891,6 +870,25 @@ func (w *Workspace) refuseUnsafeUnexport(owner *Package, sym *Symbol, newName st
 	}
 	slices.Sort(pkgs)
 	return fmt.Errorf("%q is exported and referenced from %s: unexporting it would leave those references permanently unresolvable on any later revert — refusing the rename", sym.Key(), strings.Join(pkgs, ", "))
+}
+
+// ResolveSymbolIn resolves key to the declaration whose own file is
+// exactly fileName — an assertion, not a hint: it never falls back to
+// ResolveSymbol's primary-preference guess when fileName doesn't match
+// anything, since a caller that supplied a specific file wants that
+// declaration or a clear not-found, never a silent substitute. Searches
+// every candidate package in the same order ResolveSymbol does — Prod,
+// XTest, then the external dependency cache — so a dependency symbol is
+// reachable through the file-scoped path too.
+func (w *Workspace) ResolveSymbolIn(pkg PackagePath, key, fileName string) (*Symbol, *Package, bool) {
+	for _, p := range w.candidatePackages(pkg) {
+		for _, sym := range p.symbols[key] {
+			if sym.File.Base() == fileName {
+				return sym, p, true
+			}
+		}
+	}
+	return nil, nil, false
 }
 
 // symbolRef pairs a referencing symbol with its owning package — the

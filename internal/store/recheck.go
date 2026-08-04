@@ -26,19 +26,6 @@ func (e *Store) recheckFullLocked(ctx context.Context, ws *workspace.Workspace) 
 	return e.recheckScopedLocked(ctx, ws, true)
 }
 
-// recheckScopedLocked is the shared body behind recheckNarrowLocked and
-// recheckFullLocked. forceFull=false narrows the recheck to dirty
-// packages ∨ their transitive importers (Workspace.RecheckScope);
-// packages outside that scope are carried forward unchanged, their
-// existing *token.File entries folded into the new generation's FileSet
-// via AddExistingFiles so every package still shares one consistent
-// position table. Their old entries are explicitly removed from the
-// outgoing FileSet — not for memory (GC already reclaims an unreferenced
-// generation once nothing holds it), but so a bug in the scope
-// computation shows up as an immediate FileSet.Position failure instead
-// of silently serving a stale position. forceFull=true skips the
-// narrowing entirely: every package is rebuilt, nothing kept, restoring a
-// single unified type-checking session.
 func (e *Store) recheckScopedLocked(ctx context.Context, ws *workspace.Workspace, forceFull bool) error {
 	overlay := make(map[string][]byte)
 	dirty := make(map[workspace.FilePath]workspace.PackagePath)
@@ -50,12 +37,10 @@ func (e *Store) recheckScopedLocked(ctx context.Context, ws *workspace.Workspace
 			overlay[e.AbsPath(module, path)] = mask
 			continue
 		}
-		if unit, ok := ws.Unit(pkg); ok {
-			for _, p := range unit.Members() {
-				if file, ok := p.File(path); ok {
-					overlay[e.AbsPath(module, path)] = file.Src()
-					dirty[path] = pkg
-				}
+		for _, p := range ws.MembersOf(pkg) {
+			if file, ok := p.File(path); ok {
+				overlay[e.AbsPath(module, path)] = file.Src()
+				dirty[path] = pkg
 			}
 		}
 	}
@@ -77,50 +62,60 @@ func (e *Store) recheckScopedLocked(ctx context.Context, ws *workspace.Workspace
 
 	newFset := token.NewFileSet()
 	oldFset := ws.FileSet()
-	kept := make(map[workspace.PackagePath]*workspace.Unit)
+	keptProd := make(map[workspace.PackagePath]*workspace.Package)
+	keptXTest := make(map[workspace.PackagePath]*workspace.Package)
 	for _, addr := range ws.UnitKeys() {
-		unit, _ := ws.Unit(addr)
+		members := ws.MembersOf(addr)
 		if scope[addr] {
-			for _, file := range unit.Files() {
-				if tf := oldFset.File(file.Ast().Pos()); tf != nil {
-					oldFset.RemoveFile(tf)
+			for _, p := range members {
+				for _, file := range p.Files() {
+					if tf := oldFset.File(file.Ast().Pos()); tf != nil {
+						oldFset.RemoveFile(tf)
+					}
 				}
 			}
 			continue
 		}
-		kept[addr] = unit
-		for _, file := range unit.Files() {
-			if tf := oldFset.File(file.Ast().Pos()); tf != nil {
-				newFset.AddExistingFiles(tf)
+		for _, p := range members {
+			if p.ID.Kind() == workspace.KindXTest {
+				keptXTest[addr] = p
+			} else {
+				keptProd[addr] = p
+			}
+			for _, file := range p.Files() {
+				if tf := oldFset.File(file.Ast().Pos()); tf != nil {
+					newFset.AddExistingFiles(tf)
+				}
 			}
 		}
 	}
-	// Captured before the merge below: units := kept aliases the same map
-	// (Go maps are reference types), so len(kept) after merging freshUnits
-	// in would reflect the merged total, not what was actually carried
-	// forward.
-	narrow := len(kept) > 0
+	// Captured before the merge below: keptProd/keptXTest alias the same
+	// maps merged into below (Go maps are reference types), so their
+	// lengths after merging fresh results in would reflect the merged
+	// total, not what was actually carried forward.
+	narrow := len(keptProd) > 0 || len(keptXTest) > 0
 
-	_, _, freshUnits, err := e.LoadInto(ctx, newFset, overlay, patterns...)
+	_, _, freshProd, freshXTest, err := e.LoadInto(ctx, newFset, overlay, patterns...)
 	if err != nil {
 		return err
 	}
-	units := kept
-	for addr, unit := range freshUnits {
-		units[addr] = unit
+	prod, xtest := keptProd, keptXTest
+	for addr, p := range freshProd {
+		prod[addr] = p
+	}
+	for addr, p := range freshXTest {
+		xtest[addr] = p
 	}
 
 	for _, path := range ws.Tombstones() {
 		if pkg, ok := ws.TombstonePkg(path); ok {
-			workspace.DropTombstonedFile(units, pkg, path)
+			workspace.DropTombstonedFile(prod, xtest, pkg, path)
 		}
 	}
 	for path, pkg := range dirty {
-		if unit, ok := units[pkg]; ok {
-			unit.MarkDirty(path)
-		}
+		workspace.MarkFileDirty(prod, xtest, pkg, path)
 	}
-	ws.Rebuild(newFset, units, narrow)
+	ws.Rebuild(newFset, prod, xtest, narrow)
 	return nil
 }
 

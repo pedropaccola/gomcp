@@ -36,8 +36,7 @@ func (w *Workspace) symbolsWhere(ctx context.Context, pred func(*Package, *Symbo
 		if ctx.Err() != nil {
 			return out
 		}
-		unit, _ := w.Unit(addr)
-		for _, pkg := range unit.Members() {
+		for _, pkg := range w.MembersOf(addr) {
 			for _, sym := range pkg.Symbols() {
 				if pred(pkg, sym) {
 					out = append(out, SymbolMatch{Pkg: pkg.ID, Key: sym.Key(), Kind: sym.Kind, File: sym.File})
@@ -160,8 +159,7 @@ func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg PackagePath, key
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		unit, _ := w.Unit(addr)
-		for _, p := range unit.Members() {
+		for _, p := range w.MembersOf(addr) {
 			if p.TypesInfo() == nil {
 				continue
 			}
@@ -206,11 +204,9 @@ func (w *Workspace) SymbolsReferencing(ctx context.Context, pkg PackagePath, key
 // — no scan over every package needed.
 func (w *Workspace) ResolveFileByPath(path FilePath) (*File, *Package, bool) {
 	pkgPath := path.PackagePath()
-	if unit, ok := w.Unit(pkgPath); ok {
-		for _, pkg := range unit.Members() {
-			if file, ok := pkg.File(path); ok {
-				return file, pkg, true
-			}
+	for _, pkg := range w.MembersOf(pkgPath) {
+		if file, ok := pkg.File(path); ok {
+			return file, pkg, true
 		}
 	}
 	if pkg, ok := w.LookupExternal(pkgPath); ok {
