@@ -243,6 +243,40 @@ func (w *Workspace) ensureXTestForked() {
 	w.xtestForked = true
 }
 
+// CreateFile adds an empty file to an existing package half (Prod, or
+// XTest when kind is KindXTest), optionally seeded with a package doc
+// comment and/or leading compiler directives (//go:build, //go:generate,
+// //go:embed — no space after "//"). The target half must already exist
+// — CreatePackage creates it first; this verb creates only the file,
+// never a whole package implicitly. A //go:build directive that
+// excludes the new file from the current build installs it Ignored
+// instead of active — see InstallFileAtDirectiveKind. Returns the file
+// created, for the caller's own change-tracking.
+func (w *Workspace) CreateFile(pkg PackagePath, kind PackageKind, name, doc string, directives []string) (FilePath, error) {
+	var target *Package
+	for _, p := range w.MembersOf(pkg) {
+		if p.ID.Kind() == kind {
+			target = p
+			break
+		}
+	}
+	if target == nil {
+		return "", NoPackageError(pkg)
+	}
+	path, err := NewFilePath(w.Module(), pkg, name)
+	if err != nil {
+		return "", err
+	}
+	if _, _, exists := w.ResolveFileByPath(path); exists {
+		return "", fmt.Errorf("file %q already exists", path)
+	}
+	content := string(RenderDirectives(directives)) + string(RenderDocComment(doc)) + "package " + target.Name + "\n"
+	if err := w.InstallFileAtDirectiveKind(pkg, path, kind, target.Name, directives, []byte(content)); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
 // DropTombstonedFile removes path from freshly loaded Prod/XTest maps —
 // the load-path counterpart of DropFile: overlays can only mask a
 // deleted file as empty, so the mask's residue must not survive as a

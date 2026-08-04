@@ -3,6 +3,7 @@ package workspace
 import (
 	"fmt"
 	"go/ast"
+	"go/token"
 	"path"
 	"path/filepath"
 	"strings"
@@ -44,6 +45,47 @@ func (f *File) Doc() string {
 		return ""
 	}
 	return strings.TrimSpace(f.ast.Doc.Text())
+}
+
+// EditHeader computes the byte splice that replaces f's leading region —
+// its compiler directives and its package doc comment, the whole span
+// from the first leading comment through the package clause — with
+// whatever doc/directives say. doc == nil leaves the doc comment as-is;
+// a non-nil doc (even "") sets or clears it. directives == nil leaves
+// the directive block as-is; a non-nil directives (even empty) sets or
+// clears it. Returns a splice, never applies one — the exact convention
+// every other splice-producing primitive follows (declSpan, specSpan,
+// ExtractDeclaration, ComputeRenameSplices, ComputeQualifierFixups): the
+// caller applies it, via ApplyFileSplices or SwapFile directly, so it can
+// be composed safely with any other pending splice on the same file.
+// fset is the FileSet f's own AST positions live in — f does not keep
+// one of its own, since it must always be the caller's single shared
+// instance for cross-file position math to stay valid.
+func (f *File) EditHeader(fset *token.FileSet, doc *string, directives []string) (ByteSplice, bool) {
+	newDoc := f.Doc()
+	if doc != nil {
+		newDoc = *doc
+	}
+	newDirectives := f.Directives
+	if directives != nil {
+		newDirectives = directives
+	}
+	leadPos := f.ast.Package
+	for _, cg := range f.ast.Comments {
+		if cg.Pos() < f.ast.Package {
+			leadPos = cg.Pos()
+			break
+		}
+	}
+	if !leadPos.IsValid() || !f.ast.Package.IsValid() {
+		return ByteSplice{}, false
+	}
+	r := ByteRange{Start: ByteOffset(fset.Position(leadPos).Offset), End: ByteOffset(fset.Position(f.ast.Package).Offset)}
+	if !r.IsValid(f.src) {
+		return ByteSplice{}, false
+	}
+	replacement := append(RenderDirectives(newDirectives), RenderDocComment(newDoc)...)
+	return ByteSplice{Path: f.Path, ByteRange: r, Repl: replacement}, true
 }
 
 // FilePath is a workspace-relative disk path: the address form of the

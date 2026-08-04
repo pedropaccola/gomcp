@@ -22,25 +22,8 @@ func (tx *Tx) CreateFile(pkg workspace.PackagePath, isXTest bool, name, doc stri
 	if isXTest {
 		kind = workspace.KindXTest
 	}
-	var target *workspace.Package
-	for _, p := range tx.ws.MembersOf(pkg) {
-		if p.ID.Kind() == kind {
-			target = p
-			break
-		}
-	}
-	if target == nil {
-		return workspace.NoPackageError(pkg)
-	}
-	path, err := workspace.NewFilePath(tx.ws.Module(), pkg, name)
+	path, err := tx.ws.CreateFile(pkg, kind, name, doc, directives)
 	if err != nil {
-		return err
-	}
-	if _, _, exists := tx.ws.ResolveFileByPath(path); exists {
-		return fmt.Errorf("file %q already exists", path)
-	}
-	content := string(workspace.RenderDirectives(directives)) + string(workspace.RenderDocComment(doc)) + "package " + target.Name + "\n"
-	if err := tx.ws.InstallFileAtDirectiveKind(pkg, path, kind, target.Name, directives, []byte(content)); err != nil {
 		return err
 	}
 	tx.markChanged(path)
@@ -132,46 +115,12 @@ func (tx *Tx) DeleteSymbol(pkg workspace.PackagePath, key, fileName string) erro
 // clause. The one sanctioned door into floating-comment space: every
 // other comment stays unaddressable by design.
 func (tx *Tx) EditFile(pkg workspace.PackagePath, name string, doc *string, directives []string) error {
-	path, err := workspace.NewFilePath(tx.ws.Module(), pkg, name)
+	path, added, removed, err := tx.ws.EditFile(pkg, name, doc, directives)
 	if err != nil {
 		return err
 	}
-	file, owner, ok := tx.ws.ResolveFileByPath(path)
-	if !ok {
-		return errNoFile(name, pkg)
-	}
-	astFile := file.Ast()
-
-	newDoc := file.Doc()
-	if doc != nil {
-		newDoc = *doc
-	}
-	oldDirectives := file.Directives
-	newDirectives := oldDirectives
-	if directives != nil {
-		newDirectives = directives
-	}
-
-	leadPos := astFile.Package
-	for _, cg := range astFile.Comments {
-		if cg.Pos() < astFile.Package {
-			leadPos = cg.Pos()
-			break
-		}
-	}
-	replacement := append(workspace.RenderDirectives(newDirectives), workspace.RenderDocComment(newDoc)...)
-	sp, ok := tx.ws.NewSpliceAtPos(owner, path, leadPos, astFile.Package, replacement)
-	if !ok {
-		return fmt.Errorf("cannot locate leading comment span in %q", path)
-	}
-	candidate := workspace.ByteSplices{sp}.Apply(file.Src())
-	if _, err := tx.ws.ReclassifyFile(pkg, path, owner.ID.Kind(), newDirectives, candidate); err != nil {
-		return err
-	}
-	if directives != nil {
-		if added, removed := workspace.DiffDirectives(oldDirectives, newDirectives); len(added) > 0 || len(removed) > 0 {
-			tx.recordDirectiveDelta(pkg, path, "", added, removed)
-		}
+	if len(added) > 0 || len(removed) > 0 {
+		tx.recordDirectiveDelta(pkg, path, "", added, removed)
 	}
 	tx.markChanged(path)
 	return nil

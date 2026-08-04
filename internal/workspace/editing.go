@@ -156,3 +156,44 @@ func (w *Workspace) EditSymbol(pkg PackagePath, key, src, fileName string) (path
 	added, removed = DiffDirectives(oldDirectives, frag.SymbolDirectives[newKey])
 	return target.Path, added, removed, nil
 }
+
+// EditFile replaces a file's leading region — its compiler directives and
+// its package doc comment, the whole span from the first leading comment
+// through the package clause — leaving the rest of the file untouched.
+// doc == nil leaves the doc comment as-is; a non-nil doc (even "") sets
+// or clears it. directives == nil leaves the directive block as-is; a
+// non-nil directives (even empty) sets or clears it. Composes on
+// File.EditHeader for the byte-level computation, then applies it via
+// ReclassifyFile — editing a file's directives to add or remove a
+// build-excluding one updates its Ignored bit in place; its shape
+// (Prod/XTest) never changes, since a directive edit never changes a
+// file's own package clause. Returns the file touched and the file's own
+// directive-line delta (added, then removed, relative to its directives
+// before this edit — always computed, never gated on whether directives
+// was even given), for the caller's own change-tracking and reporting —
+// the same shape EditSymbol already returns for a symbol's own delta.
+func (w *Workspace) EditFile(pkg PackagePath, name string, doc *string, directives []string) (path FilePath, added, removed []string, err error) {
+	path, err = NewFilePath(w.Module(), pkg, name)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	file, owner, ok := w.ResolveFileByPath(path)
+	if !ok {
+		return "", nil, nil, NoFileError(name, pkg)
+	}
+	oldDirectives := file.Directives
+	newDirectives := oldDirectives
+	if directives != nil {
+		newDirectives = directives
+	}
+	sp, ok := file.EditHeader(w.FsetOf(owner), doc, directives)
+	if !ok {
+		return "", nil, nil, fmt.Errorf("cannot locate leading comment span in %q", path)
+	}
+	candidate := ByteSplices{sp}.Apply(file.Src())
+	if _, err := w.ReclassifyFile(pkg, path, owner.ID.Kind(), newDirectives, candidate); err != nil {
+		return "", nil, nil, err
+	}
+	added, removed = DiffDirectives(oldDirectives, newDirectives)
+	return path, added, removed, nil
+}
