@@ -26,10 +26,7 @@ func (v *View) Diagnostics(pkg workspace.PackagePath) []Diagnostic {
 	}
 	var out []workspace.Diagnostic
 	for _, p := range members {
-		out = append(out, p.Diags...)
-		for _, file := range p.Files() {
-			out = append(out, file.Diags...)
-		}
+		out = append(out, p.Diagnostics()...)
 	}
 	sortDiagnostics(out)
 	return v.attributeDiagnostics(out, pkg)

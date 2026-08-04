@@ -299,6 +299,19 @@ func (p *Package) symbolAt(pos token.Pos) (*Symbol, bool) {
 	return nil, false
 }
 
+// Diagnostics aggregates p's own package-scoped diagnostics with every
+// one of its files' own file-scoped diagnostics — the whole-package view
+// a caller merging several members (Prod and XTest) needs per member,
+// before combining and sorting the result for presentation.
+func (p *Package) Diagnostics() []Diagnostic {
+	var out []Diagnostic
+	out = append(out, p.Diags...)
+	for _, file := range p.Files() {
+		out = append(out, file.Diags...)
+	}
+	return out
+}
+
 // PackagePath is a package's canonical import path — always unsuffixed,
 // by construction: nothing produces a PackagePath carrying go/packages'
 // own "_test" convention for an external-test half. This is what every
