@@ -32,6 +32,3 @@ go.work.sum
 # .idea/
 # .vscode/
 TAGS
-
-# Agents
-.claude/settings.local.json
