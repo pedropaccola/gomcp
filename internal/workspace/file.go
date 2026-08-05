@@ -88,6 +88,28 @@ func (f *File) EditHeader(fset *token.FileSet, doc *string, directives []string)
 	return ByteSplice{Path: f.Path, ByteRange: r, Repl: replacement}, true
 }
 
+// Symbols indexes f's own top-level declarations, returned as a flat
+// slice (not keyed — the multi-valued, same-key-collision handling only
+// makes sense once Package aggregates across several files) alongside
+// f's own init functions. File-scoped counterpart to IndexAST, which
+// stays a free function since classifyFragment also uses it on bare,
+// ownerless ASTs with no real File to call this on.
+func (f *File) Symbols() (symbols []*Symbol, inits []*ast.FuncDecl) {
+	m := make(map[string][]*Symbol)
+	inits = IndexAST(f.Path, f.ast, m)
+	for _, syms := range m {
+		symbols = append(symbols, syms...)
+	}
+	return symbols, inits
+}
+
+// DiffDirectives reports which of f's own directive lines would be added
+// and which removed if its directives became newDirectives — wraps the
+// shared DiffDirectives comparison, scoped to f's own current state.
+func (f *File) DiffDirectives(newDirectives []string) (added, removed []string) {
+	return DiffDirectives(f.Directives, newDirectives)
+}
+
 // FilePath is a workspace-relative disk path: the address form of the
 // disk boundary (files, tombstones, flush, the recheck overlay), while
 // PackagePath/PackageID are the address forms of everything else.

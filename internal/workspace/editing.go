@@ -51,36 +51,6 @@ func (w *Workspace) ComputeEditPlan(pkg PackagePath, key, fileName string) (wasP
 	return wasPositionDependent, tok, target, nil
 }
 
-// DetectEditCollisions reports which of newKeys already exist elsewhere in
-// pkg, blocking a replacement of key — a same-group sibling doesn't
-// count when key is itself position-dependent, since resubmitting the
-// whole group necessarily re-mentions every member.
-func (w *Workspace) DetectEditCollisions(pkg PackagePath, key string, newKeys []string) []string {
-	sym, owner, ok := w.ResolveSymbol(pkg, key)
-	if !ok {
-		return nil
-	}
-	gen, grouped := sym.GroupOf()
-	wasPositionDependent := constPositionDependent(gen, grouped, sym)
-	var collisions []string
-	for _, newKey := range newKeys {
-		if newKey == key || newKey == "init" {
-			continue
-		}
-		existing, exists := owner.Symbol(newKey)
-		if !exists {
-			continue
-		}
-		if wasPositionDependent {
-			if eGen, eGrouped := existing.GroupOf(); eGrouped && eGen == gen {
-				continue
-			}
-		}
-		collisions = append(collisions, newKey)
-	}
-	return collisions
-}
-
 // EditSymbol replaces key's whole declaration with src — for members of
 // grouped declarations, src is the member's spec as written inside the
 // group. A replacement may rename; the new key must not collide.
@@ -112,10 +82,11 @@ func (w *Workspace) EditSymbol(pkg PackagePath, key, src, fileName string) (path
 		return "", nil, nil, err
 	}
 	var oldSym *Symbol
+	var owner *Package
 	if fileName != "" {
-		oldSym, _, _ = w.ResolveSymbolIn(pkg, key, fileName) // known to exist: ComputeEditPlan just resolved it
+		oldSym, owner, _ = w.ResolveSymbolIn(pkg, key, fileName) // known to exist: ComputeEditPlan just resolved it
 	} else {
-		oldSym, _, _ = w.ResolveSymbol(pkg, key)
+		oldSym, owner, _ = w.ResolveSymbol(pkg, key)
 	}
 	oldDirectives := oldSym.Directives
 	var frag Fragment
@@ -138,7 +109,7 @@ func (w *Workspace) EditSymbol(pkg PackagePath, key, src, fileName string) (path
 	if wasPositionDependent && !slices.Contains(frag.Keys, key) {
 		return "", nil, nil, fmt.Errorf("%q is missing from the replacement: a position-dependent group member can't be renamed through a single member's replacement", key)
 	}
-	if collisions := w.DetectEditCollisions(pkg, key, frag.Keys); len(collisions) > 0 {
+	if collisions := owner.DetectEditCollisions(key, frag.Keys); len(collisions) > 0 {
 		return "", nil, nil, fmt.Errorf("replacement declares %q, which already exists in %q", collisions[0], pkg)
 	}
 	file, owner, ok := w.ResolveFileByPath(target.Path)
@@ -181,8 +152,7 @@ func (w *Workspace) EditFile(pkg PackagePath, name string, doc *string, directiv
 	if !ok {
 		return "", nil, nil, NoFileError(name, pkg)
 	}
-	oldDirectives := file.Directives
-	newDirectives := oldDirectives
+	newDirectives := file.Directives
 	if directives != nil {
 		newDirectives = directives
 	}
@@ -191,9 +161,9 @@ func (w *Workspace) EditFile(pkg PackagePath, name string, doc *string, directiv
 		return "", nil, nil, fmt.Errorf("cannot locate leading comment span in %q", path)
 	}
 	candidate := ByteSplices{sp}.Apply(file.Src())
+	added, removed = file.DiffDirectives(newDirectives)
 	if _, err := w.ReclassifyFile(pkg, path, owner.ID.Kind(), newDirectives, candidate); err != nil {
 		return "", nil, nil, err
 	}
-	added, removed = DiffDirectives(oldDirectives, newDirectives)
 	return path, added, removed, nil
 }

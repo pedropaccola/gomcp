@@ -214,7 +214,11 @@ func TestDetectMoveConflictsCatchesGroupSiblingCollision(t *testing.T) {
 	if got := w.DetectMoveConflicts("src", "dest", []string{"Base"}); len(got) != 0 {
 		t.Fatalf("DetectMoveConflicts(Base alone) = %v, want no conflicts (demonstrating why checking only the named key misses the sibling)", got)
 	}
-	movingKeys, err := w.PositionDependentGroupMembers("src", "Base")
+	_, owner, ok := w.ResolveSymbol("src", "Base")
+	if !ok {
+		t.Fatalf("ResolveSymbol(Base): not found")
+	}
+	movingKeys, err := owner.PositionDependentGroupMembers("Base")
 	if err != nil {
 		t.Fatalf("PositionDependentGroupMembers: %v", err)
 	}

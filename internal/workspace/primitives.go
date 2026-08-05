@@ -30,13 +30,12 @@ func (w *Workspace) Clone() *Workspace {
 // path: goimports-format the candidate bytes against newPath's own
 // address (no real filesystem is consulted — goimports classifies
 // imports purely from the filename's shape), parse the formatted
-// result, install a fresh dirty File, clear any tombstone at newPath,
-// and rebuild the owner's index. Formatting happens here, not at the
-// caller — nothing outside workspace needs to know goimports exists.
-// ignored stamps the installed File's own Ignored bit; it never affects
-// which of Prod/XTest's own map the file lands in — kind (shape) and
-// ignored (build participation) are independent. Every fallible step
-// precedes the swap — an error means the model is untouched.
+// result, then — only once both succeed — fork the owning package and
+// install via Package.SwapFile. ignored stamps the installed File's own
+// Ignored bit; it never affects which of Prod/XTest's own map the file
+// lands in — kind (shape) and ignored (build participation) are
+// independent. Every fallible step precedes the fork — an error means
+// the model is untouched.
 func (w *Workspace) SwapFile(addr PackagePath, kind PackageKind, ignored bool, newPath FilePath, src []byte) error {
 	formatted, err := imports.Process(newPath.String(), src, nil)
 	if err != nil {
@@ -47,13 +46,9 @@ func (w *Workspace) SwapFile(addr PackagePath, kind PackageKind, ignored bool, n
 		return fmt.Errorf("%s does not parse: %w", newPath, err)
 	}
 	pkg := w.ensurePackageForked(addr, kind)
-	if pkg.files == nil {
-		pkg.files = make(map[FilePath]*File)
-	}
-	pkg.files[newPath] = newFile(newPath, pkg.ID, formatted, astFile, true, ignored)
+	pkg.SwapFile(newPath, ignored, formatted, astFile)
 	w.ensureRemovedForked()
 	delete(w.removed, newPath)
-	pkg.RebuildIndex()
 	return nil
 }
 

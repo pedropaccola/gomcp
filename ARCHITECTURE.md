@@ -36,8 +36,9 @@ the pattern matters more than memorizing the mechanism, which is
 documented on the type that actually implements it.
 
 - **`workspace`** is the DDD **Aggregate Root**: the only package that
-  mutates the Entity graph (`Unit`/`Package`/`File`/`Symbol`) directly,
-  and the only one trusted to decide whether a mutation is consistent —
+  mutates the Entity graph (`Package`/`File`/`Symbol`, addressed by
+  `PackagePath`) directly, and the only one trusted to decide whether a
+  mutation is consistent —
   `MoveConflicts`, `QualifierFixups`, and its other business-rule methods
   exist so no client ever re-derives an invariant `workspace` already
   owns. Its concurrency primitive is **copy-on-write**: `Workspace.
@@ -81,9 +82,25 @@ documented on the type that actually implements it.
 
 The load-bearing invariants (canonical bytes, derived state that's rebuilt
 rather than patched, sorted-only enumeration, error ⇒ untouched, pointers
-scoped to their call) are documented on the types and methods that hold
-them, not here — `workspace.File`, `Package.RebuildIndex`, `store.View`,
-`store.Tx`, `Store.Edit` are the ones worth reading first. Same for the
+scoped to their call, position resolution kept out of the value itself)
+are documented on the types and methods that hold them, not here —
+`workspace.File`, `Package.RebuildIndex`, `store.View`, `store.Tx`,
+`Store.Edit` are the ones worth reading first. The last of those is a
+recognized convention, not an invented one: a `File`'s own methods that
+resolve a `token.Pos` into a byte offset (`EditHeader` is the current
+example — most position/span computation stayed on `Workspace`, see its
+own `declSpan`/`specSpan`/`ExtractDeclaration`, after an explicit
+complexity review found splitting them out to `File` cost more in
+cross-file indirection than it earned) take `*token.FileSet` as an
+explicit parameter rather than storing one, exactly the way
+`go/printer.Fprint`, `go/format.Node`, and `token.FileSet.Position`
+itself do in the standard library — `go/ast` values are never tied to
+the specific `FileSet` that produced them. It's why `Workspace.Rebuild`
+can swap `w.fset` wholesale via `AddExistingFiles` without touching a
+single `File`: nothing owns the `FileSet`, so nothing goes stale when
+it's replaced. Methods that only touch bytes/AST structure (`Symbols`,
+`DiffDirectives`) take no `FileSet` at all — the split is exact, not a
+default. Same for the
 per-layer naming grammars: `Tx`'s verb categories and `View`'s narrow
 identity-keyed accessors versus its whole-workspace scanners are on their
 own type docs; the identity vocabulary itself lives beside each type's

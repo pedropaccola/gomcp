@@ -67,14 +67,18 @@ func TestEditPlanPositionDependent(t *testing.T) {
 
 func TestDetectEditCollisions(t *testing.T) {
 	w := simpleFixture(t, "package pkg\n\nfunc Foo() {}\n\nfunc Bar() {}\n")
-	if got := w.DetectEditCollisions("test.mod/pkg", "Foo", []string{"Bar"}); !slices.Contains(got, "Bar") {
+	_, owner, ok := w.ResolveSymbol("test.mod/pkg", "Foo")
+	if !ok {
+		t.Fatalf("ResolveSymbol(Foo): not found")
+	}
+	if got := owner.DetectEditCollisions("Foo", []string{"Bar"}); !slices.Contains(got, "Bar") {
 		t.Errorf("DetectEditCollisions(Foo, [Bar]) = %v, want it to name the collision", got)
 	}
-	if got := w.DetectEditCollisions("test.mod/pkg", "Foo", []string{"Baz"}); len(got) != 0 {
+	if got := owner.DetectEditCollisions("Foo", []string{"Baz"}); len(got) != 0 {
 		t.Errorf("DetectEditCollisions(Foo, [Baz]) = %v, want none", got)
 	}
 	// A replacement is always allowed to keep declaring its own current name.
-	if got := w.DetectEditCollisions("test.mod/pkg", "Foo", []string{"Foo"}); len(got) != 0 {
+	if got := owner.DetectEditCollisions("Foo", []string{"Foo"}); len(got) != 0 {
 		t.Errorf("DetectEditCollisions(Foo, [Foo]) = %v, want the symbol's own name excused", got)
 	}
 }

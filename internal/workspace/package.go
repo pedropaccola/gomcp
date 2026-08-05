@@ -127,7 +127,11 @@ func (p *Package) Files() []*File {
 func (p *Package) RebuildIndex() {
 	p.symbols = make(map[string][]*Symbol)
 	for _, file := range p.files {
-		file.Inits = IndexAST(file.Path, file.ast, p.symbols)
+		syms, inits := file.Symbols()
+		file.Inits = inits
+		for _, sym := range syms {
+			p.symbols[sym.Key()] = append(p.symbols[sym.Key()], sym)
+		}
 	}
 	for _, syms := range p.symbols {
 		for _, sym := range syms {
@@ -308,6 +312,106 @@ func (p *Package) Diagnostics() []Diagnostic {
 	out = append(out, p.Diags...)
 	for _, file := range p.Files() {
 		out = append(out, file.Diags...)
+	}
+	return out
+}
+
+// DetectEditCollisions reports which of newKeys already exist elsewhere in
+// p, blocking a replacement of key — a same-group sibling doesn't count
+// when key is itself position-dependent, since resubmitting the whole
+// group necessarily re-mentions every member.
+func (p *Package) DetectEditCollisions(key string, newKeys []string) []string {
+	sym, ok := p.Symbol(key)
+	if !ok {
+		return nil
+	}
+	gen, grouped := sym.GroupOf()
+	wasPositionDependent := constPositionDependent(gen, grouped, sym)
+	var collisions []string
+	for _, newKey := range newKeys {
+		if newKey == key || newKey == "init" {
+			continue
+		}
+		existing, exists := p.Symbol(newKey)
+		if !exists {
+			continue
+		}
+		if wasPositionDependent {
+			if eGen, eGrouped := existing.GroupOf(); eGrouped && eGen == gen {
+				continue
+			}
+		}
+		collisions = append(collisions, newKey)
+	}
+	return collisions
+}
+
+// PositionDependentGroupMembers returns every key that must move or
+// extract together with key: itself alone, unless key is a member of a
+// grouped const declaration whose meaning is position-dependent (iota,
+// or inheriting the previous spec's expression) — in which case every
+// member of that group is included, the same set ExtractDeclaration
+// itself acts on for such a member. Deliberately narrow: var and type
+// groups, and non-position-dependent const groups, are grouped in
+// source for readability only — nothing about them requires moving
+// together, so they are never expanded here.
+func (p *Package) PositionDependentGroupMembers(key string) ([]string, error) {
+	sym, ok := p.Symbol(key)
+	if !ok {
+		return nil, NoSymbolError(key, p.ID.Base())
+	}
+	gen, grouped := sym.GroupOf()
+	if !grouped || (!isSoloGroup(gen, grouped) && !constPositionDependent(gen, grouped, sym)) {
+		return []string{key}, nil
+	}
+	var members []string
+	for _, s := range p.Symbols() {
+		if g, ok := s.GroupOf(); ok && g == gen {
+			members = append(members, s.Key())
+		}
+	}
+	return members, nil
+}
+
+// SwapFile installs formatted/astFile as a fresh dirty File at path and
+// rebuilds p's own index — the install half of the mutation path.
+// Formatting and parsing (which can fail, and must not fork a package
+// needlessly on failure) happen in the caller first; by the time this is
+// called, both have already succeeded.
+func (p *Package) SwapFile(path FilePath, ignored bool, formatted []byte, astFile *ast.File) {
+	if p.files == nil {
+		p.files = make(map[FilePath]*File)
+	}
+	p.files[path] = newFile(path, p.ID, formatted, astFile, true, ignored)
+	p.RebuildIndex()
+}
+
+// ReferencesTo finds every symbol in p whose declaration resolves a
+// reference to target (an ObjectKey identity), excluding exclude and
+// any symbol already present in seen — seen is the caller's, not p's
+// own, since a scan spans many packages and dedup happens across all of
+// them, not within one; entries this call finds are added to it. Only
+// matches package-level declarations and methods — see
+// isPackageLevelUse's doc comment for why that guard matters.
+func (p *Package) ReferencesTo(target ObjectKey, exclude *Symbol, seen map[*Symbol]bool) []*Symbol {
+	if p.TypesInfo() == nil {
+		return nil
+	}
+	var out []*Symbol
+	for ident, obj := range p.TypesInfo().Uses {
+		if !isPackageLevelUse(obj) {
+			continue
+		}
+		key, ok := keyOf(obj)
+		if !ok || key != target {
+			continue
+		}
+		encl, ok := p.symbolAt(ident.Pos())
+		if !ok || encl == exclude || seen[encl] {
+			continue
+		}
+		seen[encl] = true
+		out = append(out, encl)
 	}
 	return out
 }

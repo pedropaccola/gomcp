@@ -47,36 +47,6 @@ func constPositionDependent(gen *ast.GenDecl, grouped bool, sym *Symbol) bool {
 	return ok && (len(spec.Values) == 0 || GroupUsesIota(gen))
 }
 
-// declSpan is the byte range of sym's whole declaration, doc comment
-// included.
-func (w *Workspace) declSpan(pkg *Package, sym *Symbol) (ByteRange, bool) {
-	file, ok := pkg.File(sym.File)
-	if !ok {
-		return ByteRange{}, false
-	}
-	start := sym.Decl().Pos()
-	if doc := DocOf(sym.Decl()); doc != nil {
-		start = doc.Pos()
-	}
-	return w.offsetSpan(pkg, file, start, sym.Decl().End())
-}
-
-// specSpan is the byte range of sym's own spec, doc included.
-func (w *Workspace) specSpan(pkg *Package, sym *Symbol) (ByteRange, bool) {
-	if sym.Spec() == nil {
-		return w.declSpan(pkg, sym)
-	}
-	file, ok := pkg.File(sym.File)
-	if !ok {
-		return ByteRange{}, false
-	}
-	start := sym.Spec().Pos()
-	if doc := DocOf(sym.Spec()); doc != nil {
-		start = doc.Pos()
-	}
-	return w.offsetSpan(pkg, file, start, sym.Spec().End())
-}
-
 // ExtractDeclaration returns key's declaration as standalone source together
 // with the ByteSplice its removal applies, doc comment included in both. A
 // member of a grouped declaration with siblings is rebuilt ungrouped —
@@ -129,32 +99,34 @@ func (w *Workspace) ExtractDeclaration(pkg PackagePath, key string) (string, Byt
 	return doc + gen.Tok.String() + " " + string(body.Slice(file.Src())), splice, nil
 }
 
-// PositionDependentGroupMembers returns every key that must move or
-// extract together with key: itself alone, unless key is a member of a
-// grouped const declaration whose meaning is position-dependent (iota,
-// or inheriting the previous spec's expression) — in which case every
-// member of that group is included, the same set ExtractDeclaration
-// itself acts on for such a member (see its own doc comment), so a
-// safety check never disagrees with what extraction actually does.
-// Deliberately narrow: var and type groups, and non-position-dependent
-// const groups, are grouped in source for readability only — nothing
-// about them requires moving together, so they are never expanded here.
-func (w *Workspace) PositionDependentGroupMembers(pkg PackagePath, key string) ([]string, error) {
-	sym, owner, ok := w.ResolveSymbol(pkg, key)
+// declSpan is the byte range of sym's whole declaration, doc comment
+// included.
+func (w *Workspace) declSpan(pkg *Package, sym *Symbol) (ByteRange, bool) {
+	file, ok := pkg.File(sym.File)
 	if !ok {
-		return nil, NoSymbolError(key, pkg)
+		return ByteRange{}, false
 	}
-	gen, grouped := sym.GroupOf()
-	if !grouped || (!isSoloGroup(gen, grouped) && !constPositionDependent(gen, grouped, sym)) {
-		return []string{key}, nil
+	start := sym.Decl().Pos()
+	if doc := DocOf(sym.Decl()); doc != nil {
+		start = doc.Pos()
 	}
-	var members []string
-	for _, s := range owner.Symbols() {
-		if g, ok := s.GroupOf(); ok && g == gen {
-			members = append(members, s.Key())
-		}
+	return w.offsetSpan(pkg, file, start, sym.Decl().End())
+}
+
+// specSpan is the byte range of sym's own spec, doc included.
+func (w *Workspace) specSpan(pkg *Package, sym *Symbol) (ByteRange, bool) {
+	if sym.Spec() == nil {
+		return w.declSpan(pkg, sym)
 	}
-	return members, nil
+	file, ok := pkg.File(sym.File)
+	if !ok {
+		return ByteRange{}, false
+	}
+	start := sym.Spec().Pos()
+	if doc := DocOf(sym.Spec()); doc != nil {
+		start = doc.Pos()
+	}
+	return w.offsetSpan(pkg, file, start, sym.Spec().End())
 }
 
 // GroupOf reports whether s lives inside a grouped declaration

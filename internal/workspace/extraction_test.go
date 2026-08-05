@@ -52,7 +52,11 @@ func TestPositionDependentGroupMembersExpandsIotaGroup(t *testing.T) {
 	w := typesFixture(t, map[string]string{
 		"src": "package src\n\nconst (\n\tBase = iota\n\tSibling\n)\n",
 	})
-	got, err := w.PositionDependentGroupMembers("src", "Base")
+	_, owner, ok := w.ResolveSymbol("src", "Base")
+	if !ok {
+		t.Fatalf("ResolveSymbol(Base): not found")
+	}
+	got, err := owner.PositionDependentGroupMembers("Base")
 	if err != nil {
 		t.Fatalf("PositionDependentGroupMembers: %v", err)
 	}
@@ -65,7 +69,11 @@ func TestPositionDependentGroupMembersLeavesPlainGroupAlone(t *testing.T) {
 	w := typesFixture(t, map[string]string{
 		"src": "package src\n\nconst (\n\tBase = 1\n\tSibling = 2\n)\n",
 	})
-	got, err := w.PositionDependentGroupMembers("src", "Base")
+	_, owner, ok := w.ResolveSymbol("src", "Base")
+	if !ok {
+		t.Fatalf("ResolveSymbol(Base): not found")
+	}
+	got, err := owner.PositionDependentGroupMembers("Base")
 	if err != nil {
 		t.Fatalf("PositionDependentGroupMembers: %v", err)
 	}

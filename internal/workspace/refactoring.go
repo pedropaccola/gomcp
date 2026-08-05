@@ -78,28 +78,14 @@ func (w *Workspace) allPackages() []*Package {
 // isPackageLevelUse's doc comment for why that guard matters. The same
 // identity-not-pointer matching SymbolsReferencing (scanning.go) uses,
 // here scoped to one call site's own DetectMoveConflicts check instead of
-// a public, address-resolved scan.
+// a public, address-resolved scan. See Package.ReferencesTo for the
+// per-package matching itself.
 func (w *Workspace) referencesTo(target ObjectKey, exclude *Symbol) []symbolRef {
 	seen := make(map[*Symbol]bool)
 	var out []symbolRef
 	for _, p := range w.allPackages() {
-		if p.TypesInfo() == nil {
-			continue
-		}
-		for ident, obj := range p.TypesInfo().Uses {
-			if !isPackageLevelUse(obj) {
-				continue
-			}
-			key, ok := keyOf(obj)
-			if !ok || key != target {
-				continue
-			}
-			encl, ok := p.symbolAt(ident.Pos())
-			if !ok || encl == exclude || seen[encl] {
-				continue
-			}
-			seen[encl] = true
-			out = append(out, symbolRef{Pkg: p, Sym: encl})
+		for _, sym := range p.ReferencesTo(target, exclude, seen) {
+			out = append(out, symbolRef{Pkg: p, Sym: sym})
 		}
 	}
 	return out
@@ -771,7 +757,11 @@ func (w *Workspace) RelocateSymbols(srcPkg, destPkg PackagePath, keys []string, 
 	seen := make(map[string]bool, len(keys))
 	var movingKeys []string
 	for _, key := range keys {
-		members, err := w.PositionDependentGroupMembers(srcPkg, key)
+		_, owner, ok := w.ResolveSymbol(srcPkg, key)
+		if !ok {
+			return nil, NoSymbolError(key, srcPkg)
+		}
+		members, err := owner.PositionDependentGroupMembers(key)
 		if err != nil {
 			return nil, err
 		}
@@ -806,7 +796,11 @@ func (w *Workspace) RelocateSymbols(srcPkg, destPkg PackagePath, keys []string, 
 		if claimed[key] {
 			continue
 		}
-		group, err := w.PositionDependentGroupMembers(srcPkg, key)
+		_, owner, ok := w.ResolveSymbol(srcPkg, key)
+		if !ok {
+			return nil, NoSymbolError(key, srcPkg)
+		}
+		group, err := owner.PositionDependentGroupMembers(key)
 		if err != nil {
 			return nil, err
 		}
