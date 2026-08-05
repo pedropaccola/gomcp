@@ -25,7 +25,14 @@ const (
 		"Enumerators, describers, and finders (list_*/describe_*/search_*) carry no " +
 		"diagnostics of their own — call diagnostics_workspace for the full inventory, or " +
 		"diagnostics_packages/diagnostics_files/diagnostics_symbols for a scoped one. " +
-		"Comments must attach " +
+		"Wherever a tool takes file_name, it's a hard match, not a hint: it must name the " +
+		"exact file the target actually lives in, or the call is refused — list_files, " +
+		"list_symbols, and the search_* finders already return it on every result, so resolve " +
+		"there first rather than guess. A file can be Ignored (build-excluded by its own " +
+		"compiler directives) and/or Generated (carries a \"Code generated ... DO NOT EDIT\" " +
+		"marker) — both purely informational, surfaced by list_files/describe_files/ " +
+		"describe_packages, never enforced: nothing stops reading or editing either kind, the " +
+		"server only reports the fact. Comments must attach " +
 		"to a declaration or sit directly above a package clause: one floating between " +
 		"declarations is not part of the tracked syntax tree and can silently vanish under a " +
 		"later edit. disk_reload discards every unflushed edit — call disk_flush first if you want to " +

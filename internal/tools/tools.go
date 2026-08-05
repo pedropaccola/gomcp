@@ -94,7 +94,10 @@ func Register(server *mcp.Server, st *store.Store, diagLimit int) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_methods",
 		Annotations: reads("List Methods"),
-		Description: "List the method signatures declared on one type." + keyNote + depNote,
+		Description: "List the method signatures declared on one type." + keyNote +
+			" file_name is required and scopes resolution of the type itself only — its " +
+			"methods are enumerated wherever they actually live, since a method can be " +
+			"declared in a different file than its receiver type." + depNote,
 	}, listMethods(st, cfg))
 
 	// Describers
@@ -127,7 +130,7 @@ func Register(server *mcp.Server, st *store.Store, diagLimit int) {
 			"round trip, resolved in order. A type's method signatures are included too. If " +
 			"any entry fails, the whole call fails and the error names which entry failed — " +
 			"batch entries that are independent and already known-good; call once per entry " +
-			"instead if you want feedback between steps." + keyNote + depNote,
+			"instead if you want feedback between steps." + keyNote + fileNote + depNote,
 	}, describeSymbol(st, cfg))
 
 	// Finders
@@ -153,7 +156,7 @@ func Register(server *mcp.Server, st *store.Store, diagLimit int) {
 		Description: "Find every named type in the workspace whose method set satisfies the " +
 			"given interface, checked with full type information — embedded and promoted " +
 			"methods included. The target must be a non-empty workspace interface; " +
-			"dependencies are outside the search universe." + keyNote,
+			"dependencies are outside the search universe." + keyNote + fileNote,
 	}, searchImplementors(st))
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -162,7 +165,7 @@ func Register(server *mcp.Server, st *store.Store, diagLimit int) {
 		Description: "Find every top-level declaration in the workspace that references the " +
 			"given symbol, resolved with full type information. Results are declaration " +
 			"addresses, not line positions; the definition itself and self-references " +
-			"are excluded. The target must be a workspace symbol." + keyNote,
+			"are excluded. The target must be a workspace symbol." + keyNote + fileNote,
 	}, searchReferences(st))
 
 	// Diagnostics
@@ -201,7 +204,7 @@ func Register(server *mcp.Server, st *store.Store, diagLimit int) {
 			"one round trip, resolved in order. If any entry fails, the whole call fails and " +
 			"the error names which entry failed — batch entries that are independent and " +
 			"already known-good; call once per entry instead if you want feedback between " +
-			"steps." + keyNote,
+			"steps." + keyNote + fileNote,
 	}, diagnosticsSymbols(st, cfg))
 
 	// Creators
@@ -221,11 +224,15 @@ func Register(server *mcp.Server, st *store.Store, diagLimit int) {
 		Name:        "create_files",
 		Annotations: mutates("Create Files", false),
 		Description: "Add one or more empty files to existing packages, each optionally " +
-			"seeded with a package doc comment, in one transaction, one recheck, one echo — " +
-			"resolved in order. Fails if a file already exists. If any entry fails, the whole " +
-			"batch is discarded and the error names which entry failed — batch entries that " +
-			"are independent and already known-good; call once per entry instead if you want " +
-			"diagnostics feedback between steps." + echoNote,
+			"seeded with a package doc comment and/or leading compiler directives " +
+			"(//go:build, //go:generate, //go:embed — no space after \"//\"), in one " +
+			"transaction, one recheck, one echo — resolved in order. A //go:build directive " +
+			"that excludes the new file from the current build lands it Ignored instead of " +
+			"active — still created, just not part of the compiled build. Fails if a file " +
+			"already exists. If any entry fails, the whole batch is discarded and the error " +
+			"names which entry failed — batch entries that are independent and already " +
+			"known-good; call once per entry instead if you want diagnostics feedback between " +
+			"steps." + echoNote,
 	}, createFile(st, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -265,20 +272,25 @@ func Register(server *mcp.Server, st *store.Store, diagLimit int) {
 			"Imports are managed by the server — just use the identifiers. If any entry fails, " +
 			"the whole batch is discarded and the error names which entry failed — batch " +
 			"entries that are independent and already known-good; call once per entry instead " +
-			"if you want diagnostics feedback between steps." + keyNote + echoNote,
+			"if you want diagnostics feedback between steps." + keyNote + fileNote + echoNote,
 	}, editSymbol(st, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "edit_files",
 		Annotations: mutates("Edit Files", true),
-		Description: "Replace or clear one or more files' package doc comments — the " +
-			"comment block directly above \"package X\" — leaving the rest of each file " +
-			"untouched, in one transaction, one recheck, one echo — resolved in order. Empty " +
-			"doc clears it. Every entry must address a different file — two entries targeting " +
-			"the same one, identical doc or not, are refused before anything is touched. If " +
-			"any entry fails, the whole batch is discarded and the error names which entry " +
-			"failed — batch entries that are independent and already known-good; call once " +
-			"per entry instead if you want diagnostics feedback between steps." + echoNote,
+		Description: "Replace or clear one or more files' package doc comment and/or leading " +
+			"compiler directives (//go:build, //go:generate, //go:embed) — the whole span " +
+			"from the first leading comment through \"package X\" — leaving the rest of each " +
+			"file untouched, in one transaction, one recheck, one echo — resolved in order. " +
+			"Omit doc to leave it as-is; empty string clears it. Omit directives to leave them " +
+			"as-is; an empty list clears them. Adding or removing a build-excluding directive " +
+			"reclassifies the file (Ignored/active) in place — its shape (production or " +
+			"external test) never changes this way. Every entry must address a different " +
+			"file — two entries targeting the same one, identical doc or not, are refused " +
+			"before anything is touched. If any entry fails, the whole batch is discarded and " +
+			"the error names which entry failed — batch entries that are independent and " +
+			"already known-good; call once per entry instead if you want diagnostics feedback " +
+			"between steps." + echoNote,
 	}, editFile(st, cfg))
 
 	// Deleters
@@ -300,7 +312,7 @@ func Register(server *mcp.Server, st *store.Store, diagLimit int) {
 			"entry fails for a reason other than absence, the whole batch is discarded and the " +
 			"error names which entry failed — batch entries that are independent and already " +
 			"known-good; call once per entry instead if you want diagnostics feedback between " +
-			"steps." + keyNote + echoNote,
+			"steps." + keyNote + fileNote + echoNote,
 	}, deleteSymbol(st, cfg))
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -337,8 +349,11 @@ func Register(server *mcp.Server, st *store.Store, diagLimit int) {
 			"symbol_key or symbol_keys, never both. new_symbol_key follows the same grammar " +
 			"as symbol_key: a bare identifier for a non-method, \"Recv.Name\" for a method — " +
 			"and for a method it must be qualified, with Recv matching the symbol's actual " +
-			"receiver exactly, since a rename can never change what a method belongs to. A " +
-			"rename to an unexported name is refused outright when any reference from a " +
+			"receiver exactly, since a rename can never change what a method belongs to. " +
+			"file_name is required and, for the symbol_keys batch form, is asserted only " +
+			"against the first key — a type and its methods can legitimately span multiple " +
+			"files, so the rest resolve by primary preference. A rename to an unexported name " +
+			"is refused outright when any reference from a " +
 			"different package still stands — once unexported, that reference can never be " +
 			"found again to fix, even by a later revert back to exported, so the tool declines " +
 			"rather than leave it silently, permanently stale. A rename propagates to every " +
@@ -410,10 +425,16 @@ func Register(server *mcp.Server, st *store.Store, diagLimit int) {
 }
 
 const echoNote = " Returns the files changed, the diagnostics the edit introduced (its blast-" +
-	"radius), and the pre-existing diagnostics it resolved; an error means nothing was changed."
+	"radius), the pre-existing diagnostics it resolved, and any directive lines it added or " +
+	"removed; an error means nothing was changed."
 
 // depNote marks the read tools that also serve dependencies.
 const depNote = " Dependencies resolve by import path too: read-only, exported API only, loaded on first touch."
 
 // keyNote marks the tools whose SymbolKey input addresses a symbol.
 const keyNote = " symbol_key is the symbol's address: its bare name, or \"Type.Name\" for methods."
+
+// fileNote marks the tools whose file_name input is mandatory: an
+// assertion, not a hint — resolution matches that exact file only, with
+// no primary-preference fallback when it doesn't.
+const fileNote = " file_name is required: an assertion, not a hint — resolution matches that exact file only, with no primary-preference fallback."
