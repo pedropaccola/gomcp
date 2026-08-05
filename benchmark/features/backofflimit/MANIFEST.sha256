@@ -1,0 +1,5 @@
+07201a1afa7d3bcad4060e1b2f251f79085b3368a3e1ce1f206f6ccc53243d16  ./pkg/controller/job/backoff_utils_test.go
+93cb3e76dc2d704f50678f309dc8ae768e5c2ed348fc5a378dfafa72c7346064  ./pkg/controller/job/indexed_job_utils_test.go
+4062aef4c89b47e4490d2b0a6819b1de31da63e9762ce20c2b6cbf3ca91256af  ./pkg/controller/job/job_controller_test.go
+e04ba7f4bc8925846e2e80b3d3b2c2db32fca213916f54a76d937c11aa7e6829  ./pkg/controller/job/pod_failure_policy_test.go
+0f10888b82313b9861019539d709deab7cbbb1b71e4fe5ce2c9d2e04df059eb5  ./test/integration/job/job_test.go

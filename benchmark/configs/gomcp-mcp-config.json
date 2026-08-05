@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "gomcp": {
+      "type": "stdio",
+      "command": "__GOMCP_BINARY__",
+      "args": ["-cwd", "__WORKTREE_PATH__"],
+      "env": {}
+    }
+  }
+}

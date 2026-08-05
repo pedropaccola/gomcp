@@ -1,0 +1,7 @@
+# Raw transcripts, diffs, and per-run metrics land here at run time -
+# reproducible from scripts/run_arm.sh + the pinned feature commits, not
+# meant to be committed.
+results/runs/*
+!results/runs/.gitkeep
+
+scripts/__pycache__/
